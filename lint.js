@@ -226,6 +226,12 @@ const STYLE_ENUMS = {
   // puts them on the prose's own axis.
   'blocks': ['center', 'left'],
   'labels': ['on', 'off'],
+  // How far a card stands off the page. `flat` is the default and today's
+  // rendering; `soft` and `lifted` are the resting and floating steps of the
+  // ladder build.js already carries. Live views only - a drop shadow on
+  // paper is a grey smear, and PRINT_CSS separates a card with a rule.
+  // `offset` is the hard 45-degree edge, and the one value that reaches paper.
+  'elevation': ['flat', 'soft', 'lifted', 'offset'],
   // What hue the greys carry. The four light themes move only --emph, so a
   // card mixed out of --ink is a cool grey under whatever accent the room
   // gets; `tinted` puts the accent's own hue into the neutrals, `warm` and

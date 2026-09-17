@@ -9,7 +9,7 @@
  * two agree – in seconds, on a bare checkout, with no `npm install` and no
  * Chromium, because both of those files are zero-dependency by design.
  *
- * Eleven gates, and they prove eleven different things – which is worth stating
+ * Twelve gates, and they prove twelve different things – which is worth stating
  * because a green run summarised as one number hid a wrong drawing behind a
  * passing parse:
  *
@@ -40,6 +40,9 @@
  *   xheight    every text face in BUNDLED_FONTS carries the measured
  *              x-height that sizes inline code against the prose around
  *              it, and the roster agrees with the JSON it was copied from
+ *   elevation  the shadow ladder stays inside the slide's own padding at the
+ *              largest body-scale the format allows - the one thing on a
+ *              slide no probe can see, held by a relation instead
  *
  * `test/run.mjs` is the other half and stays separate: it builds and serves
  * the lectures, launches a browser and takes about four minutes. Splitting
@@ -62,6 +65,7 @@ const GATES = [
   './legacy-draw-syntax.mjs',
   './cue-cards.mjs',
   './xheight.mjs',
+  './elevation.mjs',
 ];
 
 const filter = process.argv.slice(2).filter(a => !a.startsWith('-'));

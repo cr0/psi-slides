@@ -221,6 +221,45 @@ from building the same way is a major version.
 
 ### Added
 
+- **`style: {elevation: soft | lifted}` puts the shadow ladder on every card
+  ground.** The ladder was already built and already right - `--shadow-rest`,
+  `--shadow-float`, `--shadow-quiet`, in em so a shadow keeps its proportion
+  to the card, on `--accent-h` so it carries the palette's hue. What was
+  missing was an author's say over *which grounds use it*. Today exactly one
+  does: `.cards.cg-paper`, which carries a shadow "because the edge has to
+  come from depth, because there is no tint to separate it". A tinted card
+  gets none, and a deck that wants depth everywhere had no way to ask.
+
+  `flat` is the default and today's rendering, so a deck that says nothing
+  emits no rule and builds byte-identical HTML. `cg-clear` and `ov-clear` are
+  excluded once in the selector list rather than by a guard on each rule:
+  neither has a box, so a shadow on either draws a rectangle around nothing.
+  Live views only - a drop shadow on paper is a grey smear that costs toner,
+  and `PRINT_CSS` separates a card with a rule on purpose.
+
+  `offset` is the fourth value and the one that is not a blur: a hard edge at
+  45 degrees, as far right as it is down, in a darker shade of the box's own
+  colour - the edge a printed slide master draws under a callout. It is the
+  one value that reaches the documents, because a solid edge prints as an
+  edge, and it asks the browser to keep it when a reader prints without
+  background graphics. Measured, not assumed: printed that way, the reference
+  deck's PDF draws one more filled shape per card than the same deck at
+  `flat`. The shade is a custom property (`--card-edge`) that a more specific
+  rule - a tinted card row, an activity box - can set without this key knowing.
+
+  **A shadow is the one thing on a slide no probe here can see**, because
+  `getBoundingClientRect()` does not include `box-shadow` - so `--check-fit`
+  reports a card as inside the frame while its shadow bleeds past the edge.
+  That is not fixable by a cleverer measurement, so `test/gates/elevation.mjs`
+  holds it as a relation instead: the reach of the largest step, at the
+  largest `body-scale` the format allows, against the slide's own vertical
+  padding. Every number is read out of `build.js`, so enlarging the ladder,
+  raising the `body-scale` ceiling or trimming `--slide-pad-y` each fail the
+  gate - and each of those looks locally harmless.
+
+  The margin is 0.7%: the ceiling `body-scale` already carried for unrelated
+  reasons is very nearly the one the ladder needs.
+
 - **A fourth font role: `fonts: {display: …}` gives the cover, the closing
   slide and the section dividers a typeface nothing else in the deck wears.**
   Those three are the one place where a loud face is not a mistake – nobody
@@ -510,6 +549,18 @@ from building the same way is a major version.
   too. macOS asks once for screen-recording rights for the browser.
 
 ### Fixed
+
+- **Recorded, not fixed: `--shadow-rest` reaches further below a card than
+  `--shadow-float` does, and leaves the slide at a large `body-scale`.** Its second layer is
+  `0 0.26em 0.85em` - a much larger y-offset under a slightly smaller blur -
+  so the *resting* step of the ladder reaches 1.11 em where the *floating* one
+  reaches 1.04. At 900 px and `body-scale: 1.8` that is 46.8 px of reach into
+  44.1 px of padding, and no probe in this repository can see it. Pre-existing
+  and unrelated to `style: {elevation}` - `.cards.cg-paper` has carried
+  `--shadow-rest` since the ladder was built - so it is a **pending entry** in
+  `test/gates/elevation.mjs` rather than a change: both fixes (pulling that
+  y-offset to 0.2 em, or raising `--slide-pad-y`) move the look of every deck
+  that exists, which is not a gate's decision to make.
 
 - **Nothing held `KNOWN_FRONTMATTER_KEYS` against what `build.js` reads, and
   the shape of that failure is a false warning on a valid deck.** The list is

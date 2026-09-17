@@ -5736,6 +5736,44 @@ const STYLE_SPEC = {
   // neighbours; below 0.6 a headline stops being one and above 1.8 no cover
   // composition holds it.
   'display-scale': { kind: 'num', min: 0.6, max: 1.8, dflt: 1 },
+  // How far a card stands off the page. The ladder is already built and
+  // already right - --shadow-rest, --shadow-float, --shadow-quiet, in em so a
+  // shadow keeps its proportion to the card, on --accent-h so it carries the
+  // palette's hue. What was missing is an author's say over *which grounds
+  // use it*. Today exactly one does: .cards.cg-paper, and the comment there
+  // says why - "it carries a shadow rather than a border for that reason: the
+  // edge has to come from depth, because there is no tint to separate it". A
+  // cg-panel card is tinted, so it gets none, and a deck that wants depth
+  // everywhere has no way to ask.
+  //
+  //   flat    - today's rendering, and the default. A deck that says nothing
+  //             emits no rule and builds byte-identical HTML.
+  //   soft    - --shadow-rest on every card ground and every overlay/dock
+  //             ground, the resting step of the same ladder.
+  //   lifted  - --shadow-float instead, which is where an overlay card on
+  //             paper already sits, so the top of the ladder is not new.
+  //
+  // It is a deck-level key and not a class on a card, for the reason card
+  // size is one: "three sizes in one row read as a mistake rather than as a
+  // hierarchy". Elevation is the same kind of decision at the same altitude.
+  //
+  // The two grounds with no box are left out by construction rather than by a
+  // guard on each rule: cg-clear has no fill and no border, and ov-clear
+  // zeroes its padding and background, so a shadow on either would be a
+  // rectangle drawn around nothing.
+  //
+  // **Live views only.** A printed page is ink on paper and a drop shadow
+  // there is a grey smear that costs toner and says nothing; PRINT_CSS
+  // separates a card with a rule instead, deliberately, "a document that may
+  // be printed in black and white". Emitted where the EXERCISE eyebrow's
+  // override is and by the same test - print passes no strings table.
+  //   offset  - a hard shadow at 45 degrees, no blur, in a darker shade of
+  //             the box's own colour: the edge a printed slide master draws
+  //             under a callout. Unlike the two soft steps it reaches paper,
+  //             because a solid offset prints as a solid edge where a blur
+  //             prints as a smear - and a handout that loses the boxes' edge
+  //             loses what separated them.
+  elevation: { kind: 'enum', values: ['flat', 'soft', 'lifted', 'offset'], dflt: 'flat' },
   // Whether headings are balanced across their lines and prose gets a
   // protected last line. A preference in its own right - some authors want
   // the browser's plain greedy wrapping - and it is also the setting a deck
@@ -5976,6 +6014,37 @@ function styleSettings(frontmatter = {}) {
 // The settings as one <style> element plus the two body attributes the
 // selectors key off. Emitted for every view, print included: a lecture set
 // in a larger body size should print in one.
+// Every ground that has a box to lift, written once. The two that have no
+// box are excluded here rather than in each rule: `cg-clear` has neither fill
+// nor border and `ov-clear` zeroes both, so a shadow on either draws a
+// rectangle around nothing. `.cards.rows` puts its ground on the term rather
+// than on the item - the li there is display: contents - which is why it is a
+// third entry and not a variation on the first.
+const ELEVATION_GROUNDS = [
+  '.cards:not(.rows):not(.cg-clear) > :is(ul, ol) > li',
+  '.cards:not(.rows):not(.cg-clear) > :not(ul):not(ol)',
+  '.cards.rows:not(.cg-clear) li > :is(strong, b):first-child',
+  ':is(.overlay-card, .dock):not(.ov-clear)',
+].join(',\n');
+
+// The offset shadow's colour, per ground: a darker shade of what the box is
+// filled with, so the edge reads as the box's own and not as a grey line
+// drawn under it. A custom property rather than a value, and read through a
+// second one: `--card-edge`, when something more specific sets it - a card
+// row's tone, an activity box's kind - wins over the ground's default, and
+// neither has to know the other exists.
+const ELEVATION_EDGES = [
+  ['.cards.cg-panel > :is(ul, ol) > li, .cards.cg-panel > :not(ul):not(ol), .cards.rows.cg-panel li > :is(strong, b):first-child',
+    'color-mix(in oklab, var(--ink) 30%, var(--paper))'],
+  ['.cards.cg-accent > :is(ul, ol) > li, .cards.cg-accent > :not(ul):not(ol), .cards.rows.cg-accent li > :is(strong, b):first-child, :is(.overlay-card, .dock).ov-accent',
+    'color-mix(in oklab, var(--emph) 72%, black)'],
+  ['.cards:is(.cg-paper, .cg-outline, .cg-photo) > :is(ul, ol) > li, .cards:is(.cg-paper, .cg-outline, .cg-photo) > :not(ul):not(ol), .cards.rows:is(.cg-paper, .cg-outline) li > :is(strong, b):first-child, :is(.overlay-card, .dock):is(.ov-paper, .ov-glass, .ov-ink)',
+    'color-mix(in oklab, var(--ink) 38%, var(--paper))'],
+];
+// Half the reach of the lightest soft step, and exactly as far right as it is
+// down, which is what makes it read as 45 degrees at any size.
+const ELEVATION_OFFSET = '0.22em';
+
 function styleBlockCss(st, S) {
   const rootVars = [];
   if (st['heading-scale'] !== 1) rootVars.push(`--heading-scale: ${st['heading-scale']};`);
@@ -5997,6 +6066,25 @@ function styleBlockCss(st, S) {
     if (word !== STRINGS.en.type.exercise.toUpperCase()) {
       rules.push(`.chunk[data-tag=exercise] .chunk-content::before { content: "${cssString(word)}"; }`);
     }
+  }
+  // Elevation, and live only - see the note on the key. The test is `S`,
+  // which the two document renderers do not pass, exactly as the localised
+  // eyebrow above uses it. Emitted only away from the default, so a deck that
+  // says nothing carries no rule and no byte moves.
+  if (S && (st.elevation === 'soft' || st.elevation === 'lifted')) {
+    const step = st.elevation === 'lifted' ? '--shadow-float' : '--shadow-rest';
+    rules.push(`${ELEVATION_GROUNDS} { box-shadow: var(${step}); }`);
+  }
+  // The offset is emitted into every view, the two documents included - the
+  // whole point of it. `print-color-adjust: exact` is what keeps a browser
+  // from dropping it as "background graphics" when the reader prints without
+  // that box ticked; a box-shadow is otherwise treated as decoration and
+  // discarded, and the handout loses the edge the projection had.
+  if (st.elevation === 'offset') {
+    for (const [sel, edge] of ELEVATION_EDGES) rules.push(`${sel} { --card-edge-ground: ${edge}; }`);
+    rules.push(`${ELEVATION_GROUNDS} { box-shadow: ${ELEVATION_OFFSET} ${ELEVATION_OFFSET} 0 `
+      + `var(--card-edge, var(--card-edge-ground, color-mix(in oklab, var(--ink) 30%, var(--paper)))); `
+      + `-webkit-print-color-adjust: exact; print-color-adjust: exact; }`);
   }
   return rules.length ? `<style>${rules.join(' ')}</style>` : '';
 }
