@@ -233,7 +233,7 @@ const IDENTITY_PAPERS = [
 const PALETTE_KEYS = Object.keys(DG_BAR_FILLS).filter(k => k.startsWith('tone-'));
 // Mirrors PALETTE_ACTIVITY_KEYS in build.js: the ::: activity kinds a palette
 // may re-point. Colours only; no column is drawn in them, so no tone-contrast.
-const PALETTE_ACTIVITY_KEYS = ['link', 'info', 'task', 'example'];
+const PALETTE_ACTIVITY_KEYS = ['link', 'info', 'task', 'example', 'takeaway'];
 // Mirrors CARD_TONE_WORDS in build.js: what `- **Heading** {.word}\` takes.
 const CARD_TONE_WORDS = ['accent', 'tone-1', 'tone-2', 'tone-3', 'tone-4'];
 // The tones a deck's `palette:` block names, read by indentation or flow form

@@ -154,9 +154,9 @@ export async function run({ report }) {
     `${words(build, 'CARD_TONE_WORDS')} | ${words(lint, 'CARD_TONE_WORDS')}`);
   report.ok(/'cards-card-tone'/.test(lint) && /is not a colour a card takes/.test(build),
     'an unknown card colour is refused by both files');
-  report.ok(words(build, 'PALETTE_ACTIVITY_KEYS') === 'link,info,task,example'
+  report.ok(words(build, 'PALETTE_ACTIVITY_KEYS') === 'link,info,task,example,takeaway'
       && words(build, 'PALETTE_ACTIVITY_KEYS') === words(lint, 'PALETTE_ACTIVITY_KEYS'),
-    'a palette may re-point the four activity colours, in both files alike');
+    'a palette may re-point the five activity colours, in both files alike');
   report.ok(/--activity-\$\{k\}: \$\{palette\[k\]\}/.test(build),
     'and they are emitted as the --activity-<kind> hooks the boxes read');
 
