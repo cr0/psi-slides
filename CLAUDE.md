@@ -435,6 +435,26 @@ stylesheet so source order decides – which makes the accent immune to `A` by
 construction, with no reader key disabled and the two terminal themes left
 with the single phosphor tone they are.
 
+The same block carries **the frame a deck wears** - `logo`, `logo-place`,
+`logo-print`, `footer-left`, `footer-right`. **A frame is a dock**: it reserves
+its band by growing the chunk's own padding, the way `::: dock` reserves its
+column and `--exp-band` the chevrons' strip, so `auto-fit`, `flowHeightProbe`,
+the speaker mirror and `--check-fit` all follow with no second mechanism.
+`SLIDE_FOOT` holds the three foot expressions once and is interpolated back
+into `AUDIENCE_CSS`, so the stylesheet's bytes do not move and the frame's
+rules cannot drift from it. The band fades to paper under the line, because a
+chunk taller than the frame scrolls its prose straight through the footer.
+`logo-place: footer` is the default because the corner belongs to
+`::: marginalia` and the slide numbers, and `corner` earns a `lint.js` warning
+that says so. `FRAME_HIDDEN_STATES` is the one list of states in which the
+frame must not paint - body classes and `:has()` conditions, because four
+panels are toggled by `.hidden` on their own element and the export modal is
+removed from the DOM - and `test/gates/frame.mjs` derives it from the
+stylesheet rather than restating it. On paper `logo-print: cover` is a block
+in the flow and `every` is a `position: fixed` running foot inside
+`@media print`; a `@page` margin box cannot carry a generated image, and on
+screen a fixed element in a scrolled document is a bar over the last two lines.
+
 **A fourth role, `display`, is the exception to all of that**: `fonts: {display:
 Anton}` names one of 32 OFL faces for the cover, the closing slide and the
 section dividers, and nothing else in the deck wears it. It has no default, so

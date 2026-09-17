@@ -215,7 +215,17 @@ const STYLE_NUM_SPEC = {
 // block. Every one of them is a colour, so the vocabulary is a list of names
 // rather than a table of values - what a key accepts is "a hex colour", and
 // colour.mjs is the one reader of that on both sides.
-const IDENTITY_KEYS = ['accent', 'accent-dark', 'ink'];
+const IDENTITY_KEYS = {
+  accent: 'colour', 'accent-dark': 'colour', ink: 'colour',
+  logo: 'asset',
+  'logo-place': ['footer', 'corner', 'none'],
+  // Where the mark goes on paper. Missing from the first cut of this table,
+  // so the linter refused a key the build accepts - a valid deck failing CI,
+  // the one direction this mirror exists to prevent. test/gates/frame.mjs now
+  // holds the two tables to the same keys and the same words.
+  'logo-print': ['cover', 'every', 'none'],
+  'footer-left': 'text', 'footer-right': 'text',
+};
 // The two grounds an accent lands on, as the linter needs them: the four
 // light themes share one paper and the document has its own. Mirrors the
 // values IDENTITY_GROUNDS reads in build.js - DG_THEMES for the themes, the
@@ -2556,14 +2566,39 @@ function lintFile(filePath) {
   {
     const lines = header.split('\n');
     let inBlock = false;
+    let place = 'footer', hasLogo = false, logoLine = 0;
     const rule = (i, key, value) => {
       const v = value.replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '');
-      if (!IDENTITY_KEYS.includes(key)) {
+      if (key === 'logo') logoLine = i;
+      const kind = IDENTITY_KEYS[key];
+      if (!kind) {
         addFm(i + 2, 'error', 'unknown-identity-setting',
-          `'identity.${key}' is not a key this block has – keys: ${IDENTITY_KEYS.join(', ')}`);
+          `'identity.${key}' is not a key this block has – keys: ${Object.keys(IDENTITY_KEYS).join(', ')}`);
         return;
       }
       if (!v) return;
+      if (Array.isArray(kind)) {
+        if (!kind.includes(v)) {
+          addFm(i + 2, 'error', 'unknown-identity-setting',
+            `'identity.${key}: ${v}' is not a value this key accepts – valid: ${kind.join(', ')}`);
+        }
+        if (key === 'logo-place') place = v;
+        return;
+      }
+      // The logo is an asset, and a missing one is a frame with a hole in it
+      // rather than a build failure - resolveAssetUrl returns null and the
+      // <img> lands with nothing behind it. The linter is the only thing that
+      // can say so before the room.
+      if (kind === 'asset') {
+        hasLogo = true;
+        if (!/^(?:https?:|data:|\/\/|\/)/i.test(v) && !fs.existsSync(path.join(path.dirname(filePath), v))) {
+          addFm(i + 2, 'error', 'missing-identity-asset',
+            `'identity.logo: ${v}' names a file that is not beside this source.md – `
+            + `the frame would carry an empty image`);
+        }
+        return;
+      }
+      if (kind === 'text') return;
       const oklch = hexToOklch(v);
       if (!oklch) {
         addFm(i + 2, 'error', 'bad-identity-colour',
@@ -2616,6 +2651,28 @@ function lintFile(filePath) {
       const m = raw.match(/^[ \t]+([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)$/);
       if (m) rule(i, m[1], m[2]);
     });
+    // `logo-place: corner` costs the deck a feature, and the build cannot
+    // refuse it - it is a legitimate choice, made by somebody who may not
+    // know what else lives there. `.marginalia` sits at top / right of the
+    // chunk's own padding and the slide numbers push it further down; a deck
+    // that puts a mark in that corner has to move one and turn off the other.
+    // The footer band costs nothing and is the default for that reason.
+    if (hasLogo && place === 'corner') {
+      // `::: marginalia`, not `::: margin` - the two are different
+      // constructs and only the first one lives in that corner. `::: margin`
+      // is the deprecated spelling of `::: footnote`, which sits under the
+      // prose and is no business of the frame's.
+      const usesMargin = /^:::\s+marginalia\s*$/m.test(src);
+      const nums = header.match(/^slide-numbers:[ \t]*(.+)$/m);
+      const numsOn = !nums || nums[1].trim().replace(/^["']|["']$/g, '') !== 'off';
+      if (usesMargin || numsOn) {
+        addFm(logoLine + 2, 'warn', 'logo-corner-marginalia',
+          `'identity.logo-place: corner' puts the mark where `
+          + [usesMargin ? '::: marginalia asides sit' : '', numsOn ? 'the slide numbers sit' : '']
+            .filter(Boolean).join(' and ')
+          + ` – the footer band is the default because it costs neither`);
+      }
+    }
   }
 
   // The nested `fonts:` block, and only its `display:` key – DISPLAY_FONTS

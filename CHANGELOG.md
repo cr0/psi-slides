@@ -273,6 +273,70 @@ from building the same way is a major version.
   A deck that writes no `identity:` block reaches none of this and its four
   views are byte-identical to before.
 
+- **A deck can wear a frame: `identity: {logo, footer-left, footer-right}`.**
+  A bildmarke and a line along the foot of the slide - the two marks that say
+  which room a slide is in. **A frame is a dock**, and that is the mechanism
+  rather than an analogy: it reserves its band by growing the chunk's own
+  padding, the way `::: dock` reserves its column and `--exp-band` reserves
+  the chevrons' strip. So `auto-fit` counts it, the speaker mirror matches it
+  pixel for pixel, the camera and the zoom leave it alone, and `--check-fit`
+  measures a content box that already stops short of the footer - none of
+  which is code this feature had to write.
+
+  The band also fades to paper under the line. A chunk taller than the frame
+  is read by scrolling, and its prose passes straight through the footer on
+  the way: measured on a twelve-paragraph chunk, the fifth paragraph was drawn
+  over the lecturer's name. The reserve cannot help there, because that chunk
+  never fitted the band in the first place.
+
+  `logo-place: footer` is the default, and the corner is not, **because the
+  corner is already occupied**: `.marginalia` sits at top / right of the
+  chunk's own padding and the slide numbers push it down. A deck that wants
+  the mark up top can still have it - `logo-place: corner` moves the aside out
+  of the way and `lint.js` warns `logo-corner-marginalia` so the cost is said
+  out loud rather than discovered.
+
+  The logo counts toward the auto-inline decision like any other picture. It
+  did not at first, so a deck whose only image was its logo kept inlining off
+  and shipped the logo as a relative path - an HTML file that was no longer
+  self-contained, and under `--serve` a `../` path outside the served folder
+  that drew nothing. A deck with its logo one folder up is what showed it.
+
+  Under `logo-place: corner` the mark takes the corner a slide master gives a
+  logo - against the frame's top and right edges, two thirds of a 10% band,
+  59 px on a 900 px frame - because at 42 px inside the side padding a mark
+  with a two-line wordmark read as a speck rather than as whose lecture it is.
+
+  **`FRAME_HIDDEN_STATES` is where the frame yields**, and it is one list with
+  a gate on it rather than a guess: the overview board, the TOC, the search
+  panel, the help sheet, the link and demo overlays, the export modal, a
+  focused figure, a live demo, and `B`. The gate derives both halves from
+  `build.js` - the panels from their own `#x.hidden { display: none }` rule,
+  the dimmers from a property sweep over every selector that touches `#stage` -
+  so a new overlay fails a check in a fifth of a second instead of shipping a
+  logo over a search panel. Two overlays were missing from the first draft of
+  that list and nothing but the gate said so.
+
+  `--check-fit` learns the band: it measures against the frame's own elements,
+  so `usableH` is `vpH` on a deck with no frame and every verdict there is
+  unchanged - confirmed by running both trees over the tutorial, 124 states and
+  the same six tall chunks either way.
+
+  `lint.js` mirrors the five keys, and a gate holds the mirror to the build's
+  table - keys and enum words, in both directions. The first cut of the mirror
+  left out `logo-print`, so the linter refused a key the build accepts and a
+  valid deck would have failed CI; the combined reference deck is what wrote
+  it first.
+
+  On paper the frame is a different shape, because a document already has a
+  cover and page numbers. `logo-print: cover` (the default) puts the mark and
+  the line at the head of the first page, in the flow, changing no page's
+  geometry; `every` adds a running foot, which in a print stylesheet can only
+  be a fixed element repeated per page - a `@page` margin box cannot carry a
+  generated image. On screen `every` renders as the head, because a fixed
+  element in a document somebody scrolls is not a running foot but a bar
+  pinned over the last two lines.
+
 - **`colour.mjs`**, the oklch/sRGB/WCAG chain as one module. The third file
   `lint.js` may import, on the terms the other two are on: zero dependencies,
   zero Node APIs, pure functions. `diagram-core.mjs` keeps its own copy of the

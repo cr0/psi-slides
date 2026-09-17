@@ -9,7 +9,7 @@
  * two agree – in seconds, on a bare checkout, with no `npm install` and no
  * Chromium, because both of those files are zero-dependency by design.
  *
- * Twelve gates, and they prove twelve different things – which is worth stating
+ * Thirteen gates, and they prove thirteen different things – which is worth stating
  * because a green run summarised as one number hid a wrong drawing behind a
  * passing parse:
  *
@@ -44,6 +44,10 @@
  *              build.js already states in prose, the duplicate chain in
  *              diagram-core.mjs, and the document paper lint.js measures
  *              against
+ *   frame      every state that covers the stage is in FRAME_HIDDEN_STATES,
+ *              derived from the stylesheet rather than restated - the panels
+ *              from their own #x.hidden rule, the dimmers from a property
+ *              sweep over every selector that touches #stage
  *
  * `test/run.mjs` is the other half and stays separate: it builds and serves
  * the lectures, launches a browser and takes about four minutes. Splitting
@@ -67,6 +71,7 @@ const GATES = [
   './cue-cards.mjs',
   './xheight.mjs',
   './identity.mjs',
+  './frame.mjs',
 ];
 
 const filter = process.argv.slice(2).filter(a => !a.startsWith('-'));

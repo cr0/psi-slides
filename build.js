@@ -503,6 +503,14 @@ function scanReferencedImages(src, sourceDir) {
   // nothing here, which is what the isShorthand/statSync path below does
   // with any token that is not an asset.
   for (const m of src.matchAll(/^closing-image:[ \t]*["']?([^"'\s#]+)/gm)) refs.add(m[1]);
+  // identity.logo is an asset like any other and meets the same budget. Left
+  // out of this scan, a deck whose only picture is its logo counted zero
+  // images, auto-inlining stayed off, and the logo shipped as a relative path:
+  // an HTML file that is not self-contained any more, and under --serve a
+  // path like ../marke/logo.png that points outside the served folder and
+  // draws nothing at all. Read in the block form and the flow form.
+  for (const m of src.matchAll(/^[ \t]+logo:[ \t]*["']?([^"'\s#]+)/gm)) refs.add(m[1]);
+  for (const m of src.matchAll(/^identity:[ \t]*\{[^}\n]*\blogo:[ \t]*["']?([^"',}\s#]+)/gm)) refs.add(m[1]);
 
   let total = 0;
   let count = 0;
@@ -6029,6 +6037,31 @@ const IDENTITY_SPEC = {
   // a dark ground the ink is light, and a grey chosen for white paper would
   // be unreadable there.
   ink:           { kind: 'colour' },
+  // The bildmarke. An ordinary asset reference, resolved by resolveAssetUrl
+  // like every other image in the format, so it inherits the inline budget,
+  // the 2 MB per-image cap and `--no-inline-images` rather than reading the
+  // file behind their backs.
+  logo:          { kind: 'asset' },
+  // Where it goes, and the default is not the corner. The corner is already
+  // occupied: `.marginalia` sits at top / right of the chunk's own padding
+  // and the slide numbers push it down, which is why a deck that puts a logo
+  // there has to turn a feature off to make room for a picture. In the
+  // footer band there is one reserve instead of two and nothing is evicted.
+  // `corner` stays for a deck that wants the mark up top and is told what it
+  // costs - lint.js warns when the same deck uses ::: margin or leaves the
+  // slide numbers on.
+  'logo-place':  { kind: 'enum', values: ['footer', 'corner', 'none'], dflt: 'footer' },
+  // And where it goes on paper, which is a different question with a
+  // different default. A document already has a cover and page numbers; a
+  // running head on every page is a choice, and one that costs something -
+  // in print it can only be a fixed element repeated per page, because a
+  // @page margin box cannot carry a generated image. `cover` is the default
+  // so the risky half is opt-in and the page flow is untouched.
+  'logo-print':  { kind: 'enum', values: ['cover', 'every', 'none'], dflt: 'cover' },
+  // The two halves of the footer line. Plain text: a frame is not a place to
+  // put a sentence, and anything that wants markup wants to be on the slide.
+  'footer-left':  { kind: 'text' },
+  'footer-right': { kind: 'text' },
 };
 // A key that used to exist and does not any more - same courtesy STYLE_KEYS_REMOVED pays.
 const IDENTITY_KEYS_REMOVED = {};
@@ -6053,18 +6086,29 @@ function identitySettings(frontmatter = {}) {
       err.userFacing = true;
       throw err;
     }
-    const hex = String(v).trim();
-    if (!hexToOklch(hex)) {
+    const val = String(v).trim();
+    if (spec.kind === 'colour') {
+      if (!hexToOklch(val)) {
+        const err = new Error(
+          `Frontmatter: "identity.${k}: ${v}" is not a colour.\n` +
+          '  A house colour is a hex value: "#EC8A3C", or "#f71" for short.\n' +
+          '  Quote it - an unquoted # starts a YAML comment.');
+        err.userFacing = true;
+        throw err;
+      }
+    } else if (spec.kind === 'enum' && !spec.values.includes(val)) {
       const err = new Error(
-        `Frontmatter: "identity.${k}: ${v}" is not a colour.\n` +
-        '  A house colour is a hex value: "#EC8A3C", or "#f71" for short.\n' +
-        '  Quote it - an unquoted # starts a YAML comment.');
+        `Frontmatter: "identity.${k}: ${val}" is not a value this key accepts.\n` +
+        `  Valid values for ${k}: ${spec.values.join(', ')}`);
       err.userFacing = true;
       throw err;
     }
-    out[k] = hex;
+    out[k] = val;
   }
-  return Object.keys(out).length ? out : null;
+  if (!Object.keys(out).length) return null;
+  for (const [k, spec] of Object.entries(IDENTITY_SPEC))
+    if (spec.dflt != null && out[k] == null) out[k] = spec.dflt;
+  return out;
 }
 
 // The two grounds that paint the accent and reverse the ink onto it. Written
@@ -6257,6 +6301,7 @@ function identityStyleTag(identity, st, view) {
     rules.push(ground(view === 'print' ? ACCENT_GROUND_CARD.print : ACCENT_GROUND_CARD.live, 78));
     rules.push(ground(ACCENT_GROUND_OVERLAY, 80));
   }
+  rules.push(...(view === 'print' ? framePrintCss(identity) : frameCss(identity)));
   if (identity.ink) {
     // The same scope the accent takes on the light themes, and the document
     // unscoped. --ink-soft follows it, a third of the way to the paper, so
@@ -6267,6 +6312,273 @@ function identityStyleTag(identity, st, view) {
   }
   if (!rules.length) return '';
   return `\n<style>\n${rules.join('\n')}\n</style>`;
+}
+
+// ── the frame: a mark and a line, and the band the text yields ───────
+//
+// A frame is a dock. That is not an analogy - it is the mechanism, and it is
+// already in this file: `::: dock` reserves its column by growing the chunk's
+// own padding (`.chunk[data-dock=left] { padding-left: … }`), and `--exp-band`
+// reserves the chevrons' strip the same way, "which is also where
+// flowHeightProbe() wants it, since that function reads a level's own
+// paddings". Writing the frame's band as padding rather than as a new
+// measurement means auto-fit counts it, the speaker mirror matches pixel for
+// pixel, the camera and the zoom leave it alone, and --check-fit measures a
+// content box that already stops short of the footer. None of that is code
+// this feature had to write.
+//
+// The three expressions the foot of a slide is made of, written once here and
+// interpolated back into AUDIENCE_CSS so the stylesheet emits the bytes it
+// always did. The frame's rules are these plus the band, which is the only
+// way to be sure the two agree about where the floor is.
+const SLIDE_FOOT = {
+  chunk: 'var(--slide-pad-y)',
+  expanded: 'calc(var(--slide-pad-y) + var(--exp-band, 0px))',
+  exps: 'calc(var(--slide-pad-y) * 0.65)',
+};
+
+// Every state in which the frame must not paint. The workaround this replaces
+// guessed at three spellings of "some panel is up" - `body:is([data-overview],
+// .overview, [data-panel])` - none of which was real and none of which covered
+// `B`. This is the list, and a fast gate holds it against build.js: every body
+// class in a selector that dims, blurs, blanks or hides the stage has to be in
+// here, so a new overlay fails a check in a fifth of a second rather than
+// shipping a logo over a search panel.
+//
+// Two of them are not body classes at all - the help sheet and the search
+// panel are toggled by `.hidden` on their own elements - so the list is
+// selectors on the body rather than class names, and those two are written
+// with :has(), which this stylesheet already uses (`.chunk:has(> .exps)`).
+const FRAME_HIDDEN_STATES = [
+  'body.overview-mode',
+  'body.blanked',
+  'body.figure-focused',
+  'body.demo-live',
+  'body.toc-visible',
+  // The four full-screen panels, each of which is toggled by `.hidden` on
+  // its own element rather than by a class on the body. The gate derives
+  // that set from the stylesheet's own `#x.hidden { display: none }` rules,
+  // which is how #link-overlay and #demo-overlay got here: they were missing
+  // from the first draft of this list and nothing but the gate said so.
+  'body:has(#help-overlay:not(.hidden))',
+  'body:has(#search-panel:not(.hidden))',
+  'body:has(#link-overlay:not(.hidden))',
+  'body:has(#demo-overlay:not(.hidden))',
+  // The export modal is the exception: it is removed from the DOM on close
+  // rather than hidden, so its presence IS its state.
+  'body:has(#export-modal)',
+];
+
+/** The frame's three pieces, resolved, or null when the deck wears none. */
+function frameParts(identity) {
+  if (!identity) return null;
+  const place = identity['logo-place'] || 'footer';
+  const logo = place === 'none' ? null : (identity.logo ? resolveAssetUrl(identity.logo) : null);
+  const left = identity['footer-left'] || '';
+  const right = identity['footer-right'] || '';
+  if (!logo && !left && !right) return null;
+  return { logo, left, right, place: logo ? place : 'none' };
+}
+
+/**
+ * The frame's markup: a sibling of #stage inside #stage-viewport, never a
+ * descendant of a .chunk. The stage is transformed - the camera pans it and
+ * auto-fit scales it - and a mark that rides along is not a frame.
+ *
+ * aria-hidden, because every word in it is already in the document's own
+ * metadata and a screen reader should not read the lecturer's name once per
+ * slide.
+ */
+function frameHtml(identity) {
+  const f = frameParts(identity);
+  if (!f) return '';
+  const img = f.logo
+    ? `<img class="frame-logo" src="${escapeHtml(f.logo)}" alt="">` : '';
+  const foot = (f.left || f.right || f.place === 'footer')
+    ? `<div class="frame-foot-line">`
+      + `<span class="frame-left">${escapeHtml(f.left)}</span>`
+      + `<span class="frame-right">${escapeHtml(f.right)}</span>`
+      + (f.place === 'footer' ? img : '')
+      + `</div>`
+    : '';
+  const corner = f.place === 'corner' ? `<div class="frame-corner">${img}</div>` : '';
+  return `\n  <div id="frame" aria-hidden="true">${corner}${foot}</div>`;
+}
+
+/**
+ * The frame's stylesheet, appended to the identity block. Two halves and they
+ * are separate concerns: the band the text yields, and the paint.
+ */
+function frameCss(identity) {
+  const f = frameParts(identity);
+  if (!f) return [];
+  const rules = [];
+  // The band, sized off --slide-h like every other slide-internal length, so
+  // the four views measure it identically and the zoom does not move it.
+  rules.push(`:root {
+  --frame-foot: calc(var(--slide-h) * 0.032);
+  --frame-type: calc(var(--slide-h) * 0.0145);
+  --frame-head: ${f.place === 'corner' ? 'calc(var(--slide-h) * 0.1)' : '0px'};
+}`);
+  // What the text yields. Each of these is the expression AUDIENCE_CSS uses
+  // plus the band, taken from SLIDE_FOOT rather than retyped - a number that
+  // drifts here is a line of prose sitting on the footer, which is exactly
+  // the failure the reserve exists to prevent.
+  rules.push(`body .chunk {
+  padding-block-end: calc(${SLIDE_FOOT.chunk} + var(--frame-foot));
+  padding-block-start: calc(${SLIDE_FOOT.chunk} + var(--frame-head));
+}`);
+  rules.push(`body .chunk.expanded { padding-block-end: calc(${SLIDE_FOOT.expanded} + var(--frame-foot)); }`);
+  rules.push(`body .exps { bottom: calc(${SLIDE_FOOT.exps} + var(--frame-foot)); }`);
+  if (f.place === 'corner') {
+    // The corner the mark takes is .marginalia's corner, so the aside moves
+    // down by the mark's own height rather than being drawn over.
+    rules.push(`body .marginalia { top: calc(var(--slide-pad-y) + var(--frame-head)); }`);
+  }
+  // The paint. Everything here is inside #stage-viewport and above #stage,
+  // below every overlay - a frame is the room's furniture, not the slide's.
+  rules.push(`#frame {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  font-family: var(--sans-font);
+  color: color-mix(in oklab, var(--ink) 45%, var(--paper));
+}
+/* The band holds its own ground. A chunk taller than the frame is read by
+   scrolling - the stage walks down it as the reveals advance - and its prose
+   passes straight through the footer on the way: measured on a twelve-
+   paragraph chunk, "Paragraph 5" was drawn over the lecturer's name. The
+   reserve cannot help there, because that chunk never fitted the band in the
+   first place. So the foot fades to paper under the line, which both keeps
+   the footer legible and gives the scroll somewhere to go. Gradient rather
+   than a flat fill: a hard edge across the slide reads as a rule nobody
+   drew. */
+#frame::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: calc(var(--frame-foot) * 2.1);
+  background: linear-gradient(to top, var(--paper) 0%, var(--paper) 52%, transparent 100%);
+}
+#frame .frame-foot-line {
+  position: absolute;
+  inset: auto var(--slide-pad-x) 0 var(--slide-pad-x);
+  z-index: 1;
+  height: var(--frame-foot);
+  display: flex;
+  align-items: center;
+  gap: 0.9em;
+  font-size: var(--frame-type);
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+#frame .frame-left { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#frame .frame-right { flex: 0 0 auto; }
+#frame .frame-foot-line .frame-logo { flex: 0 0 auto; height: calc(var(--frame-foot) * 0.62); width: auto; }
+/* The corner mark is a signature, not a thumbnail. It sat inside the slide's
+   side padding at 62% of a 7.5% band - 42 px on a 900 px frame, beside a
+   heading set at twice that - and on a projector it read as a speck rather
+   than as whose lecture this is. It now takes the corner a printed slide
+   master gives a logo: up against the frame's top and right edges, at two
+   thirds of a 10% band, which is the proportion a mark plus a two-line
+   wordmark needs to be read from the back. The band still reserves its
+   height as padding, so a heading cannot run under it. */
+#frame .frame-corner {
+  position: absolute;
+  top: calc(var(--slide-h) * 0.03);
+  right: calc(var(--slide-w) * 0.022);
+}
+#frame .frame-corner .frame-logo { display: block; height: calc(var(--frame-head) * 0.66); width: auto; }`);
+  // And where it yields. One list, and the gate is what keeps it honest.
+  rules.push(`${FRAME_HIDDEN_STATES.map(sel => `${sel} #frame`).join(',\n')} { display: none; }`);
+  return rules;
+}
+
+/**
+ * The frame on paper. A different shape from the live one, because a document
+ * is a different object: it already has a cover and page numbers, and the two
+ * marks a room needs on every slide are marks a reader needs once.
+ *
+ *   cover  (default) - the mark and the line sit at the head of the first
+ *                      page, in the flow, above the title block. Nothing is
+ *                      positioned and no page's geometry changes.
+ *   every            - a running foot on every page. Only `position: fixed`
+ *                      does that in a print stylesheet; a `@page` margin box
+ *                      cannot carry a generated image.
+ *   none             - nothing.
+ */
+function framePrintHtml(identity) {
+  const f = frameParts(identity);
+  if (!f) return '';
+  const mode = (identity && identity['logo-print']) || 'cover';
+  if (mode === 'none') return '';
+  const img = f.logo ? `<img class="frame-logo" src="${escapeHtml(f.logo)}" alt="">` : '';
+  return `\n<div id="frame-print" data-print-frame="${mode}" aria-hidden="true">`
+    + `<span class="frame-left">${escapeHtml(f.left)}</span>`
+    + `<span class="frame-right">${escapeHtml(f.right)}</span>`
+    + img
+    + `</div>`;
+}
+
+function framePrintCss(identity) {
+  const f = frameParts(identity);
+  if (!f) return [];
+  const mode = (identity && identity['logo-print']) || 'cover';
+  if (mode === 'none') return [];
+  const rules = [`#frame-print {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+}
+#frame-print .frame-left { flex: 1 1 auto; }
+#frame-print .frame-right { flex: 0 0 auto; }
+#frame-print .frame-logo { flex: 0 0 auto; height: 1.6rem; width: auto; }`];
+  if (mode === 'cover') {
+    rules.push(`#frame-print[data-print-frame=cover] {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 2.4rem 1.5rem 0;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 0.5rem;
+}`);
+  } else {
+    // A fixed element is repeated on every printed page by the browser, and
+    // it is the only construct that is. It is taken out of the flow, so the
+    // page has to be given the room: @page's own margin is what reserves it,
+    // and the element sits inside that margin rather than over the text.
+    // On screen this is a document somebody scrolls, and a fixed element
+    // there is not a running foot - it is a bar pinned over the last two
+    // lines of whatever is on screen, measured at 77px of overlap. So the
+    // running foot is a print-only construct and the screen gets the same
+    // head the `cover` mode has. The block below is the whole difference
+    // between the two modes, which is the shape it should have: one mode is
+    // the other plus a repeat.
+    rules.push(`#frame-print[data-print-frame=every] {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 2.4rem 1.5rem 0.5rem;
+  border-bottom: 1px solid var(--rule);
+}
+@media print {
+  /* @page's own margin is what reserves the strip; the element sits inside
+     it rather than over the text. A @page margin box cannot carry a
+     generated image, which is why this is a fixed element and not one. */
+  @page { margin-bottom: 22mm; }
+  #frame-print[data-print-frame=every] {
+    position: fixed;
+    left: 0; right: 0; bottom: 8mm;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+    border-bottom: 0;
+  }
+}`);
+  }
+  return rules;
 }
 
 /**
@@ -7151,7 +7463,7 @@ ${codeTag(styleOpts, opts.codeSizing, 'print')}
 ${katexStyleTag(anonHtml + namedHtml)}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
-<body data-slide-nums="${printNums}" ${styleBodyAttrs(styleOpts, frontmatter)}>
+<body data-slide-nums="${printNums}" ${styleBodyAttrs(styleOpts, frontmatter)}>${framePrintHtml(identity)}
 <main>
 ${anonHtml}
 ${toc}
@@ -8970,7 +9282,7 @@ ${themeBootScript(defaults)}
 <div id="stage-viewport">
   <div id="stage">
 ${columnsHtml}
-  </div>
+  </div>${frameHtml(identity)}
 </div>
 <div id="laser-pointer" aria-hidden="true"></div>
 <div id="figure-overlay" aria-hidden="true"></div>
@@ -9377,7 +9689,7 @@ body.text-selecting #figure-overlay > .figure-focus-target { cursor: text; }
   display: grid;
   grid-template-columns: 1fr minmax(0, var(--content-w, 36em)) 1fr;
   align-items: center;
-  padding: var(--slide-pad-y) var(--slide-pad-x);
+  padding: ${SLIDE_FOOT.chunk} var(--slide-pad-x);
   transition: opacity var(--camera-duration) ease;
 }
 /* 22em was a genuinely narrow column: a claim of two sentences became a
@@ -9438,7 +9750,7 @@ body.text-selecting #figure-overlay > .figure-focus-target { cursor: text; }
   padding-block-end: max(0px, calc(var(--exp-band) - var(--slide-pad-y) * 0.35));
 }
 .chunk.expanded {
-  padding-block-end: calc(var(--slide-pad-y) + var(--exp-band, 0px));
+  padding-block-end: ${SLIDE_FOOT.expanded};
 }
 
 .tag-label {
@@ -12330,7 +12642,7 @@ body[data-view=audience] .chunk.has-annot .annot-box { opacity: 1; }
 /* expansion chevrons – bottom-right of the slide */
 .exps {
   position: absolute;
-  bottom: calc(var(--slide-pad-y) * 0.65);
+  bottom: ${SLIDE_FOOT.exps};
   right: var(--slide-pad-x);
   display: flex;
   flex-direction: row;
@@ -17441,7 +17753,7 @@ ${scrubberHtml}
   <div id="stage-viewport">
     <div id="stage">
 ${columnsHtml}
-    </div>
+    </div>${frameHtml(identity)}
   </div>
   <button id="add-note-btn" type="button" title="Open speaker notes (Shift-N)">+ note</button>
   <button id="clock" type="button" title="Elapsed since the talk began · click to restart from 0:00"><span id="timer">0:00</span><span id="drift" hidden></span><span id="clock-hint" aria-hidden="true">reset</span></button>
@@ -21158,6 +21470,19 @@ async function runCheckFit(absIn, viewport) {
     const content = act.querySelector('.chunk-content') || act;
     const r = content.getBoundingClientRect();
     const vp = document.getElementById('stage-viewport').getBoundingClientRect();
+    // The frame's band is not part of the frame a slide may use. An
+    // `identity:` deck reserves it as chunk padding, so content that fits
+    // stops short of the footer on its own - but content that does NOT fit
+    // overflows that padding downward and lands ON the footer while still
+    // being inside the viewport, which is `over: 0` and no finding at all.
+    // So the usable box is the viewport minus whatever the frame occupies,
+    // measured off the frame's own elements rather than off a number: a deck
+    // with no frame has none and every verdict here is what it always was.
+    const frame = document.getElementById('frame');
+    const foot = frame && frame.querySelector('.frame-foot-line');
+    const corner = frame && frame.querySelector('.frame-corner');
+    const useTop = corner ? Math.max(0, corner.getBoundingClientRect().bottom - vp.top) : 0;
+    const useBot = foot ? Math.max(0, vp.bottom - foot.getBoundingClientRect().top) : 0;
     // What the height is *made of*, which is not the same question as how
     // many words the chunk holds. Under topic-bold the collapse renders the
     // first sentence of each paragraph plus every promoted bold, and hides
@@ -21180,6 +21505,8 @@ async function runCheckFit(absIn, viewport) {
       tag: act.dataset.tag || '', width: act.dataset.width || '',
       top: Math.round(r.top - vp.top), bottom: Math.round(r.bottom - vp.top),
       h: Math.round(r.height), vpH: Math.round(vp.height),
+      useTop: Math.round(useTop), useBot: Math.round(useBot),
+      usableH: Math.round(vp.height - useTop - useBot),
       collapse, bolds, boldPx: Math.round(boldPx),
     };
   });
@@ -21201,7 +21528,7 @@ async function runCheckFit(absIn, viewport) {
     // puzzle a reviewer should not have to solve.
     if (hash === lastHash) { if (++same >= 2) break; } else { same = 0; states++; }
     lastHash = hash;
-    const over = Math.max(0, -st.top) + Math.max(0, st.bottom - st.vpH);
+    const over = Math.max(0, st.useTop - st.top) + Math.max(0, st.bottom - (st.vpH - st.useBot));
     if (over > 0) {
       const prev = worst.get(st.id);
       if (!prev || over > prev.over) worst.set(st.id, { ...st, over, beat: i });
@@ -21226,8 +21553,11 @@ async function runCheckFit(absIn, viewport) {
   // it is what this command exists to catch. Reported as the failure; the
   // tall ones are reported as a note and change no exit code.
   const all = [...worst.values()].sort((a, b) => b.over - a.over);
-  const clipped = all.filter(b => b.h <= b.vpH);
-  const tall = all.filter(b => b.h > b.vpH);
+  // `usableH` is `vpH` on a deck with no frame, so this reads exactly as it
+  // did; on one with a frame it is the question the author is actually
+  // asking - does the slide fit the part of the frame the slide may use.
+  const clipped = all.filter(b => b.h <= b.usableH);
+  const tall = all.filter(b => b.h > b.usableH);
   const where = `${viewport.width}x${viewport.height}`;
   const tallNote = tall.length
     ? ` ${tall.length} chunk(s) are taller than the frame and are read by scrolling`
@@ -21240,10 +21570,13 @@ async function runCheckFit(absIn, viewport) {
   console.error(`[check-fit] ${states} state(s) at ${where}: ${clipped.length} slide(s) fit the frame`
     + ` and are positioned outside it.${tallNote}`);
   for (const b of clipped) {
-    const side = b.top < 0 && b.bottom > b.vpH ? 'clipped at both ends'
-      : b.top < 0 ? `${-b.top} px off the top` : `${b.bottom - b.vpH} px off the bottom`;
+    const lo = b.useTop, hi = b.vpH - b.useBot;
+    const side = b.top < lo && b.bottom > hi ? 'clipped at both ends'
+      : b.top < lo ? `${lo - b.top} px off the top` : `${b.bottom - hi} px off the bottom`;
+    const band = b.usableH === b.vpH ? `${b.vpH} px frame`
+      : `${b.usableH} px of usable frame (${b.vpH} px less the identity frame's band)`;
     console.error(`  #${b.id} (${b.tag}${b.width ? ', .' + b.width : ''}) – ${side}`
-      + ` at beat ${b.beat}; content ${b.h} px in a ${b.vpH} px frame, so it would fit.`);
+      + ` at beat ${b.beat}; content ${b.h} px in a ${band}, so it would fit.`);
     // The composition, not just the total. Reported because the total sends
     // an author at the word count, and under topic-bold that is the one lever
     // with no effect: a shortened continuation is hidden either way. This
