@@ -7,6 +7,30 @@ from building the same way is a major version.
 
 ## [Unreleased]
 
+### Added
+
+- **Under `style: {elevation: offset}` a box in a `::: draw` figure is drawn
+  the way a card is.** The tone as a 22% tint, a 55% rule, the first label
+  line as the heading in the tone and bold, the lines after it in the ink, and
+  the hard 45-degree edge in the tone's darker shade - the numbers are the card
+  rules' own, and `test/gates/figure-cards.mjs` reads them from `cardToneCss()`
+  rather than restating them. Before, a figure beside a card row of the same
+  tone drew the palette's older mixes: 13, 8 and 20 percent and a solid
+  `.tone-4` with an inverted label, grey labels and no edge.
+
+  SVG has no `box-shadow`, so the edge is a `drop-shadow` without blur: it
+  follows a hex or a chevron, and a filter is not background graphics, so a
+  handout printed without them keeps it. The offset is 5 figure units
+  (`FIGURE_EDGE_OFFSET`), because a figure scales as one picture. `.accent`
+  takes the accent the same way, `.emph` keeps its accent outline over the
+  tint, and a chart's column, a lane and a `.bare` or `.clear` frame are left
+  as they were. A deck that does not write `offset` builds byte for byte what
+  it built before. Reference deck: `lectures/figure-cards/`.
+
+  The `.tone-4` + `.accent` clash warning still fires under `offset`, where the
+  fill is a tint and the accent label is readable; it is a warning, and the
+  pairing is still one colour too many.
+
 ### Changed
 
 - **Inline code in running text is now spaced and sized against the prose

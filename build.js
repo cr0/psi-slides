@@ -6451,6 +6451,45 @@ const ELEVATION_EDGES = [
 // down, which is what makes it read as 45 degrees at any size.
 const ELEVATION_OFFSET = '0.22em';
 
+// A figure box is the same construct as a card drawn in SVG, and under
+// `elevation: offset` it wears the card's look: the tone as a tint, a lighter
+// rule, the first label line as the heading in the tone, and the hard edge.
+// SVG has no box-shadow, so the edge is a drop-shadow without blur - it
+// follows a hex or a chevron, and a filter is not "background graphics", so it
+// prints. The offset is in the figure's own units, because a figure scales as
+// one picture: 5 units is what 0.22em is on a card at the figure's usual scale.
+// Only authored boxes: a chart's column (`dg-bar`), a lane or a see-through
+// frame (`.bare`, `.clear`) stays what the figure language drew.
+const FIGURE_EDGE_OFFSET = '5px';
+function figureCardCss() {
+  const box = '.psi-diagram .dg-box:not(.dg-bar):not(.bare):not(.clear)';
+  const shape = ' > :is(rect, .dg-shape)';
+  const tv = (t) => `var(--${t}, ${CARD_TONE_DEFAULTS[t]})`;
+  const edge = (c) => `filter: drop-shadow(${FIGURE_EDGE_OFFSET} ${FIGURE_EDGE_OFFSET} 0 ${c});`
+    + ' -webkit-print-color-adjust: exact; print-color-adjust: exact;';
+  const paint = (sel, v, dark) =>
+    `${box}${sel}${shape} { fill: color-mix(in oklab, ${v} 22%, var(--paper));`
+    + ` stroke: color-mix(in oklab, ${v} 55%, var(--paper)); ${edge(`color-mix(in oklab, ${v} ${dark}%, black)`)} }`
+    // The heading is the first line; every tspan from the second line on
+    // (a line starts at a tspan carrying x) goes back to the body ink.
+    // Named on the tspans too: `.tone-4` inverts its label on the tspans, for
+    // the solid fill this tint replaces. The inline accents keep their own.
+    + ` ${box}${sel} .dg-lbl text, ${box}${sel} .dg-lbl text > tspan:not(.dg-em):not(.dg-mu) { fill: ${v}; font-weight: 600; }`
+    + ` ${box}${sel} .dg-lbl text > tspan[x]:not(:first-child),`
+    + ` ${box}${sel} .dg-lbl text > tspan[x]:not(:first-child) ~ tspan:not(.dg-em):not(.dg-mu) { fill: var(--ink); font-weight: 400; }`;
+  const rules = [
+    `.psi-diagram { overflow: visible; }`,
+    `${box}${shape} { ${edge('color-mix(in oklab, var(--ink) 30%, var(--paper))')} }`,
+    ...Object.keys(CARD_TONE_DEFAULTS).map(t => paint(`.${t}`, tv(t), 78)),
+    paint('.accent', 'var(--emph)', 72),
+    // .emph is the figure's "look here", and it has to survive the tint:
+    // the heavier accent rule and an accent label, as without the card look.
+    `${box}.emph${shape} { stroke: var(--emph); stroke-width: 2.6; }`,
+    `${box}.emph .dg-lbl text, ${box}.emph .dg-lbl text > tspan:not(.dg-mu) { fill: var(--emph); }`,
+  ];
+  return rules;
+}
+
 function styleBlockCss(st, S) {
   const rootVars = [];
   if (st['heading-scale'] !== 1) rootVars.push(`--heading-scale: ${st['heading-scale']};`);
@@ -6491,6 +6530,7 @@ function styleBlockCss(st, S) {
     rules.push(`${ELEVATION_GROUNDS} { box-shadow: ${ELEVATION_OFFSET} ${ELEVATION_OFFSET} 0 `
       + `var(--card-edge, var(--card-edge-ground, color-mix(in oklab, var(--ink) 30%, var(--paper)))); `
       + `-webkit-print-color-adjust: exact; print-color-adjust: exact; }`);
+    rules.push(...figureCardCss());
   }
   return rules.length ? `<style>${rules.join(' ')}</style>` : '';
 }

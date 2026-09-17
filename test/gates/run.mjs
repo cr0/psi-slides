@@ -51,6 +51,8 @@
  *   elevation  the shadow ladder stays inside the slide's own padding at the
  *              largest body-scale the format allows - the one thing on a
  *              slide no probe can see, held by a relation instead
+ *   figure-cards  a figure box under elevation: offset takes the card's tint,
+ *              rule, heading and edge, read from the card rules
  *   palette    the tone table is the stylesheet it mirrors, both files mix a
  *              tone in oklab, and the column warning leaves a palette tone on
  *              the light themes to tone-contrast
@@ -85,6 +87,7 @@ const GATES = [
   './palette.mjs',
   './frame.mjs',
   './elevation.mjs',
+  './figure-cards.mjs',
   './icons.mjs',
   './activity.mjs',
 ];
