@@ -122,7 +122,7 @@ const VIEW_DEFAULTS = {
   // the line in hand.
   'cover-align': ['top', 'middle', 'bottom'],
   // How a column's divider slide is drawn. Mirrors SECTION_VARIANTS.
-  'section': ['plain', 'tinted', 'rule', 'card', 'number', 'outline'],
+  'section': ['plain', 'tinted', 'rule', 'card', 'number', 'outline', 'poster'],
   // Mirrors LIGATURE_MODES. The default is `text` and not `none`, because
   // code ligatures are already off and defaulting to none would take fi and
   // fl out of every existing lecture's prose.
