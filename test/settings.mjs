@@ -530,6 +530,33 @@ console.log('\nlayout generations');
        v + ' does not pin its credits, so it carries no marker');
   }
 
+  // The same fit reads two more markers, and both came from a masthead that
+  // has words in it: the field between the nameplate and the credits is
+  // stretched to the frame (data-grow), and the closing slide's words are
+  // pinned to its foot (data-foot). The cover helper above writes no lede and
+  // no closing, which is how neither was ever looked at. quote puts its body
+  // in a field too, but does not stretch it, and classic pins nothing.
+  const withWords = (cover) => {
+    fs.writeFileSync(path.join(cDir, 'source.md'),
+      '---\ntitle: T\nsubtitle: S\npresenter: P\ncover: ' + cover + '\n---\n\n' +
+      '## title: {#title}\n\nA lede in the field.\n\n## free: F {#f}\n\nBody.\n\n' +
+      '## closing: Danke {#end}\n\nWords.\n');
+    const r = spawnSync(process.execPath,
+      [path.join(ROOT, 'build.js'), path.join(cDir, 'source.md'), '--audience-only'],
+      { cwd: ROOT, encoding: 'utf8' });
+    return r.status === 0 ? arts(fs.readFileSync(path.join(cDir, 'audience.html'), 'utf8')) : [];
+  };
+  const mh = withWords('masthead');
+  ok(/class="title-field" data-grow=""/.test(mh[0] || ''),
+     "masthead marks the field it stretches between nameplate and credits");
+  ok(/class="closing-body" data-foot=""/.test(mh.find(a => /data-closing/.test(a)) || ''),
+     "and marks the closing words it pins to the foot");
+  const qt = withWords('quote');
+  ok(/class="title-field"/.test(qt[0] || '') && !/data-grow/.test(qt[0] || ''),
+     'quote has a field but does not stretch it, so it carries no data-grow');
+  ok(!/data-foot/.test(withWords('classic').find(a => /data-closing/.test(a)) || 'x data-foot'),
+     'classic pins nothing on its closing slide either');
+
   // A dark opening slide under a light deck, reusing the one place the ink
   // tokens are re-pointed rather than restating them.
   const ink = title('cover-ground: ink\n');
@@ -1535,7 +1562,7 @@ console.log('\nlayout generations');
     return { failed: r.status !== 0, out: (r.stdout || '') + (r.stderr || ''),
              html: r.status === 0 ? fs.readFileSync(path.join(dir, 'audience.html'), 'utf8') : '' };
   })();
-  ok(!mastBody.failed && /class="title-field"><p>The lede\.<\/p>/.test(mastBody.html),
+  ok(!mastBody.failed && /class="title-field"(?: data-grow="")?><p>The lede\.<\/p>/.test(mastBody.html),
      'a masthead body becomes the lede in the field', mastBody.out.split('\n')[0]);
   ok(/class="title-info"><p>Lline<\/p>/.test(mastBody.html),
      'and info: still supplies the meta, which a body elsewhere would have replaced');

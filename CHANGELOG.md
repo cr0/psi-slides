@@ -511,6 +511,33 @@ from building the same way is a major version.
 
 ### Fixed
 
+- **Under auto-fit the cockpit's thumbnails are drawn at their own slide's
+  size, not at the current slide's.** A thumbnail is a clone of its slide and
+  inherited `--zoom` from the document, which under auto-fit is the answer for
+  whichever slide is current - so on a cover every thumbnail shrank with it,
+  and on a short slide a tall slide's thumbnail ran out of its slot. Each clone
+  now carries a zoom of its own, solved by the same fit as the live slide
+  (`solveFitZoom`, lifted out of `fitZoomToChunk` for the purpose) and cached
+  under the slide and the settings that size it, so it is re-solved only when
+  the mode, the ceiling, the collapse, the face or the frame changes. Two
+  things the first cut got wrong are written beside the code: a clone cut to
+  its slot's height measures as fitting at any zoom, so it is measured at its
+  own height; and `populatePreviewStrip` runs twice while the cockpit loads,
+  so a frame callback can fire on a clone already replaced, whose zero height
+  must not reach the cache. With auto-fit off nothing changes: the lecturer's
+  zoom is one value for every slide and the clones keep inheriting it.
+
+- **A masthead cover with a lede, and a masthead closing slide, are no longer
+  fitted to the 0.6 floor.** The pinned credits were already kept out of the
+  fit's span (`data-foot`), but the field between the nameplate and the
+  credits is stretched to the frame as well, so with words in it the extent
+  was the frame at every type size - measured on a cover with one sentence of
+  lede, zoom 0.6 where the same cover without it reaches 2.2. The field now
+  carries `data-grow` and is measured by what it holds, and the closing
+  slide's words, which masthead pins to the foot with an auto top margin,
+  carry `data-foot`. `test/auto-fit.mjs` gives its cover fixture a lede and a
+  closing slide, and checks the thumbnails; both fail against the old code.
+
 - **Nothing held `KNOWN_FRONTMATTER_KEYS` against what `build.js` reads, and
   the shape of that failure is a false warning on a valid deck.** The list is
   `lint.js`'s closed set of top-level frontmatter keys some renderer reads;

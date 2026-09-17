@@ -6244,8 +6244,14 @@ function renderTitleBlock({ title, subtitle, presenter, affiliation, info, conta
         ? `<div class="title-info">${infoLines.map(l => `<p>${escapeHtml(l)}</p>`).join('')}</div>`
         : '')
     : (bodyPlaced ? '' : (bodyHtml || ''));
+  // A masthead's field is stretched between the nameplate and the pinned
+  // credits (flex: 1), so its box is the frame's leftover and not its words.
+  // flowHeightProbe measures a data-grow box by what it holds; see the note
+  // there. Named here for the reason data-foot is: whether a composition
+  // stretches its field is a fact about the stylesheet.
+  const growAttr = FOOT_BAND_COVERS.has(variant) ? ' data-grow=""' : '';
   const field = (bodyInField && bodyHtml)
-    ? `<div class="title-field">${bodyHtml}</div>` : '';
+    ? `<div class="title-field"${growAttr}>${bodyHtml}</div>` : '';
   // On `quote` the field IS the slide, so it comes first and the title
   // reads as the attribution under it. Source order rather than CSS order:
   // the two are different documents, not one document laid out twice, and a
@@ -6298,10 +6304,15 @@ function renderClosingBlock(chunk, bodyHtml, frontmatter = {}, cover = {}) {
       ? `<div class="title-info">${infoLines.map(l => `<p>${escapeHtml(l)}</p>`).join('')}</div>`
       : '',
   });
+  // On a masthead the closing words are pinned to the foot with an auto top
+  // margin, the way the cover pins its credits, so they carry the same
+  // marker - without it the extent from the heading to those words was the
+  // frame at every type size and the fit walked the closing slide to 0.6.
+  const footAttr = FOOT_BAND_COVERS.has(cover.variant) ? ' data-foot=""' : '';
   return `
     <h1 class="title-main"${capsAttr(chunk.heading)}>${renderInlineMd(chunk.heading || '')}</h1>
     ${chunk.headingSub ? `<p class="title-subtitle">${renderInlineMd(chunk.headingSub)}</p>` : ''}
-    ${bodyHtml ? `<div class="closing-body">${bodyHtml}</div>` : ''}
+    ${bodyHtml ? `<div class="closing-body"${footAttr}>${bodyHtml}</div>` : ''}
     ${credits}
   `.trim();
 }
@@ -13087,6 +13098,9 @@ const viewHooks = {
   onN: (entry) => startAnnotate(entry.id),
   onActiveChange: () => {},
   onStateChange: () => {},
+  // Every change to a setting that decides a slide's size passes through
+  // broadcastState, frozen or not: the cockpit re-solves its thumbnails here.
+  onSettingsChange: () => {},
   shouldBroadcast: () => true,
   // The cockpit's cue cards sit in front of the reveal counter: a forward
   // press is consumed by a card before it reaches advanceReveal, and a back
@@ -13513,6 +13527,7 @@ function snapshot() {
   };
 }
 function broadcastState() {
+  viewHooks.onSettingsChange();
   if (!shouldBroadcast()) return;
   sendToPeer({ type: 'state', source: VIEW, payload: snapshot() });
 }
@@ -15313,12 +15328,33 @@ function flowHeightProbe(el) {
   };
   // Returns the top and bottom of what the level holds, in that level's own
   // offset coordinates, or null when nothing in it has a box.
+  //
+  // The foot was half of it. Between the nameplate and the pinned credits a
+  // masthead with a lede grows its field (flex: 1) over whatever the frame has
+  // left, so the extent from the title to the bottom of the field was the
+  // frame again and the fit still walked to 0.6 - the cover fixture has no
+  // lede, which is why it passed. A data-grow box is therefore measured by
+  // what it holds: from its own top, as tall as its children's extent plus
+  // its paddings. Its children share its offsetParent (the field is static),
+  // so their offsets are in the same coordinates as the box's own.
+  const grownHeight = (c) => {
+    let top = Infinity, bottom = -Infinity;
+    for (const k of c.children) {
+      if (typeof k.offsetHeight !== 'number' || (!k.offsetHeight && !k.offsetWidth)) continue;
+      if (k.offsetTop < top) top = k.offsetTop;
+      if (k.offsetTop + k.offsetHeight > bottom) bottom = k.offsetTop + k.offsetHeight;
+    }
+    const cs = getComputedStyle(c);
+    const pads = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    return (bottom < top ? 0 : bottom - top) + pads;
+  };
   const span = (lvl) => {
     let top = Infinity, bottom = -Infinity;
     for (const c of lvl.flow) {
       if (!c.offsetHeight && !c.offsetWidth) continue;    // display:none has no box
+      const h = c.hasAttribute && c.hasAttribute('data-grow') ? grownHeight(c) : c.offsetHeight;
       if (c.offsetTop < top) top = c.offsetTop;
-      if (c.offsetTop + c.offsetHeight > bottom) bottom = c.offsetTop + c.offsetHeight;
+      if (c.offsetTop + h > bottom) bottom = c.offsetTop + h;
     }
     return bottom < top ? null : { top, bottom };
   };
@@ -15419,32 +15455,42 @@ function fitZoomToChunk(ceiling) {
   const overflowsX = nowrapProbe(el);
   const heightOf = flowHeightProbe(el);
   if (heightOf() <= avail && !overflowsX() && state.zoom >= cap) return;  // nothing to gain
+  solveFitZoom({ heightOf, overflowsX, avail, cap, start: state.zoom, write: applyZoom });
+}
 
-  // A single proportional estimate is not enough, because zoom changes line
-  // wrapping and therefore height, and it is not safe either: solving for
-  // "exactly fills" lets a correction pass grow the zoom back over the
-  // edge. So estimate once to get close, then walk in the real zoom
-  // increment until the invariant holds, and only then try to give the
-  // reclaimed space back. Without that last step the compounding of a
-  // safety factor and the 0.05 rounding left chunks a quarter smaller than
-  // they needed to be.
+// The fit itself, for any chunk-shaped element and any way of writing a zoom.
+// fitZoomToChunk drives it on the live slide through the document's --zoom;
+// the cockpit's preview strip drives it on a thumbnail through the clone's
+// own --zoom (pinThumbZoom), so a thumbnail is drawn at the size its slide
+// will have and not at the size of whichever slide is current.
+//
+// A single proportional estimate is not enough, because zoom changes line
+// wrapping and therefore height, and it is not safe either: solving for
+// "exactly fills" lets a correction pass grow the zoom back over the
+// edge. So estimate once to get close, then walk in the real zoom
+// increment until the invariant holds, and only then try to give the
+// reclaimed space back. Without that last step the compounding of a
+// safety factor and the 0.05 rounding left chunks a quarter smaller than
+// they needed to be.
+function solveFitZoom({ heightOf, overflowsX, avail, cap, start, write }) {
   const STEP = 0.05;
-  let z = clampZoom(state.zoom * (avail / (heightOf() || avail)));
+  let z = clampZoom(start * (avail / (heightOf() || avail)));
   if (z > cap) z = cap;
-  applyZoom(z);
+  write(z);
 
   // Shrink until it fits, in both directions.
   while ((heightOf() > avail || overflowsX()) && z > 0.6) {
     z = clampZoom(z - STEP);
-    applyZoom(z);
+    write(z);
   }
   // Grow back while it still fits, never past the ceiling.
   while (z + STEP <= cap) {
     const probe = clampZoom(z + STEP);
-    applyZoom(probe);
-    if (heightOf() > avail || overflowsX()) { applyZoom(z); break; }
+    write(probe);
+    if (heightOf() > avail || overflowsX()) { write(z); break; }
     z = probe;
   }
+  return z;
 }
 
 // With auto-fit off the zoom is the lecturer's, and it is deliberately never
@@ -18776,10 +18822,66 @@ function populatePreviewStrip() {
       clone.style.transform = \`scale(\${scale})\`;
       clone.style.width = slideW + 'px';
       clone.style.height = (slot.clientHeight / baseScale) + 'px';
+      pinThumbZoom(clone, idx);
     });
   });
   cuePlaceStage();
   scrollPreviewToActive(false);
+}
+
+// A clone inherits --zoom from the document, and under auto-fit the document's
+// zoom is the answer for the *current* slide. Every thumbnail was therefore
+// drawn at the current slide's size: all of them shrank to a cover's zoom and
+// grew past their slots on a dense slide. So under auto-fit each clone gets a
+// zoom of its own, solved the way the live slide's is - same probes, same
+// frame, same ceiling - and written to the clone rather than the document.
+// With auto-fit off the lecturer's zoom is one value for every slide, so the
+// clone keeps inheriting it and follows + and - as it always has.
+//
+// The answer is a function of the slide and the settings that size it, so it
+// is cached under exactly those and re-solved only when one of them moves.
+const thumbZoomCache = new Map();
+function thumbZoomKey(idx) {
+  if (!autoFitOn()) return '';
+  return [idx, state.autoFitMode, autoFitCeiling(), state.collapse, state.font,
+    viewport.clientWidth, viewport.clientHeight].join('|');
+}
+function pinThumbZoom(clone, idx) {
+  // populatePreviewStrip runs twice while the cockpit loads, and the first
+  // run's frame callbacks fire on clones the second run has already replaced.
+  // A detached clone has no layout, measures 0, and "fits" at the ceiling -
+  // an answer that must not reach the cache the live clones read.
+  if (!clone.isConnected || !clone.offsetHeight) return;
+  const key = thumbZoomKey(idx);
+  if (clone.dataset.zoomKey === key) return;
+  clone.dataset.zoomKey = key;
+  if (!key) { clone.style.removeProperty('--zoom'); return; }
+  let z = thumbZoomCache.get(key);
+  if (z === undefined) {
+    const cap = autoFitCeiling();
+    const avail = viewport.clientHeight * FULL_FIT_FILL;
+    const write = (v) => clone.style.setProperty('--zoom', String(v));
+    // The clone is cut to its slot's height, and a box of fixed height is
+    // exactly what the probes cannot see past: a slide of ten paragraphs
+    // measured as fitting and was drawn at the ceiling. So it is measured at
+    // the height the live chunk has - its own - and cut again afterwards.
+    const slotHeight = clone.style.height;
+    clone.style.height = '';
+    write(cap);
+    z = avail > 0
+      ? solveFitZoom({ heightOf: flowHeightProbe(clone), overflowsX: nowrapProbe(clone), avail, cap, start: cap, write })
+      : cap;
+    clone.style.height = slotHeight;
+    thumbZoomCache.set(key, z);
+  }
+  clone.style.setProperty('--zoom', String(z));
+}
+function retuneThumbZooms() {
+  for (const slot of previewStrip.children) {
+    const clone = slot.querySelector(':scope > .chunk-clone');
+    // Not laid out yet: populatePreviewStrip pins it in its own frame.
+    if (clone && clone.style.width) pinThumbZoom(clone, parseInt(slot.dataset.idx, 10));
+  }
 }
 
 function scrollPreviewToActive(smooth) {
@@ -18896,12 +18998,14 @@ let lastPopulatedIdx = -1;
 viewHooks.onActiveChange = () => {
   updateScrubber();
   cueSync();
+  retuneThumbZooms();
   if (state.activeIdx === lastPopulatedIdx) return;
   lastPopulatedIdx = state.activeIdx;
   populateNotesPane();
   markPreviewCurrent();
 };
-viewHooks.onStateChange = () => { cueSync(); };
+viewHooks.onStateChange = () => { cueSync(); retuneThumbZooms(); };
+viewHooks.onSettingsChange = retuneThumbZooms;
 
 // ── cue cards ───────────────────────────────────────────────────────
 // The notes of the active chunk as cards in a column, the projection small
