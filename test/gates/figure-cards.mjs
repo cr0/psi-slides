@@ -38,7 +38,7 @@ export async function run({ report }) {
   const calls = build.split('figureCardCss()').length - 2;   // minus the definition
   const branch = build.slice(build.indexOf("if (st.elevation === 'offset') {"),
     build.indexOf("if (st.elevation === 'offset') {") + 800);
-  report.ok(calls === 1 && /rules\.push\(\.\.\.figureCardCss\(\)\)/.test(branch),
+  report.ok(calls === 1 && /rules\.push\(\.\.\.figureCardCss\(\)[.)]/.test(branch),
     'figureCardCss is emitted only under elevation: offset', `${calls} call site(s)`);
 
   const css = new Function(

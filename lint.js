@@ -299,6 +299,8 @@ const STYLE_ENUMS = {
   // paper is a grey smear, and PRINT_CSS separates a card with a rule.
   // `offset` is the hard 45-degree edge, and the one value that reaches paper.
   'elevation': ['flat', 'soft', 'lifted', 'offset'],
+  // The colour of a hard edge: a darker shade of the box (default) or the box's own colour.
+  'edge': ['shade', 'tone'],
   // What hue the greys carry. The four light themes move only --emph, so a
   // card mixed out of --ink is a cool grey under whatever accent the room
   // gets; `tinted` puts the accent's own hue into the neutrals, `warm` and

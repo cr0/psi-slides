@@ -42,7 +42,7 @@ export async function run({ report }) {
   }
 
   // Conditional, so a deck without a box builds byte for byte what it did.
-  report.ok(/function activityStyleTag\(\) \{\n  if \(!currentActivities\) return '';/.test(build),
+  report.ok(/function activityStyleTag\((st)?\) \{\n  if \(!currentActivities\) return '';/.test(build),
     'the box stylesheet is emitted only into a deck that writes a box');
   report.ok(/currentActivities = false;/.test(build.slice(build.indexOf('function parseLecture('), build.indexOf('function parseLecture(') + 2500)),
     'and the flag is cleared at the head of the parse, for --watch');
