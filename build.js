@@ -2275,26 +2275,34 @@ const CARDS_MEDIUM_MAX = 12;
 // reach it. A class on the run reaches it wherever it sits.
 // ── ::: activity – a box that says what the reader is to do ─────────────
 //
-// Four kinds, and each is one question a lecture asks of its room: follow a
-// link, note this, do this, look at this. A box of each kind is recognisable
+// Five kinds, and each is one question a lecture asks of its room: follow a
+// link, note this, do this, look at this, take this home. A box of each kind is recognisable
 // before it is read, by its colour and its mark, which is the whole point of
 // having more than one - so the kind is a word on the directive and the
 // colour and the mark come with it, not something the author assembles out
 // of a card row, a tone and an icon on every slide.
 //
-// The marks are drawn here, four small paths, rather than taken from an icon
+// The marks are drawn here, five small paths, rather than taken from an icon
 // set. A box that says "task" must not depend on whether the deck installed
-// a 41 MB development dependency, and the four marks are inline SVG in
+// a 41 MB development dependency, and the five marks are inline SVG in
 // currentColor, so they follow the kind's colour and every theme.
+//
+// `takeaway` is the one kind in the deck's accent, because it is the one
+// sentence a slide wants remembered and the accent is how a deck says so.
+// `info` therefore has a hue of its own: two kinds in one colour would be
+// told apart by their marks alone, which is the terminal themes' fallback
+// and not a design.
 const ACTIVITY_KINDS = {
   link:    { label: 'Link',    colour: 'oklch(0.58 0.12 155)',
     glyph: '<circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><ellipse cx="12" cy="12" rx="4.2" ry="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2.5 12h19M4.2 7h15.6M4.2 17h15.6" fill="none" stroke="currentColor" stroke-width="1.8"/>' },
-  info:    { label: 'Info',    colour: 'var(--emph)',
+  info:    { label: 'Info',    colour: 'oklch(0.52 0.10 215)',
     glyph: '<circle cx="12" cy="12" r="11" fill="currentColor"/><circle cx="12" cy="6.8" r="1.7" fill="var(--paper)"/><rect x="10.4" y="10" width="3.2" height="8.6" rx="1" fill="var(--paper)"/>' },
   task:    { label: 'Task',    colour: 'oklch(0.46 0.13 320)',
     glyph: '<path d="M10 1.5a8.5 8.5 0 0 0-8.5 8.6c0 2.7 1.2 4.7 3.2 6.1v6.3h8.4v-3h2.8a2 2 0 0 0 2-2v-2.8l2.1-.8c.6-.2.8-.9.4-1.4l-2.1-3.3A8.6 8.6 0 0 0 10 1.5z" fill="currentColor"/><circle cx="9.6" cy="9.4" r="3" fill="none" stroke="var(--paper)" stroke-width="1.9" stroke-dasharray="1.45 0.9"/><circle cx="9.6" cy="9.4" r="1" fill="var(--paper)"/>' },
   example: { label: 'Example', colour: 'oklch(0.50 0.12 245)',
     glyph: '<rect x="2" y="4" width="20" height="16" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4.5 17.5l5.2-6.5 3.6 4.2 2.6-3 3.6 5.3z" fill="currentColor"/><circle cx="8" cy="8.8" r="1.7" fill="currentColor"/>' },
+  takeaway: { label: 'Takeaway', colour: 'var(--emph)',
+    glyph: '<path d="M12 1.2a7.6 7.6 0 0 0-4.5 13.7c.9.7 1.3 1.5 1.3 2.5v.6h6.4v-.6c0-1 .4-1.8 1.3-2.5A7.6 7.6 0 0 0 12 1.2z" fill="currentColor"/><rect x="8.8" y="19.1" width="6.4" height="1.7" rx=".85" fill="currentColor"/><rect x="9.9" y="21.5" width="4.2" height="1.7" rx=".85" fill="currentColor"/><path d="M8.6 8.8a3.6 3.6 0 0 1 3.2-3.4" fill="none" stroke="var(--paper)" stroke-width="1.7" stroke-linecap="round"/>' },
 };
 const activityGlyph = (kind) =>
   `<svg class="activity-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ACTIVITY_KINDS[kind].glyph}</svg>`;

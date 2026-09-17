@@ -530,7 +530,7 @@ is spliced inline as a real `<svg>` element so it inherits the theme colours.
 
 ## Activity boxes
 
-`::: activity <kind>` draws a box that says what the reader is to do. Four kinds: `link` (follow this), `info` (note this), `task` (do this), `example` (look at this). The kind brings its colour and its mark; `info` takes the deck's accent.
+`::: activity <kind>` draws a box that says what the reader is to do. Five kinds: `link` (follow this), `info` (note this), `task` (do this), `example` (look at this), `takeaway` (remember this). The kind brings its colour and its mark; `takeaway` takes the deck's accent and is meant for the one sentence a slide wants remembered, so use it at most once per slide and keep it to one sentence – the collapsed projection shows only the first.
 
 ```md
 ::: activity task
