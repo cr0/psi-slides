@@ -9,7 +9,7 @@
  * two agree – in seconds, on a bare checkout, with no `npm install` and no
  * Chromium, because both of those files are zero-dependency by design.
  *
- * Twelve gates, and they prove twelve different things – which is worth stating
+ * Thirteen gates, and they prove thirteen different things – which is worth stating
  * because a green run summarised as one number hid a wrong drawing behind a
  * passing parse:
  *
@@ -67,6 +67,7 @@ const GATES = [
   './cue-cards.mjs',
   './xheight.mjs',
   './identity.mjs',
+  './palette.mjs',
 ];
 
 const filter = process.argv.slice(2).filter(a => !a.startsWith('-'));

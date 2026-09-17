@@ -336,6 +336,18 @@ What it does **not** reach yet: the slide's shadows and scrims, which are hard-c
 
 **`colour.mjs` is the arithmetic, and it is the third module `lint.js` may import** – zero dependencies, zero Node APIs, pure functions, same terms as `tails.mjs` and the `diagram-core.mjs` tables. **`diagram-core.mjs` keeps its own copy of the chain and must**: `diagramCoreScript()` reads that file as text, strips `export` and wraps it in an IIFE, so an `import` line there is a syntax error inside a function body – the compiler would fail to parse in every built page while every Node-side gate stayed green. `test/gates/identity.mjs` holds the two copies together, holds `lint.js` and `build.js` to one document paper, and holds `colour.mjs` to the four ratios `build.js` states in prose, parsed out of the comment rather than copied.
 
+## Four accents that mean something (`palette:`)
+
+`tone-1`…`tone-4` are mixed from the page's own two inks - `DG_BOX_FILLS` for a box, `DG_BAR_FILLS` for a column at roughly twice the strength - so the figure language has one hue and three greys. `palette:` re-points the base each tone is mixed **from** and changes nothing else: the percentages, the box/column distinction and `DG_BAR_CONTRAST_MIN` all stay and operate on the new colours. `{.tone-1}` is already the vocabulary, so nothing new has to be learned or documented on the figure side.
+
+**Scoped to the light themes, with the derived mixes as the fallback.** Four hues tuned against white paper are not four hues on `terminal-green`, and the derivation a palette replaces is precisely what makes a theme switch survivable. `IDENTITY_LIGHT_SEL` is the scope live; the document is unscoped because it has no themes.
+
+**`DG_BOX_FILLS` is in `build.js`, not in `diagram-core.mjs`.** That is where the tone vocabulary lives, but `diagramCoreScript()` splices that file into every built page as *text*, comments and all - a table added there cost the tutorial's four outputs 114 lines for something the browser never reads. The build is the only caller, so it is the build's table. It is a mirror of the four hand-written `── tones ──` rules in `DIAGRAM_CSS`, and `test/gates/palette.mjs` parses the numbers back out of the stylesheet and asserts they agree.
+
+**Both files mix in oklab, and the gate asserts the shape of that line.** `color-mix(in oklab, …)` interpolates L, a and b; interpolating a *hue* linearly takes the short way round a circle and lands on a different colour. It was worth 0.11 of a contrast ratio on the first tone it was measured against - a plausible number for the wrong colour, which is the kind of defect a warning is supposed to catch rather than produce.
+
+**`tone-contrast` names the strength, because that is the part an author cannot guess.** A column of `tone-2` is 45% of its base over the paper, a strength tuned for the near-black `--ink`; a mid-lightness house colour cannot clear WCAG 1.4.11's 3:1 at that mix however well it reads elsewhere. Boxes of the same tone are unaffected and are not warned about - they are mixed far paler on purpose, so the label on them stays legible.
+
 ## Which line of a title pair is loud (`style.headline`, `style.caps`)
 
 Every cover carries a pair (`title:` + `subtitle:`), and so does every section divider and closing slide (`Heading | Sub`). Until these keys the pair had one setting: first line large, second quieter underneath.

@@ -83,7 +83,7 @@ const KNOWN_FRONTMATTER_KEYS = new Set([
   'closing-image', 'closing-credits',
   // dividers, identity, type and language
   'section', 'section-mark', 'lecture', 'course', 'lang', 'labels', 'style',
-  'identity',
+  'identity', 'palette',
   'fonts', 'font', 'ligatures', 'draw-defaults',
   // viewer defaults
   'theme', 'collapse', 'auto-fit', 'slide-numbers', 'print-slide-numbers',
@@ -225,6 +225,39 @@ const IDENTITY_PAPERS = [
   ['the light themes', () => DG_THEMES['light-orange'].paper],
   ['the document', () => hexToOklch('#fafaf7')],
 ];
+
+// The `palette:` block's keys are the figure language's own tone names, so
+// they come from DG_BAR_FILLS rather than from a list - the table is already
+// imported here for the column-contrast warning, and a tone added to the
+// language would otherwise be a key this file calls a typo.
+const PALETTE_KEYS = Object.keys(DG_BAR_FILLS).filter(k => k.startsWith('tone-'));
+// Mirrors PALETTE_ACTIVITY_KEYS in build.js: the ::: activity kinds a palette
+// may re-point. Colours only; no column is drawn in them, so no tone-contrast.
+const PALETTE_ACTIVITY_KEYS = ['link', 'info', 'task', 'example'];
+// Mirrors CARD_TONE_WORDS in build.js: what `- **Heading** {.word}\` takes.
+const CARD_TONE_WORDS = ['accent', 'tone-1', 'tone-2', 'tone-3', 'tone-4'];
+// The tones a deck's `palette:` block names, read by indentation or flow form
+// the way the block reader below reads it. The column-contrast check needs
+// this: on the light themes a named tone is the deck's colour, not the mix of
+// ink and accent the theme table describes, and judging the mix there reports
+// a colour nobody will see.
+function paletteTonesOf(header) {
+  const named = new Set();
+  const flow = header.match(/^palette:[ \t]*\{(.*)\}[ \t]*$/m);
+  if (flow) {
+    for (const m of flow[1].matchAll(/["']?(tone-[1-4])["']?\s*:/g)) named.add(m[1]);
+    return named;
+  }
+  let inBlock = false;
+  for (const raw of header.split('\n')) {
+    if (/^palette:[ \t]*$/.test(raw)) { inBlock = true; continue; }
+    if (!inBlock) continue;
+    if (!/^[ \t]+\S/.test(raw)) { if (raw.trim()) inBlock = false; continue; }
+    const m = raw.match(/^[ \t]+(tone-[1-4]):/);
+    if (m) named.add(m[1]);
+  }
+  return named;
+}
 
 // Mirrors STYLE_KEYS_REMOVED in build.js.
 const STYLE_KEYS_REMOVED = {
@@ -411,7 +444,7 @@ import {
   DG_PLOT_MAX_TICKS, DG_POINT_DIRS, DG_POINTED, DG_SHAPE_CLASSES, DG_RESERVED_IDS,
   DG_RESERVED_EMITTED_IDS, DG_ID_SUBNODE_SEP,
   dgBarName, dgTickName, dgBaseName, dgKeyName, dgKeyLabelName, dgCellName, dgPlotName, dgPlotTicks,
-  DG_THEMES, DG_BAR_CONTRAST_MIN, dgBarFill, dgBarContrast,
+  DG_THEMES, DG_BAR_CONTRAST_MIN, DG_BAR_FILLS, dgBarFill, dgBarContrast,
   dgRowTag, dgColTag, dgLaneName, dgLaneCapName,
   DG_SEQ_ENTRIES, DG_SEQ_ARROWS,
   dgLifeName, dgMsgName, dgMsgNumName, dgMsgSubName, dgNoteName,
@@ -426,7 +459,8 @@ import {
   CARDS_SLOTS, OVERLAY_SLOTS, BACKDROP_SLOTS, SIDE_SLOTS, DOCK_SLOTS,
   splitTail, parseTail, strayTailProblem, parseDrawOpener, parseRevealMark,
 } from './tails.mjs';
-import { hexToOklch, contrast, WCAG_TEXT } from './colour.mjs';
+import { hexToOklch, contrast, oklchToLab, labLuminance,
+  WCAG_TEXT, WCAG_NON_TEXT } from './colour.mjs';
 
 const REVEAL_PCT_WARN = 0.5;
 const ORPHAN_MIN = 2;
@@ -781,7 +815,7 @@ function collectDiagramDefaults(header) {
 // statements, unknown classes, duplicate names and dangling references.
 // Everything geometric is the build's business – but these four are the
 // mistakes that are invisible in the source and expensive on a projector.
-function lintDiagram(block, addOuter, fmLines, lectureTags) {
+function lintDiagram(block, addOuter, fmLines, lectureTags, paletteTones = new Set()) {
   // Which lines this block has already said something about. One authored
   // defect yields one causal diagnostic: the build suppresses its "has no
   // placement" consequence for a statement that stopped reading part-way
@@ -1599,8 +1633,15 @@ function lintDiagram(block, addOuter, fmLines, lectureTags) {
           const someNormal = [...Array(cols).keys()].some(i => !emphIx.includes(i) && !back.has(i));
           if (someNormal && !cls.includes('dim') && !cls.includes('ghost')) states.push(['', dgBarFill(tone, null)]);
           if (emphIx.length && tone !== 'tone-4') states.push(['emphasised ', dgBarFill(tone, 'emph')]);
-          const all = Object.keys(DG_THEMES);
           for (const [what, fk] of states) {
+            // A tone the deck's palette names is the deck's own colour on the
+            // four light themes, so the theme table's mix is not what is drawn
+            // there. Those themes are left to `tone-contrast`, which measures
+            // the palette colour; the dark and terminal themes keep the mix,
+            // exactly as the build does, and are still judged here.
+            const all = Object.keys(DG_THEMES)
+              .filter(t => !(fk === tone && paletteTones.has(tone) && t.startsWith('light-')));
+            if (!all.length) continue;
             const weak = all.map(t => [t, dgBarContrast(fk, t)]).filter(([, r]) => r < DG_BAR_CONTRAST_MIN);
             if (!weak.length) continue;
             const low = Math.min(...weak.map(([, r]) => r)).toFixed(1);
@@ -2618,6 +2659,70 @@ function lintFile(filePath) {
     });
   }
 
+  // The nested `palette:` block, read the same way `style:` and `identity:`
+  // are. Two findings mirror a build refusal; the third is the one this block
+  // exists for.
+  //
+  // `tone-contrast` is the figure language's own column warning asked about a
+  // colour the author chose rather than one the theme derived. The strengths
+  // in DG_BAR_FILLS were tuned for a near-black ink and for the accent - a
+  // column of tone-2 is 45% of its base over the paper - so a mid-lightness
+  // house colour lands under WCAG 1.4.11's 3:1 and a projector, which
+  // flattens every mid-tone toward the paper, has nothing left to show. A
+  // *box* of the same tone is fine and is not warned about: it is mixed far
+  // paler on purpose, so the label on it stays legible.
+  {
+    const lines = header.split('\n');
+    let inBlock = false;
+    const paper = oklchToLab(DG_THEMES['light-orange'].paper);
+    const rule = (i, key, value) => {
+      const v = value.replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '');
+      if (!PALETTE_KEYS.includes(key) && !PALETTE_ACTIVITY_KEYS.includes(key)) {
+        addFm(i + 2, 'error', 'unknown-palette-tone',
+          `'palette.${key}' is not a key this block has – keys: ${[...PALETTE_KEYS, ...PALETTE_ACTIVITY_KEYS].join(', ')}`);
+        return;
+      }
+      if (!v) return;
+      const oklch = hexToOklch(v);
+      if (!oklch) {
+        addFm(i + 2, 'error', 'bad-palette-colour',
+          `'palette.${key}: ${v}' is not a colour – a tone is a hex value, "#2E6DB4" or `
+          + `"#2b4". Quote it: an unquoted # starts a YAML comment`);
+        return;
+      }
+      if (!DG_BAR_FILLS[key]) return;
+      const pct = DG_BAR_FILLS[key][1];
+      // Mixed in oklab, which is what color-mix(in oklab, …) does; mixing a
+      // hue linearly takes the short way round a circle and lands elsewhere.
+      const c = oklchToLab(oklch);
+      const mixed = [0, 1, 2].map(n => c[n] * pct / 100 + paper[n] * (1 - pct / 100));
+      const a = labLuminance(mixed), b = labLuminance(paper);
+      const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      if (ratio < WCAG_NON_TEXT) {
+        addFm(i + 2, 'warn', 'tone-contrast',
+          `'palette.${key}: ${v}' draws a column at ${ratio.toFixed(2)}:1 against the paper, `
+          + `under the ${WCAG_NON_TEXT} of WCAG 1.4.11 – a column of this tone is mixed at `
+          + `${pct}%, a strength tuned for the near-black ink, so a mid-lightness colour `
+          + `cannot clear it. Boxes of the same tone are unaffected`);
+      }
+    };
+    lines.forEach((raw, i) => {
+      const flow = raw.match(/^palette:[ \t]*\{(.*)\}[ \t]*$/);
+      if (flow) {
+        for (const pair of flow[1].split(',')) {
+          const kv = pair.match(/^\s*["']?([A-Za-z][A-Za-z0-9_-]*)["']?\s*:\s*(.*?)\s*$/);
+          if (kv) rule(i, kv[1], kv[2]);
+        }
+        return;
+      }
+      if (/^palette:[ \t]*$/.test(raw)) { inBlock = true; return; }
+      if (!inBlock) return;
+      if (!/^[ \t]+\S/.test(raw)) { if (raw.trim()) inBlock = false; return; }
+      const m = raw.match(/^[ \t]+([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)$/);
+      if (m) rule(i, m[1], m[2]);
+    });
+  }
+
   // The nested `fonts:` block, and only its `display:` key – DISPLAY_FONTS
   // says why the other three roles are left to the build. Read by
   // indentation like the `style:` block above, flow form included, because
@@ -2753,6 +2858,7 @@ function lintFile(filePath) {
   // lecture – so the tags they target are collected here and ruled on after
   // the whole file has been walked.
   const lectureTags = new Set();
+  const paletteTones = paletteTonesOf(header);
   const fmTagDefaults = [];
   {
     const fmDefaulted = new Map();
@@ -3056,7 +3162,7 @@ function lintFile(filePath) {
     // the chunks are.
     if (diagram) {
       if (/^:::\s*$/.test(line)) {
-        lintDiagram(diagram, add, fmLines, lectureTags);
+        lintDiagram(diagram, add, fmLines, lectureTags, paletteTones);
         chunkSteps += diagram.lines.filter(l => /^step\b/.test(l.text)).length;
         diagram = null;
       } else {
@@ -3077,6 +3183,18 @@ function lintFile(filePath) {
     // never reaches here - a diagram is not a card picture, as in the build.
     const cardsTop = layoutStack.length && layoutStack[layoutStack.length - 1];
     if (cardsTop && cardsTop.cardsCheck) {
+      // A card's own colour after its heading. Mirrors markCardLeads.
+      const tail = line.match(/^\s*[-*+][ \t]+(.*?)[ \t]+\{\.([^}\s]+)\}(\s*\\[ \t]*|[ \t]{2,})$/);
+      if (tail && /\*\*|__/.test(tail[1]) && cardsTop.cardsCheck.kind === 'cards') {
+        if (!CARD_TONE_WORDS.includes(tail[2])) {
+          add(ln, 'error', 'cards-card-tone',
+              `{.${tail[2]}} after a card heading is not a colour a card takes – write one of: `
+              + CARD_TONE_WORDS.map(w => '{.' + w + '}').join(', '));
+        } else if (['accent', 'photo', 'clear'].includes(cardsTop.cardsCheck.ground)) {
+          add(ln, 'error', 'cards-tone-no-tint',
+              `a card colour tints a card's ground, and ${cardsTop.cardsCheck.ground} has no tint to take; use it on panel, outline or paper`);
+        }
+      }
       if (/!\[[^\]]*\]\([^)\s]+[^)]*\)/.test(line)) cardsTop.hasImage = true;
       if (/^\s+(?:[-*+]|\d+[.)])\s+/.test(line)) cardsTop.hasNested = true;
     }
@@ -3511,8 +3629,17 @@ function lintFile(filePath) {
         wroteGround: cardsTail.slots.ground.written,
         wroteScrim: cardsTail.slots.scrim.written,
         wroteDetail: cardsTail.slots.detail.written,
+        tone: cardsTail.slots.tone.value,
         kind,
       };
+      // Mirrors build.js: a tone tints a ground, and accent, photo and clear
+      // have no tint to take.
+      if (!cardsTail.problems.length && cardsTail.slots.tone.value !== 'none'
+          && ['accent', 'photo', 'clear'].includes(cardsTail.slots.ground.value)) {
+        add(ln, 'error', 'cards-tone-no-tint',
+            `::: ${kind} {.${cardsTail.slots.tone.value} .${cardsTail.slots.ground.value}} – a tone tints a card's ground, `
+            + `and ${cardsTail.slots.ground.value} has no tint to take; use it on panel, outline or paper`);
+      }
       // Mirrors build.js: `.baseline` lines a term up with the body beside
       // it, and a card has no body beside it. Reported here rather than at
       // the close with the content-dependent three above, because this one

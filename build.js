@@ -31,8 +31,10 @@ import katex from 'katex';
 // Imported for the build; its *text* is also read and inlined into the live
 // views, the same way bundledFaces() reads woff2 out of node_modules.
 import { createDiagramCompiler, parseDiagramDefaults, dgShapeD, dgSplineD, dgPathD, DG_SHAPE_CLASSES, dgBarFillCss } from './diagram-core.mjs';
+import { DG_BAR_FILLS } from './diagram-core.mjs';
 import { DG_THEMES } from './diagram-core.mjs';
-import { hexToOklch, contrast, inkFor, lightnessFor, cssOklch, WCAG_TEXT } from './colour.mjs';
+import { hexToOklch, contrast, inkFor, lightnessFor, cssOklch, oklchToLab, labLuminance,
+  WCAG_TEXT, WCAG_NON_TEXT } from './colour.mjs';
 // The {…} tail grammar and the ::: draw opener, shared with lint.js so the
 // two files cannot disagree about a tail. Tables plus small pure helpers,
 // zero dependencies - see the header of tails.mjs and CLAUDE.md.
@@ -2277,7 +2279,14 @@ const CARDS_MEDIUM_MAX = 12;
 // reach it. A class on the run reaches it wherever it sits.
 const CARD_LEAD_RE = /^(\*\*(?:[^*]|\*(?!\*))+\*\*|__(?:[^_]|_(?!_))+__)(\s*\\[ \t]*|[ \t]{2,})$/;
 const CARD_IMG_ONLY_RE = /^!\[[^\]]*\]\([^)]*\)$/;
-function markCardLeads(lines) {
+// A card's own colour, written after its heading: `- **HTML** {.accent}\`.
+// The row's `tone` slot colours every card alike or in turn; this is the one
+// card that wants a colour of its own, which is what a row of three different
+// things side by side asks for. Only the tones and the accent, the
+// words the figure language and the row already use for colour.
+const CARD_TONE_WORDS = ['accent', 'tone-1', 'tone-2', 'tone-3', 'tone-4'];
+const CARD_TONE_TAIL_RE = /^(.*?)[ \t]+\{\.([^}\s]+)\}(\s*\\[ \t]*|[ \t]{2,})$/;
+function markCardLeads(lines, onProblem = () => {}) {
   let open = false;   // still at the item's opening slot
   return lines.map(raw => {
     let head, rest;
@@ -2290,10 +2299,26 @@ function markCardLeads(lines) {
       if (!cont || !cont[2].trim() || /^[-*+][ \t]/.test(cont[2])) { open = false; return raw; }
       [, head, rest] = cont;
     } else return raw;
+    let tone = null;
+    const tail = CARD_TONE_TAIL_RE.exec(rest);
+    if (tail && /\*\*|__/.test(tail[1])) {
+      tone = tail[2];
+      if (!CARD_TONE_WORDS.includes(tone)) {
+        onProblem(`{.${tone}} after a card heading is not a colour a card takes.\n` +
+          `  Write one of: ${CARD_TONE_WORDS.map(w => '{.' + w + '}').join(', ')}.`);
+        tone = null;
+      }
+      rest = tail[1] + tail[3];
+    }
     const lead = CARD_LEAD_RE.exec(rest);
     if (lead) {
       open = false;
-      return head + `<strong class="card-lead">${lead[1].slice(2, -2)}</strong>` + lead[2];
+      if (tone) currentCardTones = true;
+      return head + `<strong class="card-lead"${tone ? ` data-tone="${tone}"` : ''}>${lead[1].slice(2, -2)}</strong>` + lead[2];
+    }
+    if (tone) {
+      onProblem(`{.${tone}} colours a card through its heading, and this line is not one.\n` +
+        '  A heading is a bold on a line of its own, ending in a hard break:  - **HTML** {.accent}\\');
     }
     if (rest.trim() && !CARD_IMG_ONLY_RE.test(rest.trim())) open = false;
     return raw;
@@ -2301,6 +2326,9 @@ function markCardLeads(lines) {
 }
 
 function renderCardsBlock(b) {
+  // Collected while the leads are marked and raised once the refusal helper
+  // below exists - it is declared after the markup is built.
+  const cardLeadProblems = [];
   const o = readTail(b.attrs, CARDS_SLOTS, b.rows ? 'rows' : 'cards', b.where);
   // An item is its `- ` line *plus its continuation lines* - the indented
   // lines under it that are not themselves list items. Counting the marker
@@ -2390,7 +2418,7 @@ function renderCardsBlock(b) {
   } else {
     // A row's term is already its own element in its own column, so the
     // lead-in question is a card question only.
-    body = markCardLeads(b.lines);
+    body = markCardLeads(b.lines, (msg) => cardLeadProblems.push(msg));
   }
   // A card's default anchor is `top`. A row's depends on what the term sits
   // on, and that is the whole of this rule: the alignment follows from the
@@ -2415,6 +2443,10 @@ function renderCardsBlock(b) {
   const cls = [b.rows ? 'cards rows' : 'cards', `cards-${b.n}`, `cs-${size}`, `ca-${align}`,
     `cv-${o.anchor}`, `cd-${o.detail}`, `cg-${o.ground}`, `ck-${o.corner}`,
     `cx-${o.scrim}`];
+  // A tone's class only when one is written: every existing card row would
+  // otherwise gain a `ct-none` and every tracked view would move a byte for a
+  // word nobody wrote.
+  if (o.tone !== 'none') { cls.push(`ct-${o.tone}`); currentCardTones = true; }
   // A .photo ground, and a scrim over it, are words the drawing ignores
   // unless a card actually carries a picture - and a word that does nothing
   // is a refusal in this format, not a silent no-op. Both are checked against
@@ -2443,6 +2475,16 @@ function renderCardsBlock(b) {
   if (o.written.anchor && o.anchor === 'baseline' && !b.rows) {
     bad('.baseline lines a term up with the body beside it, and a card has no body beside it.\n' +
         '       Use .top or .middle here, or write ::: rows if the items are term-and-definition pairs.');
+  }
+  // A tone tints a ground, so it needs one that has a tint to take. The
+  // accent is already a colour, a photo is a picture, and clear has no fill
+  // and no border - on any of the three the word would draw nothing.
+  if (cardLeadProblems.length) bad(cardLeadProblems[0]);
+  const cardTone = b.lines.some(l => { const t = CARD_TONE_TAIL_RE.exec(l); return t && /\*\*|__/.test(t[1]); });
+  if ((o.tone !== 'none' || cardTone) && ['accent', 'photo', 'clear'].includes(o.ground)) {
+    bad(`${o.tone !== 'none' ? '.' + o.tone : 'a card colour'} tints a card's ground, and .${o.ground} has no tint to take:\n` +
+        '  the accent is already a colour, a photo is a picture, and clear draws no box.\n' +
+        '  Use it on panel (the default), outline or paper.');
   }
   if (o.written.ground && o.ground === 'photo' && !hasPicture) {
     bad('.photo makes a card\'s first image its ground, and no card here carries one.\n' +
@@ -3685,6 +3727,10 @@ function parseLecture(src) {
   // before it splices.
   src = String(src).replace(/\r\n?/g, '\n');
   const { data: frontmatter, content } = matter(src);
+  // Whether any card row in this lecture carries a tone, so the tone rules are
+  // emitted only into a deck that uses one. Set by renderCardsBlock, which
+  // runs during the parse; cleared here, at its head, for --watch.
+  currentCardTones = false;
   // The lecture-wide diagram layer, parsed once and handed to every block.
   // Validated here rather than at the first diagram, because a lecture whose
   // frontmatter is wrong should say so even when it has no diagram yet.
@@ -6067,6 +6113,248 @@ function identitySettings(frontmatter = {}) {
   return Object.keys(out).length ? out : null;
 }
 
+// ── palette: four accents that mean something ────────────────────────
+//
+// `tone-1`…`tone-4` are mixed from the page's own two inks - a tone on a box
+// is `--emph` or `--ink` at a percentage over the paper, and a column reads
+// its tone at roughly twice a box's strength. That is a good default: it
+// cannot clash, and it survives all seven themes, which is why the tones are
+// derived rather than named in the first place.
+//
+// It is also one hue and three greys. A deck that uses colour to *mean*
+// something - attacker, infrastructure, user, data, held constant over a
+// semester - has one hue and three greys to say it with, and draws three
+// different kinds of thing as two greys and a pale accent.
+//
+// `palette:` re-points the base each tone is mixed FROM and nothing else. The
+// mixing percentages, the bar strengths, the box/column distinction and
+// DG_BAR_CONTRAST_MIN all stay exactly as they are and operate on the new
+// base colours, so a palette colour too pale for a column still gets the
+// warning it would have got. The figure language needs no new vocabulary
+// either: `{.tone-1}` already exists and is already documented.
+//
+// **All of this lives here and not in diagram-core.mjs**, though that is
+// where the tone vocabulary lives and where DG_BAR_FILLS is. The reason is
+// mechanical: diagramCoreScript() splices that file into every built page as
+// TEXT, comments included, so a table added there costs four views their
+// bytes on every deck in the repository - measured, 114 lines across the
+// tutorial's four outputs, for a table the browser never reads. The build is
+// the only thing that needs these, so they are the build's.
+
+// What a BOX of each tone is filled and outlined with, as the token it is
+// mixed from and the percentage of it - the shape DG_BAR_FILLS uses for a
+// column, because a colour that a rule states and a warning computes has to
+// be one colour.
+//
+// This is a mirror of the `── tones ──` block in DIAGRAM_CSS rather than its
+// source: the stylesheet keeps its four hand-written rules, whose formatting
+// is not worth generating, and `test/gates/palette.mjs` parses the numbers
+// back out of it and asserts the two agree. The table exists because
+// `palette:` has to restate those rules with a different base, and restating
+// them from a second hand-written copy is how a mix drifts.
+//
+// A fill is over `paper` and a stroke over `ink`, which is the whole
+// difference between the two columns: an outline wants to be darker than its
+// fill in every theme, including the dark ones where darker is lighter.
+const DG_BOX_FILLS = {
+  'tone-1': { fill: ['emph', 13, 'paper'], stroke: ['emph', 60, 'ink'] },
+  'tone-2': { fill: ['ink', 8, 'paper'],   stroke: ['ink', 100, 'ink'] },
+  'tone-3': { fill: ['ink', 20, 'paper'],  stroke: ['ink', 100, 'ink'] },
+  'tone-4': { fill: ['emph', 100, 'paper'], stroke: ['emph', 100, 'ink'] },
+};
+const PALETTE_KEYS = Object.keys(DG_BOX_FILLS);
+// The four ::: activity kinds, whose colours a palette may re-point too. They
+// are emitted as the --activity-<kind> custom properties the boxes read, so
+// this block needs nothing from the construct but its names - and a palette
+// that sets them in a deck with no box costs four declarations and draws
+// nothing.
+const PALETTE_ACTIVITY_KEYS = ['link', 'info', 'task', 'example'];
+
+/** The four box rules with each tone's base replaced by the deck's colour. */
+function paletteBoxCss(palette, scope) {
+  const at = (tone, slot) => {
+    const [tok, pct, over] = DG_BOX_FILLS[tone][slot];
+    const base = palette[tone] || `var(--${tok})`;
+    return pct >= 100 ? base : `color-mix(in oklab, ${base} ${pct}%, var(--${over}))`;
+  };
+  const pre = scope ? scope + ' ' : '';
+  return PALETTE_KEYS.filter(t => palette[t]).map(tone =>
+    `${pre}.psi-diagram .${tone} > :is(rect, circle, .dg-shape) {`
+    + ` fill: ${at(tone, 'fill')}; stroke: ${at(tone, 'stroke')}; }`).join('\n');
+}
+/** The same for a column, off DG_BAR_FILLS - the table lint.js already reads. */
+function paletteBarCss(palette, scope) {
+  const pre = scope ? scope + ' ' : '';
+  // `emph` is deliberately absent: a palette names a tone, not a token, and
+  // `{.emph}` on a column means "this is the one to look at" rather than
+  // "this is infrastructure". It keeps the theme's accent.
+  return PALETTE_KEYS.filter(t => palette[t] && DG_BAR_FILLS[t]).map(tone => {
+    const [, pct] = DG_BAR_FILLS[tone];
+    const fill = pct >= 100 ? palette[tone]
+      : `color-mix(in oklab, ${palette[tone]} ${pct}%, var(--paper))`;
+    return `${pre}.psi-diagram .dg-bar.${tone} > rect { fill: ${fill}; }`;
+  }).join('\n');
+}
+
+let currentCardTones = false;
+
+// The four tone colours as custom properties, and what a toned card does with
+// its own. Emitted only when a card row in the deck carries a tone. Defaults
+// are the page's own inks - the accent, the ink, the soft ink, the accent -
+// so a deck with no palette still gets four distinguishable rows; a palette
+// re-points them, scoped the same way its figure tones are.
+const CARD_TONE_DEFAULTS = {
+  'tone-1': 'var(--emph)',
+  'tone-2': 'var(--ink)',
+  'tone-3': 'var(--ink-soft)',
+  'tone-4': 'var(--emph)',
+};
+function cardToneCss(view) {
+  if (!currentCardTones) return [];
+  // No :root declaration of the four tones. A value of var(--emph) declared
+  // there is substituted there, before a theme or a deck's identity has set
+  // the body's accent, so a toned card ignored both - the same trap the
+  // activity boxes fell into. The default rides in each use as a fallback,
+  // resolved on the card, and a palette's --tone-N still wins where it sets
+  // one.
+  const rules = [];
+  const tv = (t) => `var(--${t}, ${CARD_TONE_DEFAULTS[t]})`;
+  const items = (cls, nth = '') => [
+    `.cards.${cls}:not(.rows) > :is(ul, ol) > li${nth}`,
+    `.cards.${cls}:not(.rows) > :not(ul):not(ol)${nth}`,
+    `.cards.rows.${cls} li${nth} > :is(strong, b):first-child`,
+  ].join(',\n');
+  const paint = (tone) =>
+    // The fill is the tone at a fifth over the paper - a tint, so the body
+    // text stays the page's own ink - and the lead takes the tone at full
+    // strength, which is what a coloured heading on a pale box is. The edge
+    // is a darker shade of the same, for `elevation: offset` to draw.
+    ` { --card-bg: color-mix(in oklab, ${tv(tone)} 22%, var(--paper));`
+    + ` background-color: var(--card-bg);`
+    + ` --card-edge: color-mix(in oklab, ${tv(tone)} 78%, black);`
+    + ` --card-lead: ${tv(tone)};`
+    + ` border-color: color-mix(in oklab, ${tv(tone)} 55%, var(--paper)); }`;
+  for (const tone of Object.keys(CARD_TONE_DEFAULTS)) rules.push(items(`ct-${tone}`) + paint(tone));
+  // tones: the cards of a row take the four tones in order, and a fifth card
+  // starts again - by position in the row, so it needs no word per card.
+  Object.keys(CARD_TONE_DEFAULTS).forEach((tone, i) =>
+    rules.push(items('ct-tones', `:nth-child(4n+${i + 1})`) + paint(tone)));
+  // A card's own colour, from its heading. After the row's rules and one
+  // attribute more specific, so it wins over a row tone on the same card.
+  for (const tone of CARD_TONE_WORDS) {
+    const v = tone === 'accent' ? 'var(--emph)' : tv(tone);
+    rules.push(`.cards:not(.rows) > :is(ul, ol) > li:has(> .card-lead[data-tone="${tone}"])`
+      + ` { --card-bg: color-mix(in oklab, ${v} 22%, var(--paper)); background-color: var(--card-bg);`
+      + ` --card-edge: color-mix(in oklab, ${v} 78%, black); --card-lead: ${v};`
+      + ` border-color: color-mix(in oklab, ${v} 55%, var(--paper)); }`);
+  }
+  rules.push(`.cards[class*=" ct-"] .card-lead, .cards.rows[class*=" ct-"] li > :is(strong, b):first-child, .card-lead[data-tone] { color: var(--card-lead); }`);
+  if (view === 'print') {
+    // Print draws a card with a rule and no fill; a toned card is the one
+    // that asks for its colour on paper, and keeps it without background
+    // graphics for the reason the offset edge does.
+    rules.push(`.cards[class*=" ct-"] > :is(ul, ol) > li, .cards[class*=" ct-"] > :not(ul):not(ol), .cards li:has(> .card-lead[data-tone]) { -webkit-print-color-adjust: exact; print-color-adjust: exact; }`);
+  }
+  return rules;
+}
+
+function paletteSettings(frontmatter = {}) {
+  const raw = frontmatter.palette;
+  if (raw == null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    const err = new Error(
+      'Frontmatter: "palette:" is a block of keys, not a single value.\n' +
+      '  palette:\n    tone-1: "#2E6DB4"');
+    err.userFacing = true;
+    throw err;
+  }
+  const out = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (!PALETTE_KEYS.includes(k) && !PALETTE_ACTIVITY_KEYS.includes(k)) {
+      const err = new Error(
+        `Frontmatter: palette has no key "${k}".\n` +
+        `  Keys: ${[...PALETTE_KEYS, ...PALETTE_ACTIVITY_KEYS].join(', ')}\n` +
+        "  These are the figure language's own tone names, so a deck writes\n" +
+        '  `{.tone-1}` in a ::: draw block and means what it set here.');
+      err.userFacing = true;
+      throw err;
+    }
+    const hex = String(v).trim();
+    if (!hexToOklch(hex)) {
+      const err = new Error(
+        `Frontmatter: "palette.${k}: ${v}" is not a colour.\n` +
+        '  A tone is a hex value: "#2E6DB4", or "#2b4" for short.\n' +
+        '  Quote it - an unquoted # starts a YAML comment.');
+      err.userFacing = true;
+      throw err;
+    }
+    out[k] = hex;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * **Light themes only, and the derived mixes stay as the fallback.** Four
+ * hues tuned against white paper are not four hues on `terminal-green`, and
+ * the property that makes a theme switch survivable is exactly the derivation
+ * a palette replaces. So the rules are scoped and the two terminal themes and
+ * `dark` keep the mixes they were tuned for - one rule, no new vocabulary,
+ * nothing to remember. The document is unscoped: it has no themes.
+ */
+function paletteCss(palette, view) {
+  if (!palette) return [];
+  const scope = view === 'print' ? '' : IDENTITY_LIGHT_SEL;
+  // The card tones, re-pointed in the same scope as the figure tones, so a
+  // card row and a figure that name one tone stay one colour through A.
+  const vars = [
+    ...PALETTE_KEYS.filter(t => palette[t]).map(t => `--${t}: ${palette[t]};`),
+    ...PALETTE_ACTIVITY_KEYS.filter(k => palette[k]).map(k => `--activity-${k}: ${palette[k]};`),
+  ].join(' ');
+  return [paletteBoxCss(palette, scope), paletteBarCss(palette, scope),
+    vars ? `${scope || ':root'} { ${vars} }` : ''].filter(Boolean);
+}
+
+/**
+ * What the build says about a palette: the tones a room will not be able to
+ * tell from the paper. Same floor and the same arithmetic the figure
+ * language's own column warning uses - WCAG 1.4.11, below which a projector,
+ * which flattens every mid-tone toward the paper, has nothing left to show.
+ */
+function paletteNotes(palette) {
+  if (!palette) return [];
+  const paper = DG_THEMES['light-orange'].paper;
+  const out = [];
+  for (const [tone, hex] of Object.entries(palette)) {
+    const entry = DG_BAR_FILLS[tone];
+    if (!entry) continue;
+    const pct = entry[1];
+    // The column's strength, which is the stronger of the two mixes and so
+    // the one that has a chance of clearing the floor. A box's fill is far
+    // paler on purpose - it carries a label and the ink has to stay legible
+    // on it - and is not held to a non-text contrast floor at all.
+    //
+    // Mixed in oklab and not in oklch, because that is what the browser does:
+    // `color-mix(in oklab, …)` interpolates L, a and b, and interpolating a
+    // *hue* linearly instead takes the short way round a circle and lands on
+    // a different colour. dgBarContrast converts before it mixes for exactly
+    // this reason; so does this.
+    const c = oklchToLab(hexToOklch(hex));
+    const bg = oklchToLab(paper);
+    const mixed = [0, 1, 2].map(i => c[i] * pct / 100 + bg[i] * (1 - pct / 100));
+    const a = labLuminance(mixed), b = labLuminance(bg);
+    const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    if (ratio < WCAG_NON_TEXT) {
+      out.push(`[palette] ${tone} (${hex}) draws a column at ${ratio.toFixed(2)}:1 against the `
+        + `paper, under the ${WCAG_NON_TEXT} of WCAG 1.4.11 - a projector flattens a mid-tone `
+        + `toward the paper and has nothing left to show. A column of this tone is mixed at `
+        + `${pct}%, which is a strength tuned for the near-black ink and the accent; at that `
+        + `mix a mid-lightness colour cannot clear the floor. Boxes are unaffected - they are `
+        + `mixed far paler on purpose, so the label on them stays legible.`);
+    }
+  }
+  return out;
+}
+
 // The two grounds that paint the accent and reverse the ink onto it. Written
 // here and interpolated back into AUDIENCE_CSS and PRINT_CSS, so the
 // stylesheets emit the very bytes they emitted before and the identity block
@@ -6219,8 +6507,12 @@ function splitSelectorList(list) {
  * renderers, so it wins on source order, and emitted at all only when the
  * deck declares an accent.
  */
-function identityStyleTag(identity, st, view) {
-  if (!identity) return '';
+function identityStyleTag(identity, st, view, palette) {
+  // No early return on a missing identity: a deck may write `palette:` and no
+  // `identity:` at all, and returning here dropped its palette without a word
+  // - the figures kept the theme's mixed tones and nothing said why. Found by
+  // the palette reference deck, which sets no accent. The function returns
+  // nothing only when there are no rules, further down.
   const groups = identityColours(identity, view) || [];
   // Print reads its own neutrals key, and the live views theirs: the two
   // grounds are not the same ground, which is why STYLE_SPEC carries both.
@@ -6257,7 +6549,7 @@ function identityStyleTag(identity, st, view) {
     rules.push(ground(view === 'print' ? ACCENT_GROUND_CARD.print : ACCENT_GROUND_CARD.live, 78));
     rules.push(ground(ACCENT_GROUND_OVERLAY, 80));
   }
-  if (identity.ink) {
+  if (identity && identity.ink) {
     // The same scope the accent takes on the light themes, and the document
     // unscoped. --ink-soft follows it, a third of the way to the paper, so
     // captions and the soft greys stay in the family instead of reverting to
@@ -6265,6 +6557,8 @@ function identityStyleTag(identity, st, view) {
     const scope = view === 'print' ? 'body' : IDENTITY_LIGHT_SEL;
     rules.push(`${scope} { --ink: ${identity.ink}; --ink-soft: color-mix(in oklab, ${identity.ink} 68%, var(--paper)); }`);
   }
+  rules.push(...cardToneCss(view));
+  rules.push(...paletteCss(palette, view));
   if (!rules.length) return '';
   return `\n<style>\n${rules.join('\n')}\n</style>`;
 }
@@ -7135,6 +7429,7 @@ function renderDocument(lecture, opts = {}) {
   const printNums = printSlideNums(frontmatter);
   const styleOpts = styleSettings(frontmatter);
   const identity = identitySettings(frontmatter);
+  const palette = paletteSettings(frontmatter);
   return `<!DOCTYPE html>
 <html lang="${escapeHtml(lectureLang(frontmatter))}">
 <head>
@@ -7146,7 +7441,7 @@ ${PRINT_CSS}
 ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'print')}
-${styleBlockCss(styleOpts)}${identityStyleTag(identity, styleOpts, 'print')}
+${styleBlockCss(styleOpts)}${identityStyleTag(identity, styleOpts, 'print', palette)}
 ${codeTag(styleOpts, opts.codeSizing, 'print')}
 ${katexStyleTag(anonHtml + namedHtml)}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
@@ -8948,6 +9243,7 @@ function renderAudience(lecture, opts = {}) {
   const defaults = viewDefaults(frontmatter);
   const styleOpts = styleSettings(frontmatter);
   const identity = identitySettings(frontmatter);
+  const palette = paletteSettings(frontmatter);
 
   return `<!DOCTYPE html>
 <html lang="${escapeHtml(lectureLang(frontmatter))}">
@@ -8960,7 +9256,7 @@ ${AUDIENCE_CSS}
 ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'live')}
-${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live')}
+${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live', palette)}
 ${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
@@ -17414,6 +17710,7 @@ function renderSpeaker(lecture, opts = {}) {
   const defaults = viewDefaults(frontmatter);
   const styleOpts = styleSettings(frontmatter);
   const identity = identitySettings(frontmatter);
+  const palette = paletteSettings(frontmatter);
 
   return `<!DOCTYPE html>
 <html lang="${escapeHtml(lectureLang(frontmatter))}">
@@ -17426,7 +17723,7 @@ ${AUDIENCE_CSS}
 ${DIAGRAM_CSS}
 ${SPEAKER_CSS}
 </style>
-${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live')}
+${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live', palette)}
 ${fontStyleTag(opts.fontEmbed, 'live')}
 ${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
@@ -20417,6 +20714,8 @@ function buildOnce(absIn, only, opts = {}) {
   // here, and not per view: they are about the deck, not about an output.
   const identity = identitySettings(lecture.frontmatter);
   for (const note of identityNotes(identity)) console.log(note);
+  const palette = paletteSettings(lecture.frontmatter);
+  for (const note of paletteNotes(palette)) console.log(note);
   // Same pre-flight contract: an unknown `labels:` key fails the build here,
   // before any view is written, rather than inside a renderer. Resolved once
   // and passed to all three renderers via renderOpts.strings, which is why

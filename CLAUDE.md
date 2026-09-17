@@ -435,6 +435,21 @@ stylesheet so source order decides – which makes the accent immune to `A` by
 construction, with no reader key disabled and the two terminal themes left
 with the single phosphor tone they are.
 
+**`palette:` is its own top-level block** and gives the figure language four
+accents that mean something: it re-points the base each `tone-N` is mixed from
+and changes no percentage, so `DG_BAR_CONTRAST_MIN` and the box/column
+distinction operate unchanged on the new colours. Scoped to the light themes,
+with the derived mixes as the fallback on `dark` and the two terminal themes -
+four hues tuned against white paper are not four hues on phosphor green, and
+the derivation is what makes a theme switch survivable. `DG_BOX_FILLS` lives
+in `build.js` rather than in `diagram-core.mjs` because that file is spliced
+into every page as text: a table there costs four views their bytes on every
+deck for something the browser never reads. It mirrors the hand-written
+`── tones ──` rules and `test/gates/palette.mjs` holds the two together. Both
+`build.js` and `lint.js` mix **in oklab**, which is what `color-mix(in oklab,
+…)` does; interpolating a hue instead lands on a different colour and gives a
+plausible number for it.
+
 **A fourth role, `display`, is the exception to all of that**: `fonts: {display:
 Anton}` names one of 32 OFL faces for the cover, the closing slide and the
 section dividers, and nothing else in the deck wears it. It has no default, so

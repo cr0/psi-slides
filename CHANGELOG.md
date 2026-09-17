@@ -273,6 +273,85 @@ from building the same way is a major version.
   A deck that writes no `identity:` block reaches none of this and its four
   views are byte-identical to before.
 
+- **`palette: {tone-1: "#2E6DB4", …}` gives a deck four accents that mean
+  something.** `tone-1`…`tone-4` are mixed from the page's own two inks - a
+  box is `--emph` or `--ink` at a percentage over the paper, a column at
+  roughly twice that strength. It is a good default: it cannot clash and it
+  survives all seven themes, which is why the tones are derived in the first
+  place. It is also one hue and three greys, so a deck that uses colour to
+  *mean* something - attacker, infrastructure, user, data, held constant over
+  a semester - draws three different kinds of thing as two greys and a pale
+  accent.
+
+  The key re-points the base each tone is mixed **from**, and nothing else.
+  The percentages, the bar strengths, the box/column distinction and
+  `DG_BAR_CONTRAST_MIN` are untouched and operate on the new colours, so a
+  palette colour too pale for a column gets the warning it would have got.
+  The figure language needs no new vocabulary either: `{.tone-1}` already
+  exists and is already what a deck writes.
+
+  **Light themes only, and the derived mixes stay as the fallback.** Four hues
+  tuned against white paper are not four hues on `terminal-green`, and the
+  derivation a palette replaces is exactly what makes a theme switch
+  survivable. One scoped rule, no new vocabulary, nothing to remember. The
+  document is unscoped, because it has no themes.
+
+  **A card row takes the tones too.** `::: cards 3 {.tones}` gives the cards of
+  a row the four tones in turn, `{.tone-2}` gives every card one: a tint of the
+  tone over the paper, the lead in the tone itself, and a darker shade of it
+  exposed as `--card-edge` for a hard edge to use. It is a new *slot* beside
+  the ground and not a seventh ground - the grounds say what a card sits on and
+  are meant to stay six, and a panel tinted blue is still a panel. A tone on
+  `accent`, `photo` or `clear` is refused by both files, because none of the
+  three has a tint to take. Toned cards keep their colour on paper.
+
+  **A card may also take a colour of its own**, written after its heading:
+  `- **HTML** {.accent}\`, `- **CSS** {.tone-2}\`. It is what a row of three
+  different things wants - the row's `tone` colours every card alike or in
+  turn, a heading tail colours the one card - and it wins over the row's tone
+  on the same card. The accent and the four tones only; anything else, or a
+  tail on a line that is not a heading, is refused by both files
+  (`cards-card-tone`).
+
+  **A palette may re-point the four `::: activity` colours too** -
+  `palette: {link: …, info: …, task: …, example: …}` - emitted as the
+  `--activity-<kind>` properties the boxes read, in the same scope as the
+  tones. In a deck with no box they draw nothing.
+
+  `lint.js` mirrors the block and warns `tone-contrast` when a tone will not
+  carry as a column - with the strength named, because that is the part an
+  author cannot guess: a column of `tone-2` is 45% of its base over the paper,
+  a strength tuned for the near-black ink, so a mid-lightness house colour
+  cannot clear WCAG 1.4.11's 3:1 at that mix. Boxes of the same tone are fine
+  and are not warned about; they are mixed far paler on purpose, so the label
+  on them stays legible.
+
+  Both files mix **in oklab**, which is what `color-mix(in oklab, …)` does.
+  Interpolating a hue instead takes the short way round a circle and lands on
+  a different colour - worth 0.11 of a contrast ratio on the first tone this
+  was measured against, and a plausible number for the wrong colour is the
+  worst kind of wrong. `test/gates/palette.mjs` asserts the shape of that
+  line in both files, and asserts `DG_BOX_FILLS` against the four hand-written
+  rules in `DIAGRAM_CSS` that it mirrors - parsed back out of the stylesheet
+  rather than copied.
+
+  The figure language's own column warning, `diagram-bar-contrast`, knows about
+  the palette too. It judges a column against the theme table's mix of ink and
+  accent, and on the four light themes a named tone is not that mix any more -
+  so a palette deck drew warnings about colours nobody sees. Those themes are
+  left to `tone-contrast`; the dark and terminal themes keep the mix and the
+  warning. **A deck may also write `palette:` with no `identity:` block at
+  all**, which the first cut of this key silently ignored: the rule emitter
+  returned early on a missing identity, before it reached the palette. The
+  palette reference deck sets no accent and is what found it.
+
+  `DG_BOX_FILLS` lives in `build.js` and not in `diagram-core.mjs`, though
+  that is where the tone vocabulary is. The reason is mechanical:
+  `diagramCoreScript()` splices that file into every built page as *text*,
+  comments included, so a table added there costs four views their bytes on
+  every deck in the repository - measured at 114 lines across the tutorial's
+  outputs, for a table the browser never reads.
+
 - **`colour.mjs`**, the oklch/sRGB/WCAG chain as one module. The third file
   `lint.js` may import, on the terms the other two are on: zero dependencies,
   zero Node APIs, pure functions. `diagram-core.mjs` keeps its own copy of the
