@@ -251,7 +251,7 @@ Checks enforced:
   the columns, a `::: cols` inside `::: overlay` drew an empty column block
   – and the corpus nests exactly one thing, a figure in a pane, so none of
   them costs an existing lecture a build.
-- Unknown value for a viewer-default frontmatter key (`unknown-view-default`, error) or for a `style:` key (`unknown-style-setting`, error). Both mirror a build refusal that now runs in the `buildOnce` pre-flight, so `--print-only` refuses a typo in `auto-fit` and `--audience-only` refuses one in `print-slide-numbers`.
+- Unknown value for a viewer-default frontmatter key (`unknown-view-default`, error), for a `style:` key (`unknown-style-setting`, error) or for an `identity:` key (`unknown-identity-setting` and `bad-identity-colour`, errors; `accent-contrast`, a warning that mirrors no refusal – it is the one case the build cannot fix, a bold phrase in prose set in an accent with no ground to reverse against). Both mirror a build refusal that now runs in the `buildOnce` pre-flight, so `--print-only` refuses a typo in `auto-fit` and `--audience-only` refuses one in `print-slide-numbers`.
 - Assets over the 2 MB inline cap (`oversized-asset`, warning) – the pre-commit gate for the single-file property.
 - Unclosed display math (`unclosed-math`, warning). Fence-aware. Inline `$…$` is deliberately not checked: a lone dollar in prose is legitimate and the build leaves it alone.
 - A bold of two words or fewer sitting after a paragraph's first sentence
@@ -414,6 +414,26 @@ seeded, `printNeutrals()` resolves it, the shape `printSlideNums()` documents).
 lines is loud, and whether the small type round them is set in capitals. The
 tracking capitals need is applied by the build to any slot already in capitals
 and is deliberately not a key.
+
+**`identity:` is a top-level block, not a `style:` key**, because it answers a
+different question: `style:` is taste, `identity:` is whose deck this is.
+`identity: {accent: "#EC8A3C"}` re-points `--emph` across the four light
+themes, on `dark` and in the document, and with it the two things CSS cannot
+derive: `--accent-h`, which is a bare number in an `oklch()` argument list
+rather than a colour, and `--emph-ink`, the ink on an accent ground, which is
+a *measurement* – `.cards.cg-accent` reverses the paper onto the accent, which
+is right for the five tuned accents because they are dark, and wrong for a
+house colour out of a print manual, which usually is not (#EC8A3C carries
+white at 2.54:1). The arithmetic is `colour.mjs`, the third module `lint.js`
+may import; **`diagram-core.mjs` keeps its own copy of the same chain and
+must**, because it is spliced into the browser as text and an `import` line
+there is a syntax error in every built page while every Node-side gate stays
+green. `test/gates/identity.mjs` holds the two together and holds both against
+the four accent ratios `build.js` states in prose. Scoping is
+`body[data-theme^=light]` plus one rule for `dark`, emitted after the main
+stylesheet so source order decides – which makes the accent immune to `A` by
+construction, with no reader key disabled and the two terminal themes left
+with the single phosphor tone they are.
 
 **A fourth role, `display`, is the exception to all of that**: `fonts: {display:
 Anton}` names one of 32 OFL faces for the cover, the closing slide and the

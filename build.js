@@ -31,6 +31,8 @@ import katex from 'katex';
 // Imported for the build; its *text* is also read and inlined into the live
 // views, the same way bundledFaces() reads woff2 out of node_modules.
 import { createDiagramCompiler, parseDiagramDefaults, dgShapeD, dgSplineD, dgPathD, DG_SHAPE_CLASSES, dgBarFillCss } from './diagram-core.mjs';
+import { DG_THEMES } from './diagram-core.mjs';
+import { hexToOklch, contrast, inkFor, lightnessFor, cssOklch, WCAG_TEXT } from './colour.mjs';
 // The {…} tail grammar and the ::: draw opener, shared with lint.js so the
 // two files cannot disagree about a tail. Tables plus small pure helpers,
 // zero dependencies - see the header of tails.mjs and CLAUDE.md.
@@ -6000,6 +6002,298 @@ function styleBlockCss(st, S) {
   }
   return rules.length ? `<style>${rules.join(' ')}</style>` : '';
 }
+
+// ── identity: a deck's own accent ─────────────────────────────────────
+// The seven themes are seven tuned triples and none of them is anyone's. A
+// house colour is a hex value in a corporate manual, and `identity.accent`
+// is where a deck says which one.
+//
+// Everything here is conditional on the key being present: a deck that does
+// not write `identity:` reaches none of it and its four views are
+// byte-identical to what they were. That is the same property `fonts:
+// {display}` earns, and it is what keeps the tracked tutorial HTML - which
+// release.yml checks - from moving under a feature it does not use.
+const IDENTITY_SPEC = {
+  // The house colour, on the four light themes.
+  accent:        { kind: 'colour' },
+  // Its dark-mode counterpart, and deliberately not derived by default. The
+  // build lifts an accent that cannot carry on the dark ground (see
+  // identityColours), because that is arithmetic; choosing a *different*
+  // colour for dark is a decision a design department makes, and this key is
+  // where one that has been made gets written down.
+  'accent-dark': { kind: 'colour' },
+  // The house's text colour, and with it every colourless box - a panel card
+  // is a few percent of the ink over the paper, a rule is mixed from it, the
+  // footer is set in it. A corporate manual names one grey for body text, and
+  // the themes' near-black is not it. Light themes and the document only: on
+  // a dark ground the ink is light, and a grey chosen for white paper would
+  // be unreadable there.
+  ink:           { kind: 'colour' },
+};
+// A key that used to exist and does not any more - same courtesy STYLE_KEYS_REMOVED pays.
+const IDENTITY_KEYS_REMOVED = {};
+function identitySettings(frontmatter = {}) {
+  const raw = frontmatter.identity;
+  if (raw == null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    const err = new Error(
+      'Frontmatter: "identity:" is a block of keys, not a single value.\n' +
+      '  identity:\n    accent: "#EC8A3C"');
+    err.userFacing = true;
+    throw err;
+  }
+  const out = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const spec = IDENTITY_SPEC[k];
+    if (!spec) {
+      const err = new Error(
+        `Frontmatter: identity has no key "${k}".\n` +
+        (IDENTITY_KEYS_REMOVED[k] ? `  ${IDENTITY_KEYS_REMOVED[k]}\n` : '') +
+        `  Keys: ${Object.keys(IDENTITY_SPEC).join(', ')}`);
+      err.userFacing = true;
+      throw err;
+    }
+    const hex = String(v).trim();
+    if (!hexToOklch(hex)) {
+      const err = new Error(
+        `Frontmatter: "identity.${k}: ${v}" is not a colour.\n` +
+        '  A house colour is a hex value: "#EC8A3C", or "#f71" for short.\n' +
+        '  Quote it - an unquoted # starts a YAML comment.');
+      err.userFacing = true;
+      throw err;
+    }
+    out[k] = hex;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+// The two grounds that paint the accent and reverse the ink onto it. Written
+// here and interpolated back into AUDIENCE_CSS and PRINT_CSS, so the
+// stylesheets emit the very bytes they emitted before and the identity block
+// below can restate the selectors without a second, driftable copy of them.
+// The same trick DISPLAY_LH plays with its line heights, for the same reason.
+const ACCENT_GROUND_CARD = {
+  live: `.cards:not(.rows).cg-accent > ul > li,
+.cards:not(.rows).cg-accent > ol > li,
+.cards:not(.rows).cg-accent > :not(ul):not(ol),
+.cards.rows.cg-accent li > :is(strong, b):first-child`,
+  print: '.cards.cg-accent > ul > li, .cards.cg-accent > ol > li, .cards.cg-accent > :not(ul):not(ol)',
+};
+const ACCENT_GROUND_OVERLAY = ':is(.overlay-card, .dock).ov-accent';
+// The themes the house accent reaches, as a selector rather than a list.
+// `^=light` is the whole rule and it carries three properties at once:
+//
+//   * It outranks nothing and needs to. `body[data-theme=light-orange]` in
+//     AUDIENCE_CSS and this selector have the same specificity (0,1,1), and
+//     the identity block is emitted after the main stylesheet, so source
+//     order decides - the same mechanism styleBlockCss already relies on for
+//     the localised EXERCISE eyebrow, and for the same reason.
+//   * The accent is therefore immune to `A` across the four light themes by
+//     construction. Nothing disables a reader key, which matters: a theme
+//     switch is what a lecturer reaches for when the room's projector is
+//     washing the slide out.
+//   * The two terminal themes never match it. A single phosphor tone is what
+//     those are, and a house colour tuned for white paper is not one.
+//
+// `dark` is its own rule, because the colour that lands there may not be the
+// colour that lands here - see identityColours.
+const IDENTITY_LIGHT_SEL = 'body[data-theme^=light]';
+const IDENTITY_DARK_SEL = 'body[data-theme=dark]';
+
+/**
+ * What an identity actually paints, measured, per ground it can land on.
+ *
+ * Three grounds, not one: the four light themes, `dark`, and the document,
+ * whose palette is its own - `--emph: #8b2e00` on `--paper: #fafaf7`, one
+ * palette and no A key. The two terminal themes are absent on purpose: a
+ * single phosphor tone is what those are.
+ *
+ * Two questions per ground, and both are arithmetic rather than taste:
+ *
+ *   1. **Does the accent carry on this ground?** On `dark` a house colour
+ *      usually does - a colour too light for white paper is exactly what a
+ *      dark ground wants, and #EC8A3C measures 7.53:1 there against 2.40:1
+ *      on the light paper. When it does not, the lightness is lifted until
+ *      it does, keeping the hue and the chroma. That is not a new idea here:
+ *      this file's own dark theme is "the light-red accent lifted until it
+ *      carries on a dark ground", oklch(0.42 0.16 30) become
+ *      oklch(0.76 0.15 35). This makes that sentence a function. Only the
+ *      dark ground is lifted - on the light themes and on paper the author's
+ *      colour IS the deliverable, and darkening a CI value is not the
+ *      build's call. There it is reported instead; see identityNotes.
+ *   2. **Which ink goes on top of it?** `.cards.cg-accent` and an
+ *      `::: overlay {.accent}` reverse the paper onto the accent, and that
+ *      is right for the five tuned accents, which are dark. A house colour
+ *      from a print manual is usually light - #EC8A3C carries white at
+ *      2.54:1, under the 4.5 AA floor and under the 3.0 large-text one - so
+ *      the ink is chosen by measurement. An author cannot be asked to know
+ *      this and should not have to.
+ */
+const IDENTITY_GROUNDS = [
+  // sel, view, which key it reads, paper, ink, may the build lift it
+  { sel: IDENTITY_LIGHT_SEL, view: 'live', key: 'accent',
+    paper: () => DG_THEMES['light-orange'].paper, ink: () => DG_THEMES['light-orange'].ink, lift: false },
+  { sel: IDENTITY_DARK_SEL, view: 'live', key: 'accent-dark',
+    paper: () => DG_THEMES.dark.paper, ink: () => DG_THEMES.dark.ink, lift: true },
+  // The document has no data-theme at all, so it is scoped to the body
+  // itself. Its two tokens are read back out of PRINT_CSS's own hex through
+  // hexToOklch rather than restated here, which is one table fewer to hold
+  // against a stylesheet.
+  { sel: 'body', view: 'print', key: 'accent',
+    paper: () => hexToOklch(PRINT_PAPER_HEX), ink: () => hexToOklch(PRINT_INK_HEX), lift: false },
+];
+// Read by IDENTITY_GROUNDS above and written into PRINT_CSS below, so the
+// measurement and the stylesheet cannot name two different papers.
+const PRINT_PAPER_HEX = '#fafaf7';
+const PRINT_INK_HEX = '#1f1f24';
+
+function identityColours(identity, view) {
+  if (!identity) return null;
+  const out = [];
+  for (const g of IDENTITY_GROUNDS) {
+    if (g.view !== view) continue;
+    // `accent-dark` falls back to the house colour: one hex is the common
+    // case, and a deck that wants two says so.
+    const hex = identity[g.key] || (g.key === 'accent-dark' ? identity.accent : null);
+    if (!hex) continue;
+    const paper = g.paper();
+    // A deck that names its own ink is measured against that ink, on the
+    // grounds it reaches - otherwise the choice between paper and ink on an
+    // accent card would be made for a colour the page never draws.
+    const ink = (identity.ink && g.view === 'print') || (identity.ink && !g.lift)
+      ? hexToOklch(identity.ink) : g.ink();
+    let accent = hexToOklch(hex), css = hex, lifted = null;
+    if (g.lift && !identity[g.key] && contrast(accent, paper) < WCAG_TEXT) {
+      const L = lightnessFor(accent, paper, WCAG_TEXT, 'up');
+      if (L != null) { lifted = [L, accent[1], accent[2]]; accent = lifted; css = cssOklch(lifted); }
+    }
+    const candidates = [
+      { name: 'paper', oklch: paper, css: 'var(--paper)' },
+      { name: 'ink', oklch: ink, css: 'var(--ink)' },
+    ];
+    // A house ink is a grey chosen for body text on white, and on a mid-light
+    // accent it can fail as badly as the paper does: #565B63 on #EC8A3C is
+    // 2.69:1, white is 2.40:1. So a deck with its own ink also offers the
+    // theme's near-black, which the measurement takes when neither of the
+    // other two carries - a card is legible first and on-brand second.
+    const themeInk = g.ink();
+    if (identity.ink && (g.view === 'print' || !g.lift)) {
+      candidates.push({ name: 'deep', oklch: themeInk,
+        css: g.view === 'print' ? PRINT_INK_HEX : cssOklch(themeInk) });
+    }
+    const { pick, all } = inkFor(accent, candidates);
+    out.push({
+      sel: g.sel, view, key: g.key, hex, css, accent, lifted, ink: pick, inkRatios: all,
+      hue: +accent[2].toFixed(1),
+      onPaper: contrast(accent, paper),
+      where: g.view === 'print' ? 'the document' : (g.lift ? 'dark' : 'the light themes'),
+      // The ink is only emitted when it is not the one the stylesheet
+      // already puts there. A dark house accent reaches none of the ground
+      // rules and its whole diff is two custom properties.
+      reversed: pick.name !== 'paper',
+    });
+  }
+  return out.length ? out : null;
+}
+
+// Split a selector list on its top-level commas only. `:is(strong, b)` and
+// `:is(.overlay-card, .dock)` both carry one inside a bracket, and a naive
+// split turns the second half into `b):first-child` - which is not a
+// selector, and which CSS drops silently along with everything that was
+// grouped with it.
+function splitSelectorList(list) {
+  const out = [];
+  let depth = 0, start = 0;
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
+    if (c === '(' || c === '[') depth++;
+    else if (c === ')' || c === ']') depth--;
+    else if (c === ',' && depth === 0) { out.push(list.slice(start, i)); start = i + 1; }
+  }
+  out.push(list.slice(start));
+  return out.map(x => x.trim()).filter(Boolean);
+}
+
+/**
+ * The identity's stylesheet. Emitted after the main one in all three
+ * renderers, so it wins on source order, and emitted at all only when the
+ * deck declares an accent.
+ */
+function identityStyleTag(identity, st, view) {
+  if (!identity) return '';
+  const groups = identityColours(identity, view) || [];
+  // Print reads its own neutrals key, and the live views theirs: the two
+  // grounds are not the same ground, which is why STYLE_SPEC carries both.
+  const neutrals = view === 'print' ? printNeutrals(st) : st['neutrals'];
+  const rules = [];
+  for (const g of groups) {
+    const decls = [`--emph: ${g.css};`];
+    // --accent-h is a bare number in an oklch() argument list, not a colour,
+    // so CSS has nothing to derive it from and a workaround outside the
+    // build cannot set it at all. It drives --ink, --ink-soft, --paper,
+    // --rule and the whole shadow ladder, which is why an accent that moves
+    // without it leaves a deck tinted toward the theme's hue instead of its
+    // own. Held back under `neutrals: warm` / `cool`, where the author has
+    // asked for a fixed grey hue and the accent's is not it.
+    if (neutrals !== 'warm' && neutrals !== 'cool') decls.push(`--accent-h: ${g.hue};`);
+    if (g.reversed) decls.push(`--emph-ink: ${g.ink.css};`);
+    rules.push(`${g.sel} { ${decls.join(' ')} }`);
+  }
+  const reversed = groups.filter(g => g.reversed);
+  if (reversed.length) {
+    const INK = 'var(--emph-ink)';
+    // --emph-ink is declared on the body and *used* on the card, which is
+    // what keeps `--ink: var(--emph-ink)` from being a cycle: a custom
+    // property is substituted where it is declared, so the value the card
+    // inherits is already resolved and the card's own --ink cannot feed
+    // back into it.
+    const ground = (list, softPct) => {
+      const parts = [];
+      for (const g of reversed) for (const one of splitSelectorList(list))
+        parts.push(g.sel === 'body' ? one : `${g.sel} ${one}`);
+      return `${parts.join(',\n')} {\n  color: ${INK};\n  --ink: ${INK};\n`
+        + `  --ink-soft: color-mix(in oklch, ${INK} ${softPct}%, transparent);\n}`;
+    };
+    rules.push(ground(view === 'print' ? ACCENT_GROUND_CARD.print : ACCENT_GROUND_CARD.live, 78));
+    rules.push(ground(ACCENT_GROUND_OVERLAY, 80));
+  }
+  if (identity.ink) {
+    // The same scope the accent takes on the light themes, and the document
+    // unscoped. --ink-soft follows it, a third of the way to the paper, so
+    // captions and the soft greys stay in the family instead of reverting to
+    // the theme's cool near-black.
+    const scope = view === 'print' ? 'body' : IDENTITY_LIGHT_SEL;
+    rules.push(`${scope} { --ink: ${identity.ink}; --ink-soft: color-mix(in oklab, ${identity.ink} 68%, var(--paper)); }`);
+  }
+  if (!rules.length) return '';
+  return `\n<style>\n${rules.join('\n')}\n</style>`;
+}
+
+/**
+ * What the build says about an identity, once, on the human log. Two things
+ * an author cannot see from the source and both of which change what the
+ * room gets: which way the ink went on the accent grounds, and whether the
+ * dark accent had to be lifted.
+ */
+function identityNotes(identity) {
+  const groups = [...(identityColours(identity, 'live') || []), ...(identityColours(identity, 'print') || [])];
+  const out = [];
+  for (const g of groups) {
+    if (g.lifted) {
+      out.push(`[identity] ${g.hex} could not carry on the dark ground, so ${g.where} take(s) `
+        + `${g.css} - ${g.onPaper.toFixed(2)}:1. Write identity.accent-dark to choose your own.`);
+    }
+    if (g.reversed) {
+      out.push(`[identity] ${g.where}: an accent ground takes dark ink. ${g.hex} carries the paper at `
+        + `${g.inkRatios.find(r => r.name === 'paper').ratio.toFixed(2)}:1, under the ${WCAG_TEXT} a `
+        + `sentence needs; the ink carries at ${g.ink.ratio.toFixed(2)}:1.`);
+    } else if (g.onPaper < WCAG_TEXT) {
+      out.push(`[identity] ${g.where}: ${g.hex} carries ${g.onPaper.toFixed(2)}:1 against the paper, under `
+        + `the ${WCAG_TEXT} a bold phrase set in the accent needs. lint.js says the same thing.`);
+    }
+  }
+  return out;
+}
 // The documents' neutrals, and the one place the deferral is resolved. An
 // unset `print-neutrals` is not `neutral`, it is "whatever the live views
 // are set to" - see the note on the key in STYLE_SPEC, and printSlideNums()
@@ -6840,6 +7134,7 @@ function renderDocument(lecture, opts = {}) {
   // says nothing by following the live key.
   const printNums = printSlideNums(frontmatter);
   const styleOpts = styleSettings(frontmatter);
+  const identity = identitySettings(frontmatter);
   return `<!DOCTYPE html>
 <html lang="${escapeHtml(lectureLang(frontmatter))}">
 <head>
@@ -6851,7 +7146,7 @@ ${PRINT_CSS}
 ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'print')}
-${styleBlockCss(styleOpts)}
+${styleBlockCss(styleOpts)}${identityStyleTag(identity, styleOpts, 'print')}
 ${codeTag(styleOpts, opts.codeSizing, 'print')}
 ${katexStyleTag(anonHtml + namedHtml)}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
@@ -6880,9 +7175,9 @@ const PRINT_CSS = `
      and --body-scale moves that type here too. */
   --radius-card:  0.3em;
   --radius-tight: 0.1em;
-  --ink: #1f1f24;
+  --ink: ${PRINT_INK_HEX};
   --ink-soft: #6b6b72;
-  --paper: #fafaf7;
+  --paper: ${PRINT_PAPER_HEX};
   --rule: #c8c8c0;
   --emph: #8b2e00;
   /* The hue style: {neutrals} moves the greys onto. Print has no themes -
@@ -7559,7 +7854,7 @@ body[data-blocks=left] .math-display .katex-display > .katex,
 :is(.overlay-card, .dock).ov-glass  { background: color-mix(in oklch, var(--ink) 4%, transparent); border: 1px solid var(--rule); }
 :is(.overlay-card, .dock).ov-ink    { background: #1b1b20; color: #fff; }
 :is(.overlay-card, .dock).ov-ink a  { color: #fff; }
-:is(.overlay-card, .dock).ov-accent { background: var(--emph); color: #fff; }
+${ACCENT_GROUND_OVERLAY} { background: var(--emph); color: #fff; }
 :is(.overlay-card, .dock).ov-clear  { padding: 0; background: none; border: 0; }
 .dock.ov-tint { background: color-mix(in oklch, var(--ink) 4%, transparent); }
 /* Ink and accent grounds on paper: a bold keeps its accent on a light
@@ -7609,7 +7904,7 @@ body[data-blocks=left] .math-display .katex-display > .katex,
 .cards.cg-clear > ul > li, .cards.cg-clear > ol > li, .cards.cg-clear > :not(ul):not(ol) {
   border: 0; padding-left: 0; padding-right: 0;
 }
-.cards.cg-accent > ul > li, .cards.cg-accent > ol > li, .cards.cg-accent > :not(ul):not(ol) {
+${ACCENT_GROUND_CARD.print} {
   background: var(--emph); color: #fff; border-color: transparent;
 }
 .cards.cg-paper > ul > li, .cards.cg-paper > ol > li, .cards.cg-paper > :not(ul):not(ol) {
@@ -8652,6 +8947,7 @@ function renderAudience(lecture, opts = {}) {
   const titleJson = jsonForScript(title);
   const defaults = viewDefaults(frontmatter);
   const styleOpts = styleSettings(frontmatter);
+  const identity = identitySettings(frontmatter);
 
   return `<!DOCTYPE html>
 <html lang="${escapeHtml(lectureLang(frontmatter))}">
@@ -8664,7 +8960,7 @@ ${AUDIENCE_CSS}
 ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'live')}
-${styleBlockCss(styleOpts, S)}
+${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live')}
 ${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
@@ -10850,7 +11146,7 @@ body[data-mode=dark] .chunk[data-cover=panel] {
   --emph: oklch(0.90 0.10 75);
   text-shadow: none;
 }
-:is(.overlay-card, .dock).ov-accent {
+${ACCENT_GROUND_OVERLAY} {
   background: color-mix(in oklch, var(--emph) 92%, transparent);
   color: var(--paper);
   --ink: var(--paper);
@@ -11382,10 +11678,7 @@ body:not([data-headings]) .chunk-content:has(.chunk-body > .reveal-segment > .ca
    810x87 box laid out correctly and impossible to see. The fill itself
    stays on the li above, because --card-bg is a custom property and the
    term picks it up by inheritance; only the colours have to move. */
-.cards:not(.rows).cg-accent > ul > li,
-.cards:not(.rows).cg-accent > ol > li,
-.cards:not(.rows).cg-accent > :not(ul):not(ol),
-.cards.rows.cg-accent li > :is(strong, b):first-child {
+${ACCENT_GROUND_CARD.live} {
   color: var(--paper);
   --ink: var(--paper);
   --ink-soft: color-mix(in oklch, var(--paper) 78%, transparent);
@@ -17120,6 +17413,7 @@ function renderSpeaker(lecture, opts = {}) {
   const titleJson = jsonForScript(title);
   const defaults = viewDefaults(frontmatter);
   const styleOpts = styleSettings(frontmatter);
+  const identity = identitySettings(frontmatter);
 
   return `<!DOCTYPE html>
 <html lang="${escapeHtml(lectureLang(frontmatter))}">
@@ -17132,7 +17426,7 @@ ${AUDIENCE_CSS}
 ${DIAGRAM_CSS}
 ${SPEAKER_CSS}
 </style>
-${styleBlockCss(styleOpts, S)}
+${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live')}
 ${fontStyleTag(opts.fontEmbed, 'live')}
 ${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
@@ -20117,6 +20411,12 @@ function buildOnce(absIn, only, opts = {}) {
   // would ever have looked at.
   viewDefaults(lecture.frontmatter);
   const styleOpts = styleSettings(lecture.frontmatter);
+  // Same pre-flight contract: a hex that is not one, or a key `identity:`
+  // does not have, fails here rather than inside whichever renderer reads it
+  // first - so `--print-only` refuses it too. The notes are printed once,
+  // here, and not per view: they are about the deck, not about an output.
+  const identity = identitySettings(lecture.frontmatter);
+  for (const note of identityNotes(identity)) console.log(note);
   // Same pre-flight contract: an unknown `labels:` key fails the build here,
   // before any view is written, rather than inside a renderer. Resolved once
   // and passed to all three renderers via renderOpts.strings, which is why

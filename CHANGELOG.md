@@ -221,6 +221,68 @@ from building the same way is a major version.
 
 ### Added
 
+- **`identity: {accent: "#EC8A3C"}` gives a deck its own accent, and the build
+  does the arithmetic the colour needs.** A house colour is a hex value in a
+  corporate manual; the seven themes are seven tuned `oklch()` triples and none
+  of them is anyone's. The key re-points `--emph` across the four light themes,
+  on `dark`, and in the document, and with it two things CSS cannot derive on
+  its own:
+
+  - **`--accent-h`**, the hue the greys and the whole shadow ladder are mixed
+    on. It is a bare number in an `oklch()` argument list rather than a colour,
+    so nothing outside the build can compute it – and an accent that moves
+    without it leaves a deck tinted toward the *theme's* hue. Held back under
+    `neutrals: warm` / `cool`, where the author has asked for a fixed grey.
+  - **the ink on an accent ground**, chosen by measurement. `.cards.cg-accent`
+    and `::: overlay {.accent}` reverse the paper onto the accent, which is
+    right for the five tuned accents because they are dark. A house colour out
+    of a print manual usually is not: `#EC8A3C` carries white at 2.54:1,
+    under the 4.5 AA floor for body text and under the 3.0 for large text. The
+    build measures the accent's luminance, puts dark ink on those grounds when
+    white fails, and says once on the log which way it went and why.
+
+  `identity: {ink: "#565B63"}` sets the house's text colour, and with it every
+  colourless box, on the light themes and in the document. A grey chosen for
+  body text on white can fail on the accent as badly as white does - `#565B63`
+  on `#EC8A3C` is 2.69:1 - so a deck with its own ink also offers the theme's
+  near-black for an accent card, and the measurement takes it when neither of
+  the other two carries. `lint.js` warns `ink-contrast` for an ink under 4.5:1
+  on the paper.
+
+  `identity: {accent-dark: …}` names a second colour for the `dark` theme. It
+  is not derived by default, because a second hex is a decision a design
+  department makes – but an accent that cannot carry on the dark ground *is*
+  lifted, keeping its hue and chroma, which is the sentence this file's own
+  dark theme already carried in prose: "the light-red accent lifted until it
+  carries on a dark ground". Usually nothing fires: a colour too light for
+  white paper is exactly what a dark ground wants, and `#EC8A3C` measures
+  7.53:1 there.
+
+  The two terminal themes keep their own accent. A single phosphor tone is
+  what those are. The scoping is `body[data-theme^=light]` plus one rule for
+  `dark`, which also makes the accent immune to `A` **by construction** – it
+  does not move across the four light themes, and no reader key is disabled.
+
+  `lint.js` mirrors the block, refuses a value that is not a hex
+  (`bad-identity-colour`) and a key the block does not have
+  (`unknown-identity-setting`), and warns `accent-contrast` when the accent
+  itself falls under 4.5:1 against the paper it lands on – the one case the
+  build cannot fix for an author, because a bold phrase in prose is set in the
+  accent and has no ground to reverse against.
+
+  A deck that writes no `identity:` block reaches none of this and its four
+  views are byte-identical to before.
+
+- **`colour.mjs`**, the oklch/sRGB/WCAG chain as one module. The third file
+  `lint.js` may import, on the terms the other two are on: zero dependencies,
+  zero Node APIs, pure functions. `diagram-core.mjs` keeps its own copy of the
+  chain and must – it is spliced into the browser as text, so an `import` line
+  there is a syntax error in every built page while every Node-side check stays
+  green – and a new gate holds the two together instead. That gate also holds
+  the arithmetic against the four accent ratios `build.js` states in prose,
+  parsed out of the comment rather than copied, so the code and the comment
+  cannot drift apart.
+
 - **A fourth font role: `fonts: {display: …}` gives the cover, the closing
   slide and the section dividers a typeface nothing else in the deck wears.**
   Those three are the one place where a loud face is not a mistake – nobody

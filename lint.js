@@ -83,6 +83,7 @@ const KNOWN_FRONTMATTER_KEYS = new Set([
   'closing-image', 'closing-credits',
   // dividers, identity, type and language
   'section', 'section-mark', 'lecture', 'course', 'lang', 'labels', 'style',
+  'identity',
   'fonts', 'font', 'ligatures', 'draw-defaults',
   // viewer defaults
   'theme', 'collapse', 'auto-fit', 'slide-numbers', 'print-slide-numbers',
@@ -210,6 +211,21 @@ const STYLE_NUM_SPEC = {
   // STYLE_SPEC entry for why the roster normalises width and this key exists.
   'display-scale': [0.6, 1.8],
 };
+// Mirrors IDENTITY_SPEC in build.js: the keys of the nested `identity:`
+// block. Every one of them is a colour, so the vocabulary is a list of names
+// rather than a table of values - what a key accepts is "a hex colour", and
+// colour.mjs is the one reader of that on both sides.
+const IDENTITY_KEYS = ['accent', 'accent-dark', 'ink'];
+// The two grounds an accent lands on, as the linter needs them: the four
+// light themes share one paper and the document has its own. Mirrors the
+// values IDENTITY_GROUNDS reads in build.js - DG_THEMES for the themes, the
+// PRINT_PAPER_HEX constant for the document - and is held against them by a
+// gate, because a paper that drifts turns this warning into a false one.
+const IDENTITY_PAPERS = [
+  ['the light themes', () => DG_THEMES['light-orange'].paper],
+  ['the document', () => hexToOklch('#fafaf7')],
+];
+
 // Mirrors STYLE_KEYS_REMOVED in build.js.
 const STYLE_KEYS_REMOVED = {
   reveal: 'every reveal reserves its space now, which is what `hold` bought, so delete the key',
@@ -410,6 +426,7 @@ import {
   CARDS_SLOTS, OVERLAY_SLOTS, BACKDROP_SLOTS, SIDE_SLOTS, DOCK_SLOTS,
   splitTail, parseTail, strayTailProblem, parseDrawOpener, parseRevealMark,
 } from './tails.mjs';
+import { hexToOklch, contrast, WCAG_TEXT } from './colour.mjs';
 
 const REVEAL_PCT_WARN = 0.5;
 const ORPHAN_MIN = 2;
@@ -2517,6 +2534,85 @@ function lintFile(filePath) {
       if (/^style:[ \t]*$/.test(raw)) { inStyle = true; return; }
       if (!inStyle) return;
       if (!/^[ \t]+\S/.test(raw)) { if (raw.trim()) inStyle = false; return; }
+      const m = raw.match(/^[ \t]+([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)$/);
+      if (m) rule(i, m[1], m[2]);
+    });
+  }
+
+  // The nested `identity:` block, read the same way the `style:` one above
+  // is - by indentation, flow form included, because `identity: {accent:
+  // "#EC8A3C"}` is a line somebody will write and a reader that only sees
+  // the indented form passes a typo in it.
+  //
+  // Two findings mirror a build refusal and the third does not. `accent-
+  // contrast` is the one this block exists for: a house colour comes out of
+  // a corporate manual, where it was chosen to be *printed on white*, and
+  // the accent in this format lands in prose - the comment beside
+  // light-orange in build.js says so, and that theme's accent was darkened
+  // from 0.58 to 0.54 for exactly this reason. #EC8A3C carries 2.40:1 on the
+  // light paper, under the 4.5 a sentence needs and under the 3.0 a large
+  // one does. The build says the same thing on its log, but a lecturer reads
+  // a log once and a linter runs on every commit.
+  {
+    const lines = header.split('\n');
+    let inBlock = false;
+    const rule = (i, key, value) => {
+      const v = value.replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '');
+      if (!IDENTITY_KEYS.includes(key)) {
+        addFm(i + 2, 'error', 'unknown-identity-setting',
+          `'identity.${key}' is not a key this block has – keys: ${IDENTITY_KEYS.join(', ')}`);
+        return;
+      }
+      if (!v) return;
+      const oklch = hexToOklch(v);
+      if (!oklch) {
+        addFm(i + 2, 'error', 'bad-identity-colour',
+          `'identity.${key}: ${v}' is not a colour – a house colour is a hex value, `
+          + `"#EC8A3C" or "#f71". Quote it: an unquoted # starts a YAML comment`);
+        return;
+      }
+      // Only the light half is ruled on. On the dark ground the build lifts
+      // an accent that cannot carry, so there is nothing for an author to
+      // fix and a warning there would be noise about work already done.
+      // The house ink is body text, so it is held to the floor body text is.
+      if (key === 'ink') {
+        const short = IDENTITY_PAPERS
+          .map(([where, paper]) => [where, contrast(oklch, paper())])
+          .filter(([, ratio]) => ratio < WCAG_TEXT);
+        if (short.length) {
+          addFm(i + 2, 'warn', 'ink-contrast',
+            `'identity.ink: ${v}' carries `
+            + short.map(([where, ratio]) => `${ratio.toFixed(2)}:1 against ${where}`).join(' and ')
+            + `, under the ${WCAG_TEXT} body text needs`);
+        }
+        return;
+      }
+      if (key !== 'accent') return;
+      // One finding, not one per ground: they are the same defect seen
+      // twice, and a warning that repeats itself reads as two problems.
+      const short = IDENTITY_PAPERS
+        .map(([where, paper]) => [where, contrast(oklch, paper())])
+        .filter(([, ratio]) => ratio < WCAG_TEXT);
+      if (short.length) {
+        addFm(i + 2, 'warn', 'accent-contrast',
+          `'identity.accent: ${v}' carries `
+          + short.map(([where, ratio]) => `${ratio.toFixed(2)}:1 against ${where}`).join(' and ')
+          + `, under the ${WCAG_TEXT} a bold phrase set in the accent needs. The build reverses `
+          + `the ink on an accent card for you; a bold word in prose it cannot`);
+      }
+    };
+    lines.forEach((raw, i) => {
+      const flow = raw.match(/^identity:[ \t]*\{(.*)\}[ \t]*$/);
+      if (flow) {
+        for (const pair of flow[1].split(',')) {
+          const kv = pair.match(/^\s*["']?([A-Za-z][A-Za-z0-9_-]*)["']?\s*:\s*(.*?)\s*$/);
+          if (kv) rule(i, kv[1], kv[2]);
+        }
+        return;
+      }
+      if (/^identity:[ \t]*$/.test(raw)) { inBlock = true; return; }
+      if (!inBlock) return;
+      if (!/^[ \t]+\S/.test(raw)) { if (raw.trim()) inBlock = false; return; }
       const m = raw.match(/^[ \t]+([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)$/);
       if (m) rule(i, m[1], m[2]);
     });
