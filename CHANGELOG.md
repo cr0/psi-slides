@@ -221,6 +221,51 @@ from building the same way is a major version.
 
 ### Added
 
+- **`icons: fontawesome-free` turns `:fa-key:` into an inline SVG.** Three
+  prefixes, Font Awesome's own: `fa-` solid, `far-` regular, `fab-` brands.
+  Without the key the token stays the text it is - failing a build over a
+  colon would be worse than printing one - and `lint.js` warns
+  `icon-without-set`, which is the only thing that catches a mark that
+  silently became six characters.
+
+  **Not a webfont, and two of this repository's own tools decide that.**
+  `--squint` writes back what each slide paints and `buildSearchIndex` reads
+  `.chunk-body` text; an icon-font glyph is a private-use codepoint in both.
+  An inlined `<svg aria-hidden="true"><title>user check</title>` is the words
+  *user check* in both, because `textContent` descends into SVG. The `<title>`
+  is therefore mandatory rather than nice. Every file in the roster already
+  draws with `fill="currentColor"`, so an icon takes the colour of the
+  sentence it sits in and follows the reader's theme through `A` with no rule
+  of its own.
+
+  A name the set does not have fails the build with the nearest three, and it
+  fails **between rendering and writing**: a renderer runs inside `marked`, and
+  an exception from there reaches the author wrapped in marked's own "Please
+  report this to markedjs/marked" - a bug report filed against the wrong
+  project for a typo in a slide. The problem is collected instead and raised
+  where the two-pass contract already puts every other whole-build failure, so
+  the last good build survives it whole.
+
+  The mode is set at the head of the parse rather than in the build's
+  pre-flight. A `::: cards`, `::: overlay` or `::: dock` body is rendered
+  through `marked` while the lecture is parsed, so an icon in a card was
+  tokenized while the mode still said `none` and came out as its own text.
+  The icons reference deck, which puts one in a card, is what found it.
+
+  **An icon in a card's heading is set in the heading's colour.** A card lead
+  is a bold on a line of its own, and `**HTML** :fa-code:\` used not to be
+  one: the bold was not the whole line, the heading was not recognised, and
+  the icon sat outside it in the body's ink. Icon tokens on either side of the
+  bold, or inside it, are now part of the lead.
+
+  The set is a **devDependency** - 41 MB unpacked for 2883 icons - and nothing
+  reaches an output that does not name one. Font Awesome Free licenses its
+  icons CC BY 4.0, and the build emits that attribution into any view that
+  carries one, the way `oflNotice()` already does for the bundled typefaces.
+  Icons are out of scope inside a `::: draw` block: `editor.mjs` rewrites
+  those by character span, and a figure that wants a mark uses the `image`
+  statement, which already takes an SVG.
+
 - **A fourth font role: `fonts: {display: …}` gives the cover, the closing
   slide and the section dividers a typeface nothing else in the deck wears.**
   Those three are the one place where a loud face is not a mistake – nobody

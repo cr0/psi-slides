@@ -415,6 +415,19 @@ lines is loud, and whether the small type round them is set in capitals. The
 tracking capitals need is applied by the build to any slot already in capitals
 and is deliberately not a key.
 
+**`icons: fontawesome-free`** registers an inline `marked` extension the way
+the two math ones are registered, so a codespan consumes `` `:fa-key:` ``
+before the walker reaches it. The mark is an inlined SVG and not a webfont for
+a reason that is this repository's own: `--squint` and `buildSearchIndex` read
+text, an icon-font glyph is a private-use codepoint in both, and
+`<svg><title>user check</title>` is the words in both. `ICON_RE` is mirrored
+in `lint.js` and held by `test/gates/icons.mjs` over sixteen fixtures. An
+unknown name is **collected, not thrown**: a renderer runs inside `marked`, and
+an exception there reaches the author wrapped in marked's own bug-report
+banner, so `currentIconProblems` is raised between the render pass and the
+write pass instead. The set is a devDependency and the CC BY 4.0 attribution
+is emitted into any view that carries an icon.
+
 **A fourth role, `display`, is the exception to all of that**: `fonts: {display:
 Anton}` names one of 32 OFL faces for the cover, the closing slide and the
 section dividers, and nothing else in the deck wears it. It has no default, so

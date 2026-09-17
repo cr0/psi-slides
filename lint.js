@@ -83,7 +83,7 @@ const KNOWN_FRONTMATTER_KEYS = new Set([
   'closing-image', 'closing-credits',
   // dividers, identity, type and language
   'section', 'section-mark', 'lecture', 'course', 'lang', 'labels', 'style',
-  'fonts', 'font', 'ligatures', 'draw-defaults',
+  'fonts', 'font', 'ligatures', 'draw-defaults', 'icons',
   // viewer defaults
   'theme', 'collapse', 'auto-fit', 'slide-numbers', 'print-slide-numbers',
   'editor',
@@ -126,6 +126,10 @@ const VIEW_DEFAULTS = {
   // code ligatures are already off and defaulting to none would take fi and
   // fl out of every existing lecture's prose.
   'ligatures': ['text', 'none', 'all'],
+  // Which icon set `:fa-key:` resolves against. `none` is the default and
+  // leaves the token as the text it is; the build refuses a name the set does
+  // not have, which this file cannot check without the package.
+  'icons': ['fontawesome-free', 'none'],
 };
 
 // There is deliberately no mirror of the three TEXT roles of BUNDLED_FONTS
@@ -2720,6 +2724,9 @@ function lintFile(filePath) {
   // and its body with it - so a chunk-level flag is the only way a later check
   // can know the chunk drew something. Same shape as chunkHasReveal.
   let chunkHasDrawing = false;
+  // Whether `:fa-key:` resolves to a mark in this lecture, read once for
+  // the icon-without-set finding below.
+  const iconsOn = /^icons:[ \t]*["']?fontawesome-free["']?[ \t]*$/m.test(header);
   let inFence = false;
   let activeDirective = null;
   let layoutStack = [];
@@ -2974,6 +2981,31 @@ function lintFile(filePath) {
       continue;
     }
     if (inFence) { if (chunk) chunkBody.push(line); continue; }
+
+    // An icon-shaped token in a deck that has not asked for icons. The build
+    // deliberately does not fail here - `:fa-key:` with no `icons:` key is
+    // left as ordinary prose, because failing a build over a colon would be
+    // worse than printing one - so this is the only thing that catches it,
+    // and it is exactly the silent no-op the format refuses everywhere else:
+    // the author wrote a mark and the room gets six literal characters.
+    //
+    // Mirrors ICON_RE in build.js, anchored to the three prefixes for the
+    // same reason: a ratio of 3:2 and a time of 9:30 are not icons. Inline
+    // code is not excluded here because a codespan consumes its interior
+    // before the build's tokenizer sees it, so `\`:fa-key:\`` is not an icon
+    // either way and warning about it would be a false positive on a line
+    // that is documenting the syntax - which is why the test is for a token
+    // NOT inside backticks.
+    if (!iconsOn) {
+      const bare = line.replace(/`[^`]*`/g, '');
+      const hit = bare.match(/:(fa|far|fab)-[a-z0-9]+(?:-[a-z0-9]+)*:/);
+      if (hit) {
+        add(ln, 'warn', 'icon-without-set',
+            `'${hit[0]}' reads as an icon, but this lecture has no \`icons:\` key – the room `
+            + `gets those characters as text. Add \`icons: fontawesome-free\` to the frontmatter, `
+            + `or write the colons some other way`);
+      }
+    }
 
     // Fence settled: a non-fenced content line of an open cards/rows block
     // records whether the block carries a picture or a nested level, for the

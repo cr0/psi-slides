@@ -1414,6 +1414,178 @@ function ligatureMode(frontmatter = {}) {
   return raw;
 }
 
+// ── icons: a mark beside a word ──────────────────────────────────────
+//
+// `:fa-key:` in prose becomes an inline SVG. Three properties decide the
+// whole design, and all three point away from the icon font everybody reaches
+// for first:
+//
+//   * **`--squint` and the search index read text.** The first is the tool
+//     this project's own conventions say to read before arguing about a
+//     slide's wording; the second is `buildSearchIndex`, over `.chunk-body`.
+//     An icon-font glyph is a private-use codepoint in both. An inlined
+//     `<svg aria-hidden="true"><title>key</title>` is the word *key* in both,
+//     because `textContent` descends into SVG. That is why the `<title>` is
+//     mandatory rather than nice, and it is the whole argument for SVG.
+//   * **Payload.** A webfont puts the entire set into all four views of every
+//     lecture. The build reads the icons a deck actually names - a handful of
+//     300-byte paths - and nothing reaches an output that does not name one.
+//   * **Colour.** Every file in the roster already draws with
+//     `fill="currentColor"`, so an icon takes the colour of the sentence it
+//     sits in and follows the theme through `A` with no rule of its own.
+//
+// The set is a **devDependency**: a deck that writes no icon pays only the
+// install, and one that does reads individual files out of node_modules at
+// build time. Measured at 41 MB unpacked for 2883 icons, which is the cost
+// stated plainly - the alternative that needs no dependency at all is the one
+// this format already has, an SVG in `assets/`.
+const ICON_MODES = ['fontawesome-free', 'none'];
+// The three styles Font Awesome Free ships, and the prefix each answers to.
+// The prefixes are its own - `fas`, `far`, `fab` - so somebody who has used
+// the set knows them already, and `:fa-…:` is the common case spelled short.
+const ICON_PREFIXES = { fa: 'solid', far: 'regular', fab: 'brands' };
+const ICON_PKG = '@fortawesome/fontawesome-free';
+// Matched by the tokenizer and by lint.js, which is why it is written once.
+// Deliberately anchored to the three prefixes rather than to `:word:`: a
+// sentence about a ratio of 3:2 or a time of 9:30 is not an icon, and neither
+// is any other emoji-shaped convention a deck might already carry.
+const ICON_RE = /^:(fa|far|fab)-([a-z0-9]+(?:-[a-z0-9]+)*):/;
+
+function iconMode(frontmatter = {}) {
+  if (frontmatter.icons == null) return 'none';
+  const raw = String(frontmatter.icons).trim();
+  if (!ICON_MODES.includes(raw)) {
+    const err = new Error(
+      `Frontmatter: "icons: ${raw}" is not a value this key accepts.\n` +
+      `  Valid values: ${ICON_MODES.join(', ')}\n` +
+      '    fontawesome-free  :fa-key: in prose becomes an inline SVG\n' +
+      '    none              the default; :fa-key: stays the text it is');
+    err.userFacing = true;
+    throw err;
+  }
+  return raw;
+}
+
+// Module state, the same shape `currentSourceDir` has and for the same
+// reason: a marked extension is registered once for the process and has to
+// know which lecture it is rendering. Set by buildOnce, read by the renderer.
+let currentIconMode = 'none';
+const currentIconsUsed = new Set();
+// A name the roster does not have, collected rather than thrown. A renderer
+// runs inside marked, and an exception from there comes back to the author
+// wrapped in marked's own "Please report this to markedjs/marked" - a bug
+// report filed against the wrong project for a typo in a slide. So the
+// problem is recorded, the source text is left where the icon would have
+// been, and buildOnce refuses between rendering and writing, which is where
+// the two-pass contract already puts every other whole-build failure.
+const currentIconProblems = [];
+
+const iconDirCache = new Map();
+function iconDir(style) {
+  if (iconDirCache.has(style)) return iconDirCache.get(style);
+  let dir = null;
+  try {
+    dir = path.join(path.dirname(new URL(import.meta.url).pathname), 'node_modules', ICON_PKG, 'svgs', style);
+    if (!fs.existsSync(dir)) dir = null;
+  } catch { dir = null; }
+  iconDirCache.set(style, dir);
+  return dir;
+}
+const iconNamesCache = new Map();
+function iconNames(style) {
+  if (iconNamesCache.has(style)) return iconNamesCache.get(style);
+  const dir = iconDir(style);
+  const names = dir ? fs.readdirSync(dir).filter(f => f.endsWith('.svg')).map(f => f.slice(0, -4)) : [];
+  iconNamesCache.set(style, names);
+  return names;
+}
+// Levenshtein, small and local, for the "did you mean" the format pays on
+// every other refusal. Bounded at 3 because a suggestion further away than
+// that is noise rather than help.
+function nearestNames(want, pool, n = 3) {
+  const d = (a, b) => {
+    const m = a.length, k = b.length;
+    let prev = Array.from({ length: k + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) {
+      const cur = [i];
+      for (let j = 1; j <= k; j++)
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = cur;
+    }
+    return prev[k];
+  };
+  return pool.map(x => [d(want, x), x]).filter(([v]) => v <= 3)
+    .sort((a, b) => a[0] - b[0]).slice(0, n).map(([, x]) => x);
+}
+
+/**
+ * One icon as inline SVG. The file already draws with currentColor, so the
+ * only edits are the licence comment (which is emitted once per view instead
+ * of once per icon) and the accessible name.
+ */
+function iconSvg(prefix, name) {
+  const style = ICON_PREFIXES[prefix];
+  const dir = iconDir(style);
+  if (!dir) {
+    currentIconProblems.push(
+      `  \`:${prefix}-${name}:\` needs ${ICON_PKG}, which is not installed.`
+      + '\n     Run `npm install` in the engine directory; it is a devDependency.');
+    return `:${prefix}-${name}:`;
+  }
+  const file = path.join(dir, name + '.svg');
+  if (!fs.existsSync(file)) {
+    const near = nearestNames(name, iconNames(style));
+    currentIconProblems.push(
+      `  \`:${prefix}-${name}:\` is not an icon in the ${style} set.`
+      + (near.length ? `\n     Did you mean: ${near.map(x => `:${prefix}-${x}:`).join(', ')}` : ''));
+    return `:${prefix}-${name}:`;
+  }
+  currentIconsUsed.add(`${prefix}-${name}`);
+  const raw = fs.readFileSync(file, 'utf8')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    // The roster's files carry no width or height, only a viewBox, so the
+    // size is the stylesheet's to set and 1em is what a mark beside a word
+    // wants. aria-hidden AND a <title>: the title is there so --squint and
+    // the search index can read the word, and aria-hidden so a screen reader
+    // does not announce it twice - the sentence already says what it means.
+    .replace(/^<svg /, '<svg class="psi-icon" aria-hidden="true" focusable="false" ');
+  const label = name.replace(/-/g, ' ');
+  return raw.replace(/(<svg[^>]*>)/, `$1<title>${escapeHtml(label)}</title>`);
+}
+
+// Emitted once into a view that carries at least one icon. Font Awesome Free
+// licenses its icons CC BY 4.0, which asks for attribution; a deck that ships
+// them should discharge that rather than leave every lecturer quietly
+// non-compliant. Same shape oflNotice() uses for the bundled typefaces.
+/**
+ * What a view carries when it holds at least one icon: the attribution and
+ * the one rule that sizes a mark against the word beside it. Emitted from
+ * here rather than written into AUDIENCE_CSS and PRINT_CSS, so a deck with no
+ * icons emits nothing and its four views are byte-identical - the same reason
+ * fontStyleTag emits the display face's rules rather than the stylesheets.
+ */
+function iconStyleTag() {
+  if (!currentIconsUsed.size) return '';
+  // 1em tall and aligned on the cap rather than the baseline: an icon beside
+  // a word is read as a letter of it, and a baseline-aligned square sits
+  // visibly low. The 0.1em is the optical correction, measured against
+  // Literata and IBM Plex Sans, which differ by less than a hundredth of an
+  // em in cap height and so take the same number.
+  return `\n${iconNotice()}\n<style>
+.psi-icon {
+  height: 1em;
+  width: auto;
+  vertical-align: -0.1em;
+  fill: currentColor;
+}
+</style>`;
+}
+
+const iconNotice = () =>
+  '<!-- Icons: Font Awesome Free (https://fontawesome.com), CC BY 4.0.\n'
+  + '     The licence permits this embedding and asks that the attribution\n'
+  + '     travel with it. Full text: node_modules/' + ICON_PKG + '/LICENSE.txt -->';
+
 // Which bundled family fills each role. An author names one in the `fonts:`
 // block exactly as they would name a family in fonts/ - the difference is
 // that a bundled name needs no file, which is the whole point of bundling
@@ -2273,7 +2445,18 @@ const CARDS_MEDIUM_MAX = 12;
 // bleeds an image: there the lead-in is the line *under* the picture, and
 // the two position-dependent selector pairs this replaces existed only to
 // reach it. A class on the run reaches it wherever it sits.
-const CARD_LEAD_RE = /^(\*\*(?:[^*]|\*(?!\*))+\*\*|__(?:[^_]|_(?!_))+__)(\s*\\[ \t]*|[ \t]{2,})$/;
+// An icon beside the bold belongs to the heading, whichever side it is
+// written on: `**HTML** :fa-code:\` and `:fa-code: **HTML**\` are both a
+// card heading with a mark in it. Without that the bold is not the whole of
+// the line, the lead is not recognised, and the icon lands outside the
+// <strong> in the body's ink beside a heading set in colour - the one place
+// a room reads an icon as a label. So the icons are taken into the lead and
+// take its colour through currentColor. The two extra groups match nothing
+// in a deck with no `:fa-…:` token, so no existing card moves a byte.
+const CARD_LEAD_ICON = String.raw`:(?:fa|far|fab)-[a-z0-9]+(?:-[a-z0-9]+)*:`;
+const CARD_LEAD_RE = new RegExp(String.raw`^((?:${CARD_LEAD_ICON}[ \t]+)*)`
+  + String.raw`(\*\*(?:[^*]|\*(?!\*))+\*\*|__(?:[^_]|_(?!_))+__)`
+  + String.raw`((?:[ \t]+${CARD_LEAD_ICON})*)(\s*\\[ \t]*|[ \t]{2,})$`);
 const CARD_IMG_ONLY_RE = /^!\[[^\]]*\]\([^)]*\)$/;
 function markCardLeads(lines) {
   let open = false;   // still at the item's opening slot
@@ -2291,7 +2474,7 @@ function markCardLeads(lines) {
     const lead = CARD_LEAD_RE.exec(rest);
     if (lead) {
       open = false;
-      return head + `<strong class="card-lead">${lead[1].slice(2, -2)}</strong>` + lead[2];
+      return head + `<strong class="card-lead">${lead[1]}${lead[2].slice(2, -2)}${lead[3]}</strong>` + lead[4];
     }
     if (rest.trim() && !CARD_IMG_ONLY_RE.test(rest.trim())) open = false;
     return raw;
@@ -2772,6 +2955,30 @@ marked.use({
       renderer(token) {
         return `<span class="math-inline">${renderMath(token.text, false)}</span>`;
       },
+    },
+  ],
+});
+
+// An icon is an inline token, registered the way the two math ones are and
+// with the same property falling out of it: a codespan consumes its interior
+// before the walker reaches it, so `` `:fa-key:` `` in a sentence about the
+// syntax stays the text it is. The tokenizer declines when the lecture has no
+// `icons:` key, which leaves `:fa-key:` as ordinary prose rather than failing
+// a build over a colon - and lint.js says so, because prose that was meant to
+// be an icon and silently is not is the failure worth catching there.
+marked.use({
+  extensions: [
+    {
+      name: 'faIcon',
+      level: 'inline',
+      start(src) { return src.indexOf(':fa'); },
+      tokenizer(src) {
+        if (currentIconMode === 'none') return;
+        const m = ICON_RE.exec(src);
+        if (!m) return;
+        return { type: 'faIcon', raw: m[0], prefix: m[1], name: m[2] };
+      },
+      renderer(token) { return iconSvg(token.prefix, token.name); },
     },
   ],
 });
@@ -3683,6 +3890,20 @@ function parseLecture(src) {
   // before it splices.
   src = String(src).replace(/\r\n?/g, '\n');
   const { data: frontmatter, content } = matter(src);
+  // Which icon set this lecture asked for, and which icons it names. Module
+  // state for the same reason currentSourceDir is: a marked extension is
+  // registered once for the process and has to know which lecture it is
+  // rendering. Set HERE, at the head of the parse, and not in buildOnce's
+  // pre-flight where it first lived: a ::: cards, ::: overlay or ::: dock body
+  // is rendered through marked during the parse, so an icon in a card was
+  // tokenized while the mode still said none and came out as its own text.
+  // The icons reference deck, which puts one in a card, is what found it.
+  // Cleared here too, or a --watch rebuild would keep emitting the notice for
+  // an icon the author has just deleted. A bad value fails here, which is
+  // still before any view is written.
+  currentIconMode = iconMode(frontmatter);
+  currentIconsUsed.clear();
+  currentIconProblems.length = 0;
   // The lecture-wide diagram layer, parsed once and handed to every block.
   // Validated here rather than at the first diagram, because a lecture whose
   // frontmatter is wrong should say so even when it has no diagram yet.
@@ -6852,7 +7073,7 @@ ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'print')}
 ${styleBlockCss(styleOpts)}
-${codeTag(styleOpts, opts.codeSizing, 'print')}
+${iconStyleTag()}${codeTag(styleOpts, opts.codeSizing, 'print')}
 ${katexStyleTag(anonHtml + namedHtml)}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
@@ -8665,7 +8886,7 @@ ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'live')}
 ${styleBlockCss(styleOpts, S)}
-${codeTag(styleOpts, opts.codeSizing, 'live')}
+${iconStyleTag()}${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
@@ -17134,7 +17355,7 @@ ${SPEAKER_CSS}
 </style>
 ${styleBlockCss(styleOpts, S)}
 ${fontStyleTag(opts.fontEmbed, 'live')}
-${codeTag(styleOpts, opts.codeSizing, 'live')}
+${iconStyleTag()}${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
@@ -20262,6 +20483,21 @@ function buildOnce(absIn, only, opts = {}) {
     inlineSvgCounter = svgIdFloor;
     return [name, render(lecture, renderOpts)];
   });
+  // Icons, refused here rather than from inside a renderer - see the note on
+  // currentIconProblems. Between the two passes, so a deck with a typo in an
+  // icon name leaves the last good build whole on disk.
+  if (currentIconProblems.length) {
+    // Deduplicated before it is counted: the same icon is rendered once per
+    // view, so a single typo arrives here four times and "4 icons" would be
+    // a lie about the author's source.
+    const problems = [...new Set(currentIconProblems)];
+    const err = new Error(
+      `This lecture names ${problems.length} icon(s) the set does not have:\n`
+      + problems.join('\n')
+      + '\n  The three prefixes are fa- (solid), far- (regular) and fab- (brands).');
+    err.userFacing = true;
+    throw err;
+  }
   const written = [];
   for (const [name, html] of rendered) {
     const p = path.join(outDir, `${name}.html`);
