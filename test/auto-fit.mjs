@@ -73,6 +73,11 @@ ${TALL}
 //
 // auto-fit rides in the frontmatter here instead of on a # press, because the
 // cover is the first slide and walkTo only ever goes forward.
+//
+// A lede was the second half: between the nameplate and the pinned credits
+// masthead stretches its field (flex: 1), so with words in it the extent was
+// the frame again - and the closing slide pins its own words to the foot the
+// same way. This fixture had neither, so both still sat at 0.6.
 const COVER_SOURCE = `---
 title: T
 subtitle: S
@@ -83,9 +88,15 @@ presenter: P
 
 ## title: {#title}
 
+A lede in the field between the nameplate and the credits.
+
 ## free: F {#f}
 
 One line, and nothing else on the slide.
+
+## closing: Danke | und tschuess {#end}
+
+Closing words pinned to the foot.
 `;
 
 // The zoom the runtime settled on, and whether the slide is inside the frame.
@@ -194,7 +205,7 @@ export async function run({ page, report, walkTo }) {
     // The floor itself, not a threshold near it: the failure this guards is
     // not "a bit small", it is the loop running out of room to shrink.
     ok(cover.zoom > 0.61,
-       'a masthead cover with a presenter is not pinned at the auto-fit floor',
+       'a masthead cover with a presenter and a lede is not pinned at the auto-fit floor',
        String(cover.zoom));
     ok(cover.zoom > DEFAULT_ZOOM,
        'and full mode grows it, the same claim the short slide above makes',
@@ -203,7 +214,72 @@ export async function run({ page, report, walkTo }) {
        'while the slide is still inside the frame',
        `${cover.h}px in ${cover.frame}px`);
     note(`masthead cover under full: zoom ${cover.zoom}, ${cover.h}px in ${cover.frame}px`);
+
+    await walkTo('end');
+    const closing = await measure(page);
+    ok(closing.zoom > 0.61,
+       'nor is its closing slide, whose words are pinned to the foot', String(closing.zoom));
+    ok(closing.h <= closing.frame + 1,
+       'and the closing slide is inside the frame', `${closing.h}px in ${closing.frame}px`);
   } finally {
     cserver.close();
+  }
+
+  // ── the cockpit's thumbnails ──
+  //
+  // A thumbnail is a clone, and a clone inherits --zoom from the document -
+  // which under auto-fit is the answer for the *current* slide. So every
+  // thumbnail was drawn at the current slide's size: on a short slide the tall
+  // one's thumbnail ran out of its slot, on the tall slide the short one's
+  // shrank with it. Each clone now carries a zoom of its own. The assertion
+  // is that a thumbnail's zoom does not move when the current slide does, and
+  // that the tall one is smaller than the short one and inside its own box.
+  const tdir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-autofit-thumbs-'));
+  fs.writeFileSync(path.join(tdir, 'source.md'), SOURCE.replace('title: T\n', 'title: T\nauto-fit: true\n'));
+  const tbuilt = spawnSync(process.execPath,
+    [path.join(ROOT, 'build.js'), path.join(tdir, 'source.md'), '--speaker-only'],
+    { cwd: ROOT, encoding: 'utf8' });
+  ok(tbuilt.status === 0, 'the thumbnail fixture builds', (tbuilt.stdout || '') + (tbuilt.stderr || ''));
+  if (tbuilt.status !== 0) return;
+  const { server: tserver, port: tport } = await serve(tdir);
+  const thumbs = () => page.evaluate(() => {
+    const read = (id) => {
+      const c = document.querySelector('#preview-strip .chunk-clone[data-chunk-id="' + id + '"]');
+      if (!c) return null;
+      return { zoom: parseFloat(getComputedStyle(c).getPropertyValue('--zoom')),
+               over: c.scrollHeight > c.clientHeight + 2 };
+    };
+    return { tall: read('tall'), short: read('short') };
+  });
+  try {
+    await page.goto(`http://127.0.0.1:${tport}/speaker.html`, { waitUntil: 'load' });
+    await page.evaluate(() => { try { localStorage.clear(); } catch (e) { /* private window */ } });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(1500);
+    const atStart = await thumbs();
+    ok(!!(atStart.tall && atStart.short), 'the cockpit draws both thumbnails', JSON.stringify(atStart));
+    if (!atStart.tall || !atStart.short) return;
+    ok(atStart.tall.zoom < atStart.short.zoom,
+       'a thumbnail of a tall slide is drawn smaller than one of a short slide',
+       `${atStart.tall.zoom} vs ${atStart.short.zoom}`);
+    ok(!atStart.tall.over, 'and the tall one fits its own box');
+    // Onto each of the two in turn: the tall slide is where the document's
+    // zoom is smallest and the short one where it is largest, so a thumbnail
+    // that still inherits it cannot hold still across both. The hash is the
+    // way there because a key press needs focus the cockpit does not have
+    // after a reload.
+    const onto = async (id) => {
+      await page.evaluate((h) => { location.hash = '#' + h; }, id);
+      await page.waitForTimeout(1200);
+      return thumbs();
+    };
+    const onTall = await onto('tall');
+    const onShort = await onto('short');
+    ok(onTall.tall.zoom === onShort.tall.zoom && onTall.short.zoom === onShort.short.zoom,
+       'and neither moves when the current slide does',
+       `tall ${onTall.tall.zoom} / ${onShort.tall.zoom}, short ${onTall.short.zoom} / ${onShort.short.zoom}`);
+    note(`thumbnails under full: tall ${atStart.tall.zoom}, short ${atStart.short.zoom}`);
+  } finally {
+    tserver.close();
   }
 }
