@@ -9,7 +9,7 @@
  * two agree – in seconds, on a bare checkout, with no `npm install` and no
  * Chromium, because both of those files are zero-dependency by design.
  *
- * Twelve gates, and they prove twelve different things – which is worth stating
+ * Seventeen gates, and they prove seventeen different things – which is worth stating
  * because a green run summarised as one number hid a wrong drawing behind a
  * passing parse:
  *
@@ -44,6 +44,21 @@
  *              build.js already states in prose, the duplicate chain in
  *              diagram-core.mjs, and the document paper lint.js measures
  *              against
+ *   frame      every state that covers the stage is in FRAME_HIDDEN_STATES,
+ *              derived from the stylesheet rather than restated - the panels
+ *              from their own #x.hidden rule, the dimmers from a property
+ *              sweep over every selector that touches #stage
+ *   elevation  the shadow ladder stays inside the slide's own padding at the
+ *              largest body-scale the format allows - the one thing on a
+ *              slide no probe can see, held by a relation instead
+ *   palette    the tone table is the stylesheet it mirrors, both files mix a
+ *              tone in oklab, and the column warning leaves a palette tone on
+ *              the light themes to tone-contrast
+ *   icons      build.js and lint.js read the same :fa-…: pattern, and the
+ *              inlined mark carries the <title> that --squint and the search
+ *              index read
+ *   activity   the four ::: activity kinds and the places a box may not
+ *              open, the same in build.js and lint.js
  *
  * `test/run.mjs` is the other half and stays separate: it builds and serves
  * the lectures, launches a browser and takes about four minutes. Splitting
@@ -67,6 +82,11 @@ const GATES = [
   './cue-cards.mjs',
   './xheight.mjs',
   './identity.mjs',
+  './palette.mjs',
+  './frame.mjs',
+  './elevation.mjs',
+  './icons.mjs',
+  './activity.mjs',
 ];
 
 const filter = process.argv.slice(2).filter(a => !a.startsWith('-'));

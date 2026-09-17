@@ -122,6 +122,15 @@ export const CARDS_SLOTS = {
   // different question - a square accent card and a round accent card are
   // the same ground with two shapes.
   corner: { default: 'round', words: ['round', 'square'] },
+  // Which colour the ground is tinted in - a question beside the ground, not
+  // a seventh one. The grounds say what a card sits on and stay six; a panel
+  // tinted blue is still a panel. `tone-1`…`tone-4` are the figure language's
+  // own tone names, so a card and a box in a figure that mean the same thing
+  // are the same colour, and a deck's `palette:` recolours both at once.
+  // `tones` gives the cards of a row the four tones in turn, which is what a
+  // row of three kinds of thing side by side wants. `none` is the default
+  // and emits nothing.
+  tone:   { default: 'none',  words: ['none', 'tone-1', 'tone-2', 'tone-3', 'tone-4', 'tones'] },
   // What a `photo` card's picture is veiled with - the same question
   // ::: backdrop answers with the same words, except `plain` for `clear`:
   // `clear` is already a *ground* in this table, and one table may not hold

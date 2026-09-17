@@ -273,6 +273,148 @@ from building the same way is a major version.
   A deck that writes no `identity:` block reaches none of this and its four
   views are byte-identical to before.
 
+- **`palette: {tone-1: "#2E6DB4", …}` gives a deck four accents that mean
+  something.** `tone-1`…`tone-4` are mixed from the page's own two inks - a
+  box is `--emph` or `--ink` at a percentage over the paper, a column at
+  roughly twice that strength. It is a good default: it cannot clash and it
+  survives all seven themes, which is why the tones are derived in the first
+  place. It is also one hue and three greys, so a deck that uses colour to
+  *mean* something - attacker, infrastructure, user, data, held constant over
+  a semester - draws three different kinds of thing as two greys and a pale
+  accent.
+
+  The key re-points the base each tone is mixed **from**, and nothing else.
+  The percentages, the bar strengths, the box/column distinction and
+  `DG_BAR_CONTRAST_MIN` are untouched and operate on the new colours, so a
+  palette colour too pale for a column gets the warning it would have got.
+  The figure language needs no new vocabulary either: `{.tone-1}` already
+  exists and is already what a deck writes.
+
+  **Light themes only, and the derived mixes stay as the fallback.** Four hues
+  tuned against white paper are not four hues on `terminal-green`, and the
+  derivation a palette replaces is exactly what makes a theme switch
+  survivable. One scoped rule, no new vocabulary, nothing to remember. The
+  document is unscoped, because it has no themes.
+
+  **A card row takes the tones too.** `::: cards 3 {.tones}` gives the cards of
+  a row the four tones in turn, `{.tone-2}` gives every card one: a tint of the
+  tone over the paper, the lead in the tone itself, and a darker shade of it
+  exposed as `--card-edge` for a hard edge to use. It is a new *slot* beside
+  the ground and not a seventh ground - the grounds say what a card sits on and
+  are meant to stay six, and a panel tinted blue is still a panel. A tone on
+  `accent`, `photo` or `clear` is refused by both files, because none of the
+  three has a tint to take. Toned cards keep their colour on paper.
+
+  **A card may also take a colour of its own**, written after its heading:
+  `- **HTML** {.accent}\`, `- **CSS** {.tone-2}\`. It is what a row of three
+  different things wants - the row's `tone` colours every card alike or in
+  turn, a heading tail colours the one card - and it wins over the row's tone
+  on the same card. The accent and the four tones only; anything else, or a
+  tail on a line that is not a heading, is refused by both files
+  (`cards-card-tone`).
+
+  **A palette may re-point the four `::: activity` colours too** -
+  `palette: {link: …, info: …, task: …, example: …}` - emitted as the
+  `--activity-<kind>` properties the boxes read, in the same scope as the
+  tones. In a deck with no box they draw nothing.
+
+  `lint.js` mirrors the block and warns `tone-contrast` when a tone will not
+  carry as a column - with the strength named, because that is the part an
+  author cannot guess: a column of `tone-2` is 45% of its base over the paper,
+  a strength tuned for the near-black ink, so a mid-lightness house colour
+  cannot clear WCAG 1.4.11's 3:1 at that mix. Boxes of the same tone are fine
+  and are not warned about; they are mixed far paler on purpose, so the label
+  on them stays legible.
+
+  Both files mix **in oklab**, which is what `color-mix(in oklab, …)` does.
+  Interpolating a hue instead takes the short way round a circle and lands on
+  a different colour - worth 0.11 of a contrast ratio on the first tone this
+  was measured against, and a plausible number for the wrong colour is the
+  worst kind of wrong. `test/gates/palette.mjs` asserts the shape of that
+  line in both files, and asserts `DG_BOX_FILLS` against the four hand-written
+  rules in `DIAGRAM_CSS` that it mirrors - parsed back out of the stylesheet
+  rather than copied.
+
+  The figure language's own column warning, `diagram-bar-contrast`, knows about
+  the palette too. It judges a column against the theme table's mix of ink and
+  accent, and on the four light themes a named tone is not that mix any more -
+  so a palette deck drew warnings about colours nobody sees. Those themes are
+  left to `tone-contrast`; the dark and terminal themes keep the mix and the
+  warning. **A deck may also write `palette:` with no `identity:` block at
+  all**, which the first cut of this key silently ignored: the rule emitter
+  returned early on a missing identity, before it reached the palette. The
+  palette reference deck sets no accent and is what found it.
+
+  `DG_BOX_FILLS` lives in `build.js` and not in `diagram-core.mjs`, though
+  that is where the tone vocabulary is. The reason is mechanical:
+  `diagramCoreScript()` splices that file into every built page as *text*,
+  comments included, so a table added there costs four views their bytes on
+  every deck in the repository - measured at 114 lines across the tutorial's
+  outputs, for a table the browser never reads.
+- **A deck can wear a frame: `identity: {logo, footer-left, footer-right}`.**
+  A bildmarke and a line along the foot of the slide - the two marks that say
+  which room a slide is in. **A frame is a dock**, and that is the mechanism
+  rather than an analogy: it reserves its band by growing the chunk's own
+  padding, the way `::: dock` reserves its column and `--exp-band` reserves
+  the chevrons' strip. So `auto-fit` counts it, the speaker mirror matches it
+  pixel for pixel, the camera and the zoom leave it alone, and `--check-fit`
+  measures a content box that already stops short of the footer - none of
+  which is code this feature had to write.
+
+  The band also fades to paper under the line. A chunk taller than the frame
+  is read by scrolling, and its prose passes straight through the footer on
+  the way: measured on a twelve-paragraph chunk, the fifth paragraph was drawn
+  over the lecturer's name. The reserve cannot help there, because that chunk
+  never fitted the band in the first place.
+
+  `logo-place: footer` is the default, and the corner is not, **because the
+  corner is already occupied**: `.marginalia` sits at top / right of the
+  chunk's own padding and the slide numbers push it down. A deck that wants
+  the mark up top can still have it - `logo-place: corner` moves the aside out
+  of the way and `lint.js` warns `logo-corner-marginalia` so the cost is said
+  out loud rather than discovered.
+
+  The logo counts toward the auto-inline decision like any other picture. It
+  did not at first, so a deck whose only image was its logo kept inlining off
+  and shipped the logo as a relative path - an HTML file that was no longer
+  self-contained, and under `--serve` a `../` path outside the served folder
+  that drew nothing. A deck with its logo one folder up is what showed it.
+
+  Under `logo-place: corner` the mark takes the corner a slide master gives a
+  logo - against the frame's top and right edges, two thirds of a 10% band,
+  59 px on a 900 px frame - because at 42 px inside the side padding a mark
+  with a two-line wordmark read as a speck rather than as whose lecture it is.
+
+  **`FRAME_HIDDEN_STATES` is where the frame yields**, and it is one list with
+  a gate on it rather than a guess: the overview board, the TOC, the search
+  panel, the help sheet, the link and demo overlays, the export modal, a
+  focused figure, a live demo, and `B`. The gate derives both halves from
+  `build.js` - the panels from their own `#x.hidden { display: none }` rule,
+  the dimmers from a property sweep over every selector that touches `#stage` -
+  so a new overlay fails a check in a fifth of a second instead of shipping a
+  logo over a search panel. Two overlays were missing from the first draft of
+  that list and nothing but the gate said so.
+
+  `--check-fit` learns the band: it measures against the frame's own elements,
+  so `usableH` is `vpH` on a deck with no frame and every verdict there is
+  unchanged - confirmed by running both trees over the tutorial, 124 states and
+  the same six tall chunks either way.
+
+  `lint.js` mirrors the five keys, and a gate holds the mirror to the build's
+  table - keys and enum words, in both directions. The first cut of the mirror
+  left out `logo-print`, so the linter refused a key the build accepts and a
+  valid deck would have failed CI; the combined reference deck is what wrote
+  it first.
+
+  On paper the frame is a different shape, because a document already has a
+  cover and page numbers. `logo-print: cover` (the default) puts the mark and
+  the line at the head of the first page, in the flow, changing no page's
+  geometry; `every` adds a running foot, which in a print stylesheet can only
+  be a fixed element repeated per page - a `@page` margin box cannot carry a
+  generated image. On screen `every` renders as the head, because a fixed
+  element in a document somebody scrolls is not a running foot but a bar
+  pinned over the last two lines.
+
 - **`colour.mjs`**, the oklch/sRGB/WCAG chain as one module. The third file
   `lint.js` may import, on the terms the other two are on: zero dependencies,
   zero Node APIs, pure functions. `diagram-core.mjs` keeps its own copy of the
@@ -282,6 +424,110 @@ from building the same way is a major version.
   the arithmetic against the four accent ratios `build.js` states in prose,
   parsed out of the comment rather than copied, so the code and the comment
   cannot drift apart.
+- **`style: {elevation: soft | lifted}` puts the shadow ladder on every card
+  ground.** The ladder was already built and already right - `--shadow-rest`,
+  `--shadow-float`, `--shadow-quiet`, in em so a shadow keeps its proportion
+  to the card, on `--accent-h` so it carries the palette's hue. What was
+  missing was an author's say over *which grounds use it*. Today exactly one
+  does: `.cards.cg-paper`, which carries a shadow "because the edge has to
+  come from depth, because there is no tint to separate it". A tinted card
+  gets none, and a deck that wants depth everywhere had no way to ask.
+
+  `flat` is the default and today's rendering, so a deck that says nothing
+  emits no rule and builds byte-identical HTML. `cg-clear` and `ov-clear` are
+  excluded once in the selector list rather than by a guard on each rule:
+  neither has a box, so a shadow on either draws a rectangle around nothing.
+  Live views only - a drop shadow on paper is a grey smear that costs toner,
+  and `PRINT_CSS` separates a card with a rule on purpose.
+
+  `offset` is the fourth value and the one that is not a blur: a hard edge at
+  45 degrees, as far right as it is down, in a darker shade of the box's own
+  colour - the edge a printed slide master draws under a callout. It is the
+  one value that reaches the documents, because a solid edge prints as an
+  edge, and it asks the browser to keep it when a reader prints without
+  background graphics. Measured, not assumed: printed that way, the reference
+  deck's PDF draws one more filled shape per card than the same deck at
+  `flat`. The shade is a custom property (`--card-edge`) that a more specific
+  rule - a tinted card row, an activity box - can set without this key knowing.
+
+  **A shadow is the one thing on a slide no probe here can see**, because
+  `getBoundingClientRect()` does not include `box-shadow` - so `--check-fit`
+  reports a card as inside the frame while its shadow bleeds past the edge.
+  That is not fixable by a cleverer measurement, so `test/gates/elevation.mjs`
+  holds it as a relation instead: the reach of the largest step, at the
+  largest `body-scale` the format allows, against the slide's own vertical
+  padding. Every number is read out of `build.js`, so enlarging the ladder,
+  raising the `body-scale` ceiling or trimming `--slide-pad-y` each fail the
+  gate - and each of those looks locally harmless.
+
+  The margin is 0.7%: the ceiling `body-scale` already carried for unrelated
+  reasons is very nearly the one the ladder needs.
+
+- **`icons: fontawesome-free` turns `:fa-key:` into an inline SVG.** Three
+  prefixes, Font Awesome's own: `fa-` solid, `far-` regular, `fab-` brands.
+  Without the key the token stays the text it is - failing a build over a
+  colon would be worse than printing one - and `lint.js` warns
+  `icon-without-set`, which is the only thing that catches a mark that
+  silently became six characters.
+
+  **Not a webfont, and two of this repository's own tools decide that.**
+  `--squint` writes back what each slide paints and `buildSearchIndex` reads
+  `.chunk-body` text; an icon-font glyph is a private-use codepoint in both.
+  An inlined `<svg aria-hidden="true"><title>user check</title>` is the words
+  *user check* in both, because `textContent` descends into SVG. The `<title>`
+  is therefore mandatory rather than nice. Every file in the roster already
+  draws with `fill="currentColor"`, so an icon takes the colour of the
+  sentence it sits in and follows the reader's theme through `A` with no rule
+  of its own.
+
+  A name the set does not have fails the build with the nearest three, and it
+  fails **between rendering and writing**: a renderer runs inside `marked`, and
+  an exception from there reaches the author wrapped in marked's own "Please
+  report this to markedjs/marked" - a bug report filed against the wrong
+  project for a typo in a slide. The problem is collected instead and raised
+  where the two-pass contract already puts every other whole-build failure, so
+  the last good build survives it whole.
+
+  The mode is set at the head of the parse rather than in the build's
+  pre-flight. A `::: cards`, `::: overlay` or `::: dock` body is rendered
+  through `marked` while the lecture is parsed, so an icon in a card was
+  tokenized while the mode still said `none` and came out as its own text.
+  The icons reference deck, which puts one in a card, is what found it.
+
+  **An icon in a card's heading is set in the heading's colour.** A card lead
+  is a bold on a line of its own, and `**HTML** :fa-code:\` used not to be
+  one: the bold was not the whole line, the heading was not recognised, and
+  the icon sat outside it in the body's ink. Icon tokens on either side of the
+  bold, or inside it, are now part of the lead.
+
+  The set is a **devDependency** - 41 MB unpacked for 2883 icons - and nothing
+  reaches an output that does not name one. Font Awesome Free licenses its
+  icons CC BY 4.0, and the build emits that attribution into any view that
+  carries one, the way `oflNotice()` already does for the bundled typefaces.
+  Icons are out of scope inside a `::: draw` block: `editor.mjs` rewrites
+  those by character span, and a figure that wants a mark uses the `image`
+  statement, which already takes an SVG.
+- **`::: activity link | info | task | example` – a box that says what the
+  reader is to do.** Four kinds, one question each: follow this, note this, do
+  this, look at this. The kind is the whole vocabulary; its colour and its mark
+  come with it, so a box looks the same on every slide without an author
+  assembling a card, a tone and an icon each time. The four marks are drawn by
+  the build rather than taken from an icon set, so a box does not depend on a
+  deck installing one, and they are inline SVG in the kind's colour. `info`
+  takes the deck's accent; on the two terminal themes all four take the
+  phosphor tone and the mark tells them apart.
+
+  Each box carries a hard edge at 45 degrees in a darker shade of its colour.
+  It is part of the box, not a setting, and it prints - a solid edge prints as
+  an edge, and `print-color-adjust: exact` keeps it without background
+  graphics. The shade is exposed as `--card-edge`.
+
+  A box is refused inside `::: cols` (it breaks the flow), `::: marginalia` (a
+  box is not a margin note) and another box, and a card row cannot open inside
+  one; `::: overlay`, `::: embed` and `::: dock` refuse it as they refuse any
+  directive. `lint.js` mirrors the kinds and every refusal (`bad-activity`,
+  `activity-nested`, `cards-nested`), and `test/gates/activity.mjs` holds the
+  two files together. A deck that writes no box emits nothing.
 
 - **A fourth font role: `fonts: {display: …}` gives the cover, the closing
   slide and the section dividers a typeface nothing else in the deck wears.**
@@ -572,6 +818,18 @@ from building the same way is a major version.
   too. macOS asks once for screen-recording rights for the browser.
 
 ### Fixed
+
+- **Recorded, not fixed: `--shadow-rest` reaches further below a card than
+  `--shadow-float` does, and leaves the slide at a large `body-scale`.** Its second layer is
+  `0 0.26em 0.85em` - a much larger y-offset under a slightly smaller blur -
+  so the *resting* step of the ladder reaches 1.11 em where the *floating* one
+  reaches 1.04. At 900 px and `body-scale: 1.8` that is 46.8 px of reach into
+  44.1 px of padding, and no probe in this repository can see it. Pre-existing
+  and unrelated to `style: {elevation}` - `.cards.cg-paper` has carried
+  `--shadow-rest` since the ladder was built - so it is a **pending entry** in
+  `test/gates/elevation.mjs` rather than a change: both fixes (pulling that
+  y-offset to 0.2 em, or raising `--slide-pad-y`) move the look of every deck
+  that exists, which is not a gate's decision to make.
 
 - **Nothing held `KNOWN_FRONTMATTER_KEYS` against what `build.js` reads, and
   the shape of that failure is a false warning on a valid deck.** The list is

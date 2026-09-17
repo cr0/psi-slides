@@ -83,8 +83,8 @@ const KNOWN_FRONTMATTER_KEYS = new Set([
   'closing-image', 'closing-credits',
   // dividers, identity, type and language
   'section', 'section-mark', 'lecture', 'course', 'lang', 'labels', 'style',
-  'identity',
-  'fonts', 'font', 'ligatures', 'draw-defaults',
+  'identity', 'palette',
+  'fonts', 'font', 'ligatures', 'draw-defaults', 'icons',
   // viewer defaults
   'theme', 'collapse', 'auto-fit', 'slide-numbers', 'print-slide-numbers',
   'editor',
@@ -127,6 +127,10 @@ const VIEW_DEFAULTS = {
   // code ligatures are already off and defaulting to none would take fi and
   // fl out of every existing lecture's prose.
   'ligatures': ['text', 'none', 'all'],
+  // Which icon set `:fa-key:` resolves against. `none` is the default and
+  // leaves the token as the text it is; the build refuses a name the set does
+  // not have, which this file cannot check without the package.
+  'icons': ['fontawesome-free', 'none'],
 };
 
 // There is deliberately no mirror of the three TEXT roles of BUNDLED_FONTS
@@ -215,7 +219,17 @@ const STYLE_NUM_SPEC = {
 // block. Every one of them is a colour, so the vocabulary is a list of names
 // rather than a table of values - what a key accepts is "a hex colour", and
 // colour.mjs is the one reader of that on both sides.
-const IDENTITY_KEYS = ['accent', 'accent-dark', 'ink'];
+const IDENTITY_KEYS = {
+  accent: 'colour', 'accent-dark': 'colour', ink: 'colour',
+  logo: 'asset',
+  'logo-place': ['footer', 'corner', 'none'],
+  // Where the mark goes on paper. Missing from the first cut of this table,
+  // so the linter refused a key the build accepts - a valid deck failing CI,
+  // the one direction this mirror exists to prevent. test/gates/frame.mjs now
+  // holds the two tables to the same keys and the same words.
+  'logo-print': ['cover', 'every', 'none'],
+  'footer-left': 'text', 'footer-right': 'text',
+};
 // The two grounds an accent lands on, as the linter needs them: the four
 // light themes share one paper and the document has its own. Mirrors the
 // values IDENTITY_GROUNDS reads in build.js - DG_THEMES for the themes, the
@@ -225,6 +239,43 @@ const IDENTITY_PAPERS = [
   ['the light themes', () => DG_THEMES['light-orange'].paper],
   ['the document', () => hexToOklch('#fafaf7')],
 ];
+
+// The `palette:` block's keys are the figure language's own tone names, so
+// they come from DG_BAR_FILLS rather than from a list - the table is already
+// imported here for the column-contrast warning, and a tone added to the
+// language would otherwise be a key this file calls a typo.
+const PALETTE_KEYS = Object.keys(DG_BAR_FILLS).filter(k => k.startsWith('tone-'));
+// Mirrors PALETTE_ACTIVITY_KEYS in build.js: the ::: activity kinds a palette
+// may re-point. Colours only; no column is drawn in them, so no tone-contrast.
+const PALETTE_ACTIVITY_KEYS = ['link', 'info', 'task', 'example'];
+// Mirrors CARD_TONE_WORDS in build.js: what `- **Heading** {.word}\` takes.
+const CARD_TONE_WORDS = ['accent', 'tone-1', 'tone-2', 'tone-3', 'tone-4'];
+// The tones a deck's `palette:` block names, read by indentation or flow form
+// the way the block reader below reads it. The column-contrast check needs
+// this: on the light themes a named tone is the deck's colour, not the mix of
+// ink and accent the theme table describes, and judging the mix there reports
+// a colour nobody will see.
+function paletteTonesOf(header) {
+  const named = new Set();
+  const flow = header.match(/^palette:[ \t]*\{(.*)\}[ \t]*$/m);
+  if (flow) {
+    for (const m of flow[1].matchAll(/["']?(tone-[1-4])["']?\s*:/g)) named.add(m[1]);
+    return named;
+  }
+  let inBlock = false;
+  for (const raw of header.split('\n')) {
+    if (/^palette:[ \t]*$/.test(raw)) { inBlock = true; continue; }
+    if (!inBlock) continue;
+    if (!/^[ \t]+\S/.test(raw)) { if (raw.trim()) inBlock = false; continue; }
+    const m = raw.match(/^[ \t]+(tone-[1-4]):/);
+    if (m) named.add(m[1]);
+  }
+  return named;
+}
+
+// Mirrors the keys of ACTIVITY_KINDS in build.js: the words ::: activity
+// takes. test/gates/activity.mjs holds the two lists together.
+const ACTIVITY_KINDS = ['link', 'info', 'task', 'example'];
 
 // Mirrors STYLE_KEYS_REMOVED in build.js.
 const STYLE_KEYS_REMOVED = {
@@ -242,6 +293,12 @@ const STYLE_ENUMS = {
   // puts them on the prose's own axis.
   'blocks': ['center', 'left'],
   'labels': ['on', 'off'],
+  // How far a card stands off the page. `flat` is the default and today's
+  // rendering; `soft` and `lifted` are the resting and floating steps of the
+  // ladder build.js already carries. Live views only - a drop shadow on
+  // paper is a grey smear, and PRINT_CSS separates a card with a rule.
+  // `offset` is the hard 45-degree edge, and the one value that reaches paper.
+  'elevation': ['flat', 'soft', 'lifted', 'offset'],
   // What hue the greys carry. The four light themes move only --emph, so a
   // card mixed out of --ink is a cool grey under whatever accent the room
   // gets; `tinted` puts the accent's own hue into the neutrals, `warm` and
@@ -411,7 +468,7 @@ import {
   DG_PLOT_MAX_TICKS, DG_POINT_DIRS, DG_POINTED, DG_SHAPE_CLASSES, DG_RESERVED_IDS,
   DG_RESERVED_EMITTED_IDS, DG_ID_SUBNODE_SEP,
   dgBarName, dgTickName, dgBaseName, dgKeyName, dgKeyLabelName, dgCellName, dgPlotName, dgPlotTicks,
-  DG_THEMES, DG_BAR_CONTRAST_MIN, dgBarFill, dgBarContrast,
+  DG_THEMES, DG_BAR_CONTRAST_MIN, DG_BAR_FILLS, dgBarFill, dgBarContrast,
   dgRowTag, dgColTag, dgLaneName, dgLaneCapName,
   DG_SEQ_ENTRIES, DG_SEQ_ARROWS,
   dgLifeName, dgMsgName, dgMsgNumName, dgMsgSubName, dgNoteName,
@@ -426,7 +483,8 @@ import {
   CARDS_SLOTS, OVERLAY_SLOTS, BACKDROP_SLOTS, SIDE_SLOTS, DOCK_SLOTS,
   splitTail, parseTail, strayTailProblem, parseDrawOpener, parseRevealMark,
 } from './tails.mjs';
-import { hexToOklch, contrast, WCAG_TEXT } from './colour.mjs';
+import { hexToOklch, contrast, oklchToLab, labLuminance,
+  WCAG_TEXT, WCAG_NON_TEXT } from './colour.mjs';
 
 const REVEAL_PCT_WARN = 0.5;
 const ORPHAN_MIN = 2;
@@ -781,7 +839,7 @@ function collectDiagramDefaults(header) {
 // statements, unknown classes, duplicate names and dangling references.
 // Everything geometric is the build's business – but these four are the
 // mistakes that are invisible in the source and expensive on a projector.
-function lintDiagram(block, addOuter, fmLines, lectureTags) {
+function lintDiagram(block, addOuter, fmLines, lectureTags, paletteTones = new Set()) {
   // Which lines this block has already said something about. One authored
   // defect yields one causal diagnostic: the build suppresses its "has no
   // placement" consequence for a statement that stopped reading part-way
@@ -1599,8 +1657,15 @@ function lintDiagram(block, addOuter, fmLines, lectureTags) {
           const someNormal = [...Array(cols).keys()].some(i => !emphIx.includes(i) && !back.has(i));
           if (someNormal && !cls.includes('dim') && !cls.includes('ghost')) states.push(['', dgBarFill(tone, null)]);
           if (emphIx.length && tone !== 'tone-4') states.push(['emphasised ', dgBarFill(tone, 'emph')]);
-          const all = Object.keys(DG_THEMES);
           for (const [what, fk] of states) {
+            // A tone the deck's palette names is the deck's own colour on the
+            // four light themes, so the theme table's mix is not what is drawn
+            // there. Those themes are left to `tone-contrast`, which measures
+            // the palette colour; the dark and terminal themes keep the mix,
+            // exactly as the build does, and are still judged here.
+            const all = Object.keys(DG_THEMES)
+              .filter(t => !(fk === tone && paletteTones.has(tone) && t.startsWith('light-')));
+            if (!all.length) continue;
             const weak = all.map(t => [t, dgBarContrast(fk, t)]).filter(([, r]) => r < DG_BAR_CONTRAST_MIN);
             if (!weak.length) continue;
             const low = Math.min(...weak.map(([, r]) => r)).toFixed(1);
@@ -2556,14 +2621,39 @@ function lintFile(filePath) {
   {
     const lines = header.split('\n');
     let inBlock = false;
+    let place = 'footer', hasLogo = false, logoLine = 0;
     const rule = (i, key, value) => {
       const v = value.replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '');
-      if (!IDENTITY_KEYS.includes(key)) {
+      if (key === 'logo') logoLine = i;
+      const kind = IDENTITY_KEYS[key];
+      if (!kind) {
         addFm(i + 2, 'error', 'unknown-identity-setting',
-          `'identity.${key}' is not a key this block has – keys: ${IDENTITY_KEYS.join(', ')}`);
+          `'identity.${key}' is not a key this block has – keys: ${Object.keys(IDENTITY_KEYS).join(', ')}`);
         return;
       }
       if (!v) return;
+      if (Array.isArray(kind)) {
+        if (!kind.includes(v)) {
+          addFm(i + 2, 'error', 'unknown-identity-setting',
+            `'identity.${key}: ${v}' is not a value this key accepts – valid: ${kind.join(', ')}`);
+        }
+        if (key === 'logo-place') place = v;
+        return;
+      }
+      // The logo is an asset, and a missing one is a frame with a hole in it
+      // rather than a build failure - resolveAssetUrl returns null and the
+      // <img> lands with nothing behind it. The linter is the only thing that
+      // can say so before the room.
+      if (kind === 'asset') {
+        hasLogo = true;
+        if (!/^(?:https?:|data:|\/\/|\/)/i.test(v) && !fs.existsSync(path.join(path.dirname(filePath), v))) {
+          addFm(i + 2, 'error', 'missing-identity-asset',
+            `'identity.logo: ${v}' names a file that is not beside this source.md – `
+            + `the frame would carry an empty image`);
+        }
+        return;
+      }
+      if (kind === 'text') return;
       const oklch = hexToOklch(v);
       if (!oklch) {
         addFm(i + 2, 'error', 'bad-identity-colour',
@@ -2611,6 +2701,92 @@ function lintFile(filePath) {
         return;
       }
       if (/^identity:[ \t]*$/.test(raw)) { inBlock = true; return; }
+      if (!inBlock) return;
+      if (!/^[ \t]+\S/.test(raw)) { if (raw.trim()) inBlock = false; return; }
+      const m = raw.match(/^[ \t]+([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)$/);
+      if (m) rule(i, m[1], m[2]);
+    });
+    // `logo-place: corner` costs the deck a feature, and the build cannot
+    // refuse it - it is a legitimate choice, made by somebody who may not
+    // know what else lives there. `.marginalia` sits at top / right of the
+    // chunk's own padding and the slide numbers push it further down; a deck
+    // that puts a mark in that corner has to move one and turn off the other.
+    // The footer band costs nothing and is the default for that reason.
+    if (hasLogo && place === 'corner') {
+      // `::: marginalia`, not `::: margin` - the two are different
+      // constructs and only the first one lives in that corner. `::: margin`
+      // is the deprecated spelling of `::: footnote`, which sits under the
+      // prose and is no business of the frame's.
+      const usesMargin = /^:::\s+marginalia\s*$/m.test(src);
+      const nums = header.match(/^slide-numbers:[ \t]*(.+)$/m);
+      const numsOn = !nums || nums[1].trim().replace(/^["']|["']$/g, '') !== 'off';
+      if (usesMargin || numsOn) {
+        addFm(logoLine + 2, 'warn', 'logo-corner-marginalia',
+          `'identity.logo-place: corner' puts the mark where `
+          + [usesMargin ? '::: marginalia asides sit' : '', numsOn ? 'the slide numbers sit' : '']
+            .filter(Boolean).join(' and ')
+          + ` – the footer band is the default because it costs neither`);
+      }
+    }
+  }
+
+  // The nested `palette:` block, read the same way `style:` and `identity:`
+  // are. Two findings mirror a build refusal; the third is the one this block
+  // exists for.
+  //
+  // `tone-contrast` is the figure language's own column warning asked about a
+  // colour the author chose rather than one the theme derived. The strengths
+  // in DG_BAR_FILLS were tuned for a near-black ink and for the accent - a
+  // column of tone-2 is 45% of its base over the paper - so a mid-lightness
+  // house colour lands under WCAG 1.4.11's 3:1 and a projector, which
+  // flattens every mid-tone toward the paper, has nothing left to show. A
+  // *box* of the same tone is fine and is not warned about: it is mixed far
+  // paler on purpose, so the label on it stays legible.
+  {
+    const lines = header.split('\n');
+    let inBlock = false;
+    const paper = oklchToLab(DG_THEMES['light-orange'].paper);
+    const rule = (i, key, value) => {
+      const v = value.replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '');
+      if (!PALETTE_KEYS.includes(key) && !PALETTE_ACTIVITY_KEYS.includes(key)) {
+        addFm(i + 2, 'error', 'unknown-palette-tone',
+          `'palette.${key}' is not a key this block has – keys: ${[...PALETTE_KEYS, ...PALETTE_ACTIVITY_KEYS].join(', ')}`);
+        return;
+      }
+      if (!v) return;
+      const oklch = hexToOklch(v);
+      if (!oklch) {
+        addFm(i + 2, 'error', 'bad-palette-colour',
+          `'palette.${key}: ${v}' is not a colour – a tone is a hex value, "#2E6DB4" or `
+          + `"#2b4". Quote it: an unquoted # starts a YAML comment`);
+        return;
+      }
+      if (!DG_BAR_FILLS[key]) return;
+      const pct = DG_BAR_FILLS[key][1];
+      // Mixed in oklab, which is what color-mix(in oklab, …) does; mixing a
+      // hue linearly takes the short way round a circle and lands elsewhere.
+      const c = oklchToLab(oklch);
+      const mixed = [0, 1, 2].map(n => c[n] * pct / 100 + paper[n] * (1 - pct / 100));
+      const a = labLuminance(mixed), b = labLuminance(paper);
+      const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      if (ratio < WCAG_NON_TEXT) {
+        addFm(i + 2, 'warn', 'tone-contrast',
+          `'palette.${key}: ${v}' draws a column at ${ratio.toFixed(2)}:1 against the paper, `
+          + `under the ${WCAG_NON_TEXT} of WCAG 1.4.11 – a column of this tone is mixed at `
+          + `${pct}%, a strength tuned for the near-black ink, so a mid-lightness colour `
+          + `cannot clear it. Boxes of the same tone are unaffected`);
+      }
+    };
+    lines.forEach((raw, i) => {
+      const flow = raw.match(/^palette:[ \t]*\{(.*)\}[ \t]*$/);
+      if (flow) {
+        for (const pair of flow[1].split(',')) {
+          const kv = pair.match(/^\s*["']?([A-Za-z][A-Za-z0-9_-]*)["']?\s*:\s*(.*?)\s*$/);
+          if (kv) rule(i, kv[1], kv[2]);
+        }
+        return;
+      }
+      if (/^palette:[ \t]*$/.test(raw)) { inBlock = true; return; }
       if (!inBlock) return;
       if (!/^[ \t]+\S/.test(raw)) { if (raw.trim()) inBlock = false; return; }
       const m = raw.match(/^[ \t]+([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)$/);
@@ -2753,6 +2929,7 @@ function lintFile(filePath) {
   // lecture – so the tags they target are collected here and ruled on after
   // the whole file has been walked.
   const lectureTags = new Set();
+  const paletteTones = paletteTonesOf(header);
   const fmTagDefaults = [];
   {
     const fmDefaulted = new Map();
@@ -2816,6 +2993,9 @@ function lintFile(filePath) {
   // and its body with it - so a chunk-level flag is the only way a later check
   // can know the chunk drew something. Same shape as chunkHasReveal.
   let chunkHasDrawing = false;
+  // Whether `:fa-key:` resolves to a mark in this lecture, read once for
+  // the icon-without-set finding below.
+  const iconsOn = /^icons:[ \t]*["']?fontawesome-free["']?[ \t]*$/m.test(header);
   let inFence = false;
   let activeDirective = null;
   let layoutStack = [];
@@ -3056,7 +3236,7 @@ function lintFile(filePath) {
     // the chunks are.
     if (diagram) {
       if (/^:::\s*$/.test(line)) {
-        lintDiagram(diagram, add, fmLines, lectureTags);
+        lintDiagram(diagram, add, fmLines, lectureTags, paletteTones);
         chunkSteps += diagram.lines.filter(l => /^step\b/.test(l.text)).length;
         diagram = null;
       } else {
@@ -3071,12 +3251,49 @@ function lintFile(filePath) {
     }
     if (inFence) { if (chunk) chunkBody.push(line); continue; }
 
+    // An icon-shaped token in a deck that has not asked for icons. The build
+    // deliberately does not fail here - `:fa-key:` with no `icons:` key is
+    // left as ordinary prose, because failing a build over a colon would be
+    // worse than printing one - so this is the only thing that catches it,
+    // and it is exactly the silent no-op the format refuses everywhere else:
+    // the author wrote a mark and the room gets six literal characters.
+    //
+    // Mirrors ICON_RE in build.js, anchored to the three prefixes for the
+    // same reason: a ratio of 3:2 and a time of 9:30 are not icons. Inline
+    // code is not excluded here because a codespan consumes its interior
+    // before the build's tokenizer sees it, so `\`:fa-key:\`` is not an icon
+    // either way and warning about it would be a false positive on a line
+    // that is documenting the syntax - which is why the test is for a token
+    // NOT inside backticks.
+    if (!iconsOn) {
+      const bare = line.replace(/`[^`]*`/g, '');
+      const hit = bare.match(/:(fa|far|fab)-[a-z0-9]+(?:-[a-z0-9]+)*:/);
+      if (hit) {
+        add(ln, 'warn', 'icon-without-set',
+            `'${hit[0]}' reads as an icon, but this lecture has no \`icons:\` key – the room `
+            + `gets those characters as text. Add \`icons: fontawesome-free\` to the frontmatter, `
+            + `or write the colons some other way`);
+      }
+    }
+
     // Fence settled: a non-fenced content line of an open cards/rows block
     // records whether the block carries a picture or a nested level, for the
     // refusal checked at its close. A ::: draw body was captured above, so it
     // never reaches here - a diagram is not a card picture, as in the build.
     const cardsTop = layoutStack.length && layoutStack[layoutStack.length - 1];
     if (cardsTop && cardsTop.cardsCheck) {
+      // A card's own colour after its heading. Mirrors markCardLeads.
+      const tail = line.match(/^\s*[-*+][ \t]+(.*?)[ \t]+\{\.([^}\s]+)\}(\s*\\[ \t]*|[ \t]{2,})$/);
+      if (tail && /\*\*|__/.test(tail[1]) && cardsTop.cardsCheck.kind === 'cards') {
+        if (!CARD_TONE_WORDS.includes(tail[2])) {
+          add(ln, 'error', 'cards-card-tone',
+              `{.${tail[2]}} after a card heading is not a colour a card takes – write one of: `
+              + CARD_TONE_WORDS.map(w => '{.' + w + '}').join(', '));
+        } else if (['accent', 'photo', 'clear'].includes(cardsTop.cardsCheck.ground)) {
+          add(ln, 'error', 'cards-tone-no-tint',
+              `a card colour tints a card's ground, and ${cardsTop.cardsCheck.ground} has no tint to take; use it on panel, outline or paper`);
+        }
+      }
       if (/!\[[^\]]*\]\([^)\s]+[^)]*\)/.test(line)) cardsTop.hasImage = true;
       if (/^\s+(?:[-*+]|\d+[.)])\s+/.test(line)) cardsTop.hasNested = true;
     }
@@ -3511,8 +3728,17 @@ function lintFile(filePath) {
         wroteGround: cardsTail.slots.ground.written,
         wroteScrim: cardsTail.slots.scrim.written,
         wroteDetail: cardsTail.slots.detail.written,
+        tone: cardsTail.slots.tone.value,
         kind,
       };
+      // Mirrors build.js: a tone tints a ground, and accent, photo and clear
+      // have no tint to take.
+      if (!cardsTail.problems.length && cardsTail.slots.tone.value !== 'none'
+          && ['accent', 'photo', 'clear'].includes(cardsTail.slots.ground.value)) {
+        add(ln, 'error', 'cards-tone-no-tint',
+            `::: ${kind} {.${cardsTail.slots.tone.value} .${cardsTail.slots.ground.value}} – a tone tints a card's ground, `
+            + `and ${cardsTail.slots.ground.value} has no tint to take; use it on panel, outline or paper`);
+      }
       // Mirrors build.js: `.baseline` lines a term up with the body beside
       // it, and a card has no body beside it. Reported here rather than at
       // the close with the content-dependent three above, because this one
@@ -3529,7 +3755,7 @@ function lintFile(filePath) {
       // has already divided that measure. `slide` and `script` divide
       // nothing - they say which half of the chunk is on screen - so they
       // are not in the list.
-      const narrowing = layoutStack.filter(l => /^(cols|marginalia|embed)/.test(l.kind)).pop();
+      const narrowing = layoutStack.filter(l => /^(cols|marginalia|embed|activity)/.test(l.kind)).pop();
       const encl = narrowing ? `::: ${narrowing.kind.split(' ')[0]}`
         : activeDirective ? `::: ${activeDirective.kind}` : null;
       if (encl) {
@@ -3560,6 +3786,18 @@ function lintFile(filePath) {
       }
     }
     const flipMark = /^:::\s+flip\s*$/.test(line);
+    // ::: activity <kind>. Mirrors ACTIVITY_KINDS in build.js by name - the
+    // colours and marks are the build's, the words are the contract.
+    const activityMatch = line.match(/^:::\s+activity(?:\s+(\S+))?\s*$/);
+    const activityOpen = !!activityMatch;
+    if (activityOpen && !ACTIVITY_KINDS.includes(activityMatch[1])) {
+      add(ln, 'error', 'bad-activity',
+          `::: activity ${activityMatch[1] || ''}`.trim() + ` – write the kind after it: `
+          + ACTIVITY_KINDS.map(k => '::: activity ' + k).join(', '));
+    } else if (!activityOpen && /^:::\s+activity\b/.test(line)) {
+      add(ln, 'error', 'bad-activity',
+          '::: activity takes one kind and nothing else: ' + ACTIVITY_KINDS.join(', '));
+    }
     const marginaliaOpen = /^:::\s+marginalia\s*$/.test(line);
     const slideOpen = /^:::\s+slide\s*$/.test(line);
     const scriptOpen = /^:::\s+script\s*$/.test(line);
@@ -3581,7 +3819,7 @@ function lintFile(filePath) {
             `::: embed needs a YouTube or Vimeo link, or an https URL - got '${v}'`);
       }
     }
-    if (colsOpen || cardsOpen || rowsOpen || sideOpen || marginaliaOpen || slideOpen || scriptOpen || embedOpen) {
+    if (colsOpen || cardsOpen || rowsOpen || sideOpen || marginaliaOpen || slideOpen || scriptOpen || embedOpen || activityOpen) {
       // A divider takes a card row or a row block beside its backdrop and
       // its figure; every other directive there is a slide that has stopped
       // being a divider, and the build refuses it with the same words.
@@ -3595,6 +3833,7 @@ function lintFile(filePath) {
         : cardsOpen ? `cards ${cardsOpen[1]}`
         : sideOpen ? 'side'
         : marginaliaOpen ? 'marginalia'
+        : activityOpen ? 'activity'
         : embedOpen ? 'embed'
         : slideOpen ? 'slide' : 'script';
       const word = kind.split(' ')[0];
@@ -3613,6 +3852,16 @@ function lintFile(filePath) {
       if (!isCards && stackHas(/^embed$/)) {
         add(ln, 'error', 'directive-in-embed',
             `::: ${word} inside ::: embed (line ${stackHas(/^embed$/).line}) – the lines under an embed are its caption`);
+      }
+      // Mirrors build.js: a box is refused inside a text flow, a narrow aside
+      // and another box.
+      if (activityOpen && stackHas(/^(cols|marginalia|activity)/)) {
+        const encl = stackHas(/^(cols|marginalia|activity)/).kind.split(' ')[0];
+        add(ln, 'error', 'activity-nested',
+            `::: activity inside ::: ${encl} – ` + (encl === 'cols'
+              ? 'a box breaks the column flow; put it before or after the columns'
+              : encl === 'marginalia' ? 'a box is a full-width statement, not a margin note; put it in the chunk body'
+              : 'a box is already a box; close the first one'));
       }
       if (sideOpen && stackHas(/^cols/)) {
         add(ln, 'error', 'side-in-cols',

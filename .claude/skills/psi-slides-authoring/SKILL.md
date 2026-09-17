@@ -528,6 +528,43 @@ explicit paths in `source.md` are rewritten for you. SVG is never touched: it
 is spliced inline as a real `<svg>` element so it inherits the theme colours.
 `--no-inline-images` is the escape hatch that ships external paths on purpose.
 
+## Icons
+
+`icons: fontawesome-free` in the frontmatter turns `:fa-key:` into an inline SVG. Without the key the token stays the text it is, and `lint.js` warns `icon-without-set` so a mark that silently became six characters is caught before the room.
+
+```md
+---
+icons: fontawesome-free
+---
+
+A stolen session cookie :fa-key: is a valid login :fa-user-check: until it
+expires. A brand mark is :fab-github:, a lighter outline :far-clock:.
+```
+
+Three prefixes, Font Awesome's own: `fa-` solid, `far-` regular, `fab-` brands. A name the set does not have fails the build with the nearest three, and the build refuses **between rendering and writing**, so a typo leaves the last good build whole on disk.
+
+Rules that matter while authoring:
+
+- **An icon is a mark beside a word, not a picture.** It is 1em tall, takes the colour of the sentence it sits in (`currentColor`), and follows the reader's theme through `A` with no rule of its own.
+- **In a card's heading an icon takes the heading's colour.** `**HTML** :fa-code:\`, `:fa-code: **HTML**\` and `**:fa-code: HTML**\` are all one lead; the icons go inside the bold.
+- **A codespan wins.** `` `:fa-key:` `` in a sentence about the syntax stays literal, the same way a `$` pair inside backticks is never math - the codespan tokenizer consumes its interior first.
+- **Every icon carries a `<title>`,** so `--squint` and the live search read the word. `:fa-user-check:` is `user check` in both. That is the whole reason icons are inlined SVG rather than a webfont, where they would be a private-use codepoint in both.
+- **Not inside a `::: draw` block.** The graphical editor rewrites those by character span; a figure that wants a mark uses the `image` statement, which already takes an SVG.
+- The set is a **devDependency**, 41 MB unpacked for 2883 icons, and nothing reaches an output that does not name one. Font Awesome Free licenses its icons CC BY 4.0; the build emits the attribution into any view that carries one.
+## Activity boxes
+
+`::: activity <kind>` draws a box that says what the reader is to do. Four kinds: `link` (follow this), `info` (note this), `task` (do this), `example` (look at this). The kind brings its colour and its mark; `info` takes the deck's accent.
+
+```md
+::: activity task
+Open three sites you use daily and count the requests each one makes.
+:::
+```
+
+- **One or two sentences.** A box is a statement on the slide, and it is collapsed like any other prose.
+- **Not inside `::: cols`, `::: marginalia` or another box,** and no card row inside one. Overlays, embeds and docks refuse it like any directive.
+- The hard edge under the box is part of it and prints.
+
 ## Math
 
 `$inline$` and `$$display$$` render with KaTeX at build time. No flag, no

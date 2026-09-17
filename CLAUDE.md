@@ -252,6 +252,8 @@ Checks enforced:
   – and the corpus nests exactly one thing, a figure in a pane, so none of
   them costs an existing lecture a build.
 - Unknown value for a viewer-default frontmatter key (`unknown-view-default`, error), for a `style:` key (`unknown-style-setting`, error) or for an `identity:` key (`unknown-identity-setting` and `bad-identity-colour`, errors; `accent-contrast`, a warning that mirrors no refusal – it is the one case the build cannot fix, a bold phrase in prose set in an accent with no ground to reverse against). Both mirror a build refusal that now runs in the `buildOnce` pre-flight, so `--print-only` refuses a typo in `auto-fit` and `--audience-only` refuses one in `print-slide-numbers`.
+- Unknown value for a viewer-default frontmatter key (`unknown-view-default`, error) or for a `style:` key (`unknown-style-setting`, error). Both mirror a build refusal that now runs in the `buildOnce` pre-flight, so `--print-only` refuses a typo in `auto-fit` and `--audience-only` refuses one in `print-slide-numbers`.
+- `::: activity <kind>` – `bad-activity` for a kind the build does not draw, `activity-nested` for a box inside `::: cols`, `::: marginalia` or another box, and `cards-nested` for a card row inside one. The kinds are `ACTIVITY_KINDS` in `build.js`, mirrored by name and held by `test/gates/activity.mjs`.
 - Assets over the 2 MB inline cap (`oversized-asset`, warning) – the pre-commit gate for the single-file property.
 - Unclosed display math (`unclosed-math`, warning). Fence-aware. Inline `$…$` is deliberately not checked: a lone dollar in prose is legitimate and the build leaves it alone.
 - A bold of two words or fewer sitting after a paragraph's first sentence
@@ -434,6 +436,52 @@ the four accent ratios `build.js` states in prose. Scoping is
 stylesheet so source order decides – which makes the accent immune to `A` by
 construction, with no reader key disabled and the two terminal themes left
 with the single phosphor tone they are.
+
+**`palette:` is its own top-level block** and gives the figure language four
+accents that mean something: it re-points the base each `tone-N` is mixed from
+and changes no percentage, so `DG_BAR_CONTRAST_MIN` and the box/column
+distinction operate unchanged on the new colours. Scoped to the light themes,
+with the derived mixes as the fallback on `dark` and the two terminal themes -
+four hues tuned against white paper are not four hues on phosphor green, and
+the derivation is what makes a theme switch survivable. `DG_BOX_FILLS` lives
+in `build.js` rather than in `diagram-core.mjs` because that file is spliced
+into every page as text: a table there costs four views their bytes on every
+deck for something the browser never reads. It mirrors the hand-written
+`── tones ──` rules and `test/gates/palette.mjs` holds the two together. Both
+`build.js` and `lint.js` mix **in oklab**, which is what `color-mix(in oklab,
+…)` does; interpolating a hue instead lands on a different colour and gives a
+plausible number for it.
+The same block carries **the frame a deck wears** - `logo`, `logo-place`,
+`logo-print`, `footer-left`, `footer-right`. **A frame is a dock**: it reserves
+its band by growing the chunk's own padding, the way `::: dock` reserves its
+column and `--exp-band` the chevrons' strip, so `auto-fit`, `flowHeightProbe`,
+the speaker mirror and `--check-fit` all follow with no second mechanism.
+`SLIDE_FOOT` holds the three foot expressions once and is interpolated back
+into `AUDIENCE_CSS`, so the stylesheet's bytes do not move and the frame's
+rules cannot drift from it. The band fades to paper under the line, because a
+chunk taller than the frame scrolls its prose straight through the footer.
+`logo-place: footer` is the default because the corner belongs to
+`::: marginalia` and the slide numbers, and `corner` earns a `lint.js` warning
+that says so. `FRAME_HIDDEN_STATES` is the one list of states in which the
+frame must not paint - body classes and `:has()` conditions, because four
+panels are toggled by `.hidden` on their own element and the export modal is
+removed from the DOM - and `test/gates/frame.mjs` derives it from the
+stylesheet rather than restating it. On paper `logo-print: cover` is a block
+in the flow and `every` is a `position: fixed` running foot inside
+`@media print`; a `@page` margin box cannot carry a generated image, and on
+screen a fixed element in a scrolled document is a bar over the last two lines.
+**`icons: fontawesome-free`** registers an inline `marked` extension the way
+the two math ones are registered, so a codespan consumes `` `:fa-key:` ``
+before the walker reaches it. The mark is an inlined SVG and not a webfont for
+a reason that is this repository's own: `--squint` and `buildSearchIndex` read
+text, an icon-font glyph is a private-use codepoint in both, and
+`<svg><title>user check</title>` is the words in both. `ICON_RE` is mirrored
+in `lint.js` and held by `test/gates/icons.mjs` over sixteen fixtures. An
+unknown name is **collected, not thrown**: a renderer runs inside `marked`, and
+an exception there reaches the author wrapped in marked's own bug-report
+banner, so `currentIconProblems` is raised between the render pass and the
+write pass instead. The set is a devDependency and the CC BY 4.0 attribution
+is emitted into any view that carries an icon.
 
 **A fourth role, `display`, is the exception to all of that**: `fonts: {display:
 Anton}` names one of 32 OFL faces for the cover, the closing slide and the

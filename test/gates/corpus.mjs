@@ -45,6 +45,11 @@ const FILES = [
   // Left out of a corpus census it is invisible.
   ['lectures/tutorial/source.md', 11],
   ['lectures/decoration/source.md', 4],
+  // The palette reference: a box figure and a column figure, because the
+  // difference between the two strengths is what that deck is about.
+  ['lectures/palette/source.md', 2],
+  // The advanced-styling showcase: one figure, wearing the palette.
+  ['lectures/advanced-styling/source.md', 1],
   // The site's example lecture has no figure today; the zero is the ratchet
   // that notices the day it gets one.
   ['docs/site/example/source.md', 0],

@@ -31,8 +31,10 @@ import katex from 'katex';
 // Imported for the build; its *text* is also read and inlined into the live
 // views, the same way bundledFaces() reads woff2 out of node_modules.
 import { createDiagramCompiler, parseDiagramDefaults, dgShapeD, dgSplineD, dgPathD, DG_SHAPE_CLASSES, dgBarFillCss } from './diagram-core.mjs';
+import { DG_BAR_FILLS } from './diagram-core.mjs';
 import { DG_THEMES } from './diagram-core.mjs';
-import { hexToOklch, contrast, inkFor, lightnessFor, cssOklch, WCAG_TEXT } from './colour.mjs';
+import { hexToOklch, contrast, inkFor, lightnessFor, cssOklch, oklchToLab, labLuminance,
+  WCAG_TEXT, WCAG_NON_TEXT } from './colour.mjs';
 // The {…} tail grammar and the ::: draw opener, shared with lint.js so the
 // two files cannot disagree about a tail. Tables plus small pure helpers,
 // zero dependencies - see the header of tails.mjs and CLAUDE.md.
@@ -503,6 +505,14 @@ function scanReferencedImages(src, sourceDir) {
   // nothing here, which is what the isShorthand/statSync path below does
   // with any token that is not an asset.
   for (const m of src.matchAll(/^closing-image:[ \t]*["']?([^"'\s#]+)/gm)) refs.add(m[1]);
+  // identity.logo is an asset like any other and meets the same budget. Left
+  // out of this scan, a deck whose only picture is its logo counted zero
+  // images, auto-inlining stayed off, and the logo shipped as a relative path:
+  // an HTML file that is not self-contained any more, and under --serve a
+  // path like ../marke/logo.png that points outside the served folder and
+  // draws nothing at all. Read in the block form and the flow form.
+  for (const m of src.matchAll(/^[ \t]+logo:[ \t]*["']?([^"'\s#]+)/gm)) refs.add(m[1]);
+  for (const m of src.matchAll(/^identity:[ \t]*\{[^}\n]*\blogo:[ \t]*["']?([^"',}\s#]+)/gm)) refs.add(m[1]);
 
   let total = 0;
   let count = 0;
@@ -1416,6 +1426,178 @@ function ligatureMode(frontmatter = {}) {
   return raw;
 }
 
+// ── icons: a mark beside a word ──────────────────────────────────────
+//
+// `:fa-key:` in prose becomes an inline SVG. Three properties decide the
+// whole design, and all three point away from the icon font everybody reaches
+// for first:
+//
+//   * **`--squint` and the search index read text.** The first is the tool
+//     this project's own conventions say to read before arguing about a
+//     slide's wording; the second is `buildSearchIndex`, over `.chunk-body`.
+//     An icon-font glyph is a private-use codepoint in both. An inlined
+//     `<svg aria-hidden="true"><title>key</title>` is the word *key* in both,
+//     because `textContent` descends into SVG. That is why the `<title>` is
+//     mandatory rather than nice, and it is the whole argument for SVG.
+//   * **Payload.** A webfont puts the entire set into all four views of every
+//     lecture. The build reads the icons a deck actually names - a handful of
+//     300-byte paths - and nothing reaches an output that does not name one.
+//   * **Colour.** Every file in the roster already draws with
+//     `fill="currentColor"`, so an icon takes the colour of the sentence it
+//     sits in and follows the theme through `A` with no rule of its own.
+//
+// The set is a **devDependency**: a deck that writes no icon pays only the
+// install, and one that does reads individual files out of node_modules at
+// build time. Measured at 41 MB unpacked for 2883 icons, which is the cost
+// stated plainly - the alternative that needs no dependency at all is the one
+// this format already has, an SVG in `assets/`.
+const ICON_MODES = ['fontawesome-free', 'none'];
+// The three styles Font Awesome Free ships, and the prefix each answers to.
+// The prefixes are its own - `fas`, `far`, `fab` - so somebody who has used
+// the set knows them already, and `:fa-…:` is the common case spelled short.
+const ICON_PREFIXES = { fa: 'solid', far: 'regular', fab: 'brands' };
+const ICON_PKG = '@fortawesome/fontawesome-free';
+// Matched by the tokenizer and by lint.js, which is why it is written once.
+// Deliberately anchored to the three prefixes rather than to `:word:`: a
+// sentence about a ratio of 3:2 or a time of 9:30 is not an icon, and neither
+// is any other emoji-shaped convention a deck might already carry.
+const ICON_RE = /^:(fa|far|fab)-([a-z0-9]+(?:-[a-z0-9]+)*):/;
+
+function iconMode(frontmatter = {}) {
+  if (frontmatter.icons == null) return 'none';
+  const raw = String(frontmatter.icons).trim();
+  if (!ICON_MODES.includes(raw)) {
+    const err = new Error(
+      `Frontmatter: "icons: ${raw}" is not a value this key accepts.\n` +
+      `  Valid values: ${ICON_MODES.join(', ')}\n` +
+      '    fontawesome-free  :fa-key: in prose becomes an inline SVG\n' +
+      '    none              the default; :fa-key: stays the text it is');
+    err.userFacing = true;
+    throw err;
+  }
+  return raw;
+}
+
+// Module state, the same shape `currentSourceDir` has and for the same
+// reason: a marked extension is registered once for the process and has to
+// know which lecture it is rendering. Set by buildOnce, read by the renderer.
+let currentIconMode = 'none';
+const currentIconsUsed = new Set();
+// A name the roster does not have, collected rather than thrown. A renderer
+// runs inside marked, and an exception from there comes back to the author
+// wrapped in marked's own "Please report this to markedjs/marked" - a bug
+// report filed against the wrong project for a typo in a slide. So the
+// problem is recorded, the source text is left where the icon would have
+// been, and buildOnce refuses between rendering and writing, which is where
+// the two-pass contract already puts every other whole-build failure.
+const currentIconProblems = [];
+
+const iconDirCache = new Map();
+function iconDir(style) {
+  if (iconDirCache.has(style)) return iconDirCache.get(style);
+  let dir = null;
+  try {
+    dir = path.join(path.dirname(new URL(import.meta.url).pathname), 'node_modules', ICON_PKG, 'svgs', style);
+    if (!fs.existsSync(dir)) dir = null;
+  } catch { dir = null; }
+  iconDirCache.set(style, dir);
+  return dir;
+}
+const iconNamesCache = new Map();
+function iconNames(style) {
+  if (iconNamesCache.has(style)) return iconNamesCache.get(style);
+  const dir = iconDir(style);
+  const names = dir ? fs.readdirSync(dir).filter(f => f.endsWith('.svg')).map(f => f.slice(0, -4)) : [];
+  iconNamesCache.set(style, names);
+  return names;
+}
+// Levenshtein, small and local, for the "did you mean" the format pays on
+// every other refusal. Bounded at 3 because a suggestion further away than
+// that is noise rather than help.
+function nearestNames(want, pool, n = 3) {
+  const d = (a, b) => {
+    const m = a.length, k = b.length;
+    let prev = Array.from({ length: k + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) {
+      const cur = [i];
+      for (let j = 1; j <= k; j++)
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = cur;
+    }
+    return prev[k];
+  };
+  return pool.map(x => [d(want, x), x]).filter(([v]) => v <= 3)
+    .sort((a, b) => a[0] - b[0]).slice(0, n).map(([, x]) => x);
+}
+
+/**
+ * One icon as inline SVG. The file already draws with currentColor, so the
+ * only edits are the licence comment (which is emitted once per view instead
+ * of once per icon) and the accessible name.
+ */
+function iconSvg(prefix, name) {
+  const style = ICON_PREFIXES[prefix];
+  const dir = iconDir(style);
+  if (!dir) {
+    currentIconProblems.push(
+      `  \`:${prefix}-${name}:\` needs ${ICON_PKG}, which is not installed.`
+      + '\n     Run `npm install` in the engine directory; it is a devDependency.');
+    return `:${prefix}-${name}:`;
+  }
+  const file = path.join(dir, name + '.svg');
+  if (!fs.existsSync(file)) {
+    const near = nearestNames(name, iconNames(style));
+    currentIconProblems.push(
+      `  \`:${prefix}-${name}:\` is not an icon in the ${style} set.`
+      + (near.length ? `\n     Did you mean: ${near.map(x => `:${prefix}-${x}:`).join(', ')}` : ''));
+    return `:${prefix}-${name}:`;
+  }
+  currentIconsUsed.add(`${prefix}-${name}`);
+  const raw = fs.readFileSync(file, 'utf8')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    // The roster's files carry no width or height, only a viewBox, so the
+    // size is the stylesheet's to set and 1em is what a mark beside a word
+    // wants. aria-hidden AND a <title>: the title is there so --squint and
+    // the search index can read the word, and aria-hidden so a screen reader
+    // does not announce it twice - the sentence already says what it means.
+    .replace(/^<svg /, '<svg class="psi-icon" aria-hidden="true" focusable="false" ');
+  const label = name.replace(/-/g, ' ');
+  return raw.replace(/(<svg[^>]*>)/, `$1<title>${escapeHtml(label)}</title>`);
+}
+
+// Emitted once into a view that carries at least one icon. Font Awesome Free
+// licenses its icons CC BY 4.0, which asks for attribution; a deck that ships
+// them should discharge that rather than leave every lecturer quietly
+// non-compliant. Same shape oflNotice() uses for the bundled typefaces.
+/**
+ * What a view carries when it holds at least one icon: the attribution and
+ * the one rule that sizes a mark against the word beside it. Emitted from
+ * here rather than written into AUDIENCE_CSS and PRINT_CSS, so a deck with no
+ * icons emits nothing and its four views are byte-identical - the same reason
+ * fontStyleTag emits the display face's rules rather than the stylesheets.
+ */
+function iconStyleTag() {
+  if (!currentIconsUsed.size) return '';
+  // 1em tall and aligned on the cap rather than the baseline: an icon beside
+  // a word is read as a letter of it, and a baseline-aligned square sits
+  // visibly low. The 0.1em is the optical correction, measured against
+  // Literata and IBM Plex Sans, which differ by less than a hundredth of an
+  // em in cap height and so take the same number.
+  return `\n${iconNotice()}\n<style>
+.psi-icon {
+  height: 1em;
+  width: auto;
+  vertical-align: -0.1em;
+  fill: currentColor;
+}
+</style>`;
+}
+
+const iconNotice = () =>
+  '<!-- Icons: Font Awesome Free (https://fontawesome.com), CC BY 4.0.\n'
+  + '     The licence permits this embedding and asks that the attribution\n'
+  + '     travel with it. Full text: node_modules/' + ICON_PKG + '/LICENSE.txt -->';
+
 // Which bundled family fills each role. An author names one in the `fonts:`
 // block exactly as they would name a family in fonts/ - the difference is
 // that a bundled name needs no file, which is the whole point of bundling
@@ -2275,9 +2457,115 @@ const CARDS_MEDIUM_MAX = 12;
 // bleeds an image: there the lead-in is the line *under* the picture, and
 // the two position-dependent selector pairs this replaces existed only to
 // reach it. A class on the run reaches it wherever it sits.
-const CARD_LEAD_RE = /^(\*\*(?:[^*]|\*(?!\*))+\*\*|__(?:[^_]|_(?!_))+__)(\s*\\[ \t]*|[ \t]{2,})$/;
+// ── ::: activity – a box that says what the reader is to do ─────────────
+//
+// Four kinds, and each is one question a lecture asks of its room: follow a
+// link, note this, do this, look at this. A box of each kind is recognisable
+// before it is read, by its colour and its mark, which is the whole point of
+// having more than one - so the kind is a word on the directive and the
+// colour and the mark come with it, not something the author assembles out
+// of a card row, a tone and an icon on every slide.
+//
+// The marks are drawn here, four small paths, rather than taken from an icon
+// set. A box that says "task" must not depend on whether the deck installed
+// a 41 MB development dependency, and the four marks are inline SVG in
+// currentColor, so they follow the kind's colour and every theme.
+const ACTIVITY_KINDS = {
+  link:    { label: 'Link',    colour: 'oklch(0.58 0.12 155)',
+    glyph: '<circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><ellipse cx="12" cy="12" rx="4.2" ry="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2.5 12h19M4.2 7h15.6M4.2 17h15.6" fill="none" stroke="currentColor" stroke-width="1.8"/>' },
+  info:    { label: 'Info',    colour: 'var(--emph)',
+    glyph: '<circle cx="12" cy="12" r="11" fill="currentColor"/><circle cx="12" cy="6.8" r="1.7" fill="var(--paper)"/><rect x="10.4" y="10" width="3.2" height="8.6" rx="1" fill="var(--paper)"/>' },
+  task:    { label: 'Task',    colour: 'oklch(0.46 0.13 320)',
+    glyph: '<path d="M10 1.5a8.5 8.5 0 0 0-8.5 8.6c0 2.7 1.2 4.7 3.2 6.1v6.3h8.4v-3h2.8a2 2 0 0 0 2-2v-2.8l2.1-.8c.6-.2.8-.9.4-1.4l-2.1-3.3A8.6 8.6 0 0 0 10 1.5z" fill="currentColor"/><circle cx="9.6" cy="9.4" r="3" fill="none" stroke="var(--paper)" stroke-width="1.9" stroke-dasharray="1.45 0.9"/><circle cx="9.6" cy="9.4" r="1" fill="var(--paper)"/>' },
+  example: { label: 'Example', colour: 'oklch(0.50 0.12 245)',
+    glyph: '<rect x="2" y="4" width="20" height="16" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4.5 17.5l5.2-6.5 3.6 4.2 2.6-3 3.6 5.3z" fill="currentColor"/><circle cx="8" cy="8.8" r="1.7" fill="currentColor"/>' },
+};
+const activityGlyph = (kind) =>
+  `<svg class="activity-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ACTIVITY_KINDS[kind].glyph}</svg>`;
+
+// Module state, set during the parse and cleared at its head, so the rules
+// below reach only a deck that writes a box - the reason every other
+// conditional block in this file exists: a deck with none builds byte for
+// byte what it built before.
+let currentActivities = false;
+
+/**
+ * The boxes' stylesheet. One colour per kind, as a custom property a deck
+ * could re-point, and everything else derived from it: a tint for the
+ * ground, the colour itself for the mark, and a darker shade for the hard
+ * edge under the box, at 45 degrees - as far right as down.
+ *
+ * The edge is part of the construct rather than a `style:` setting, because
+ * it is part of what makes the box recognisable, and it prints: a solid
+ * offset prints as an edge where a blur prints as a smear, and
+ * print-color-adjust keeps it when background graphics are off. It is also
+ * exposed as `--card-edge`, which is the name `style: {elevation: offset}`
+ * reads, so the two agree about what a box's edge is.
+ */
+function activityStyleTag() {
+  if (!currentActivities) return '';
+  const kinds = Object.entries(ACTIVITY_KINDS);
+  // Resolved on the box, not declared on :root. A custom property whose value
+  // is var(--emph) is substituted where it is declared, and the theme and a
+  // deck's identity set --emph on the body - so declared on :root the info
+  // box took the root's accent and ignored both, drawn in the theme's red-
+  // brown under an orange house colour. `--activity-<kind>` stays a hook a
+  // deck may set; the kind's own colour is only the fallback.
+  return `\n<style>
+${kinds.map(([k, v]) => `.activity-${k} { --activity: var(--activity-${k}, ${v.colour}); }`).join('\n')}
+/* The two terminal themes are a single phosphor tone; four hues on them are
+   not four hues, so every kind takes the theme's own accent there and the
+   mark tells them apart. */
+body[data-theme^=terminal] .activity { --activity: var(--emph); }
+.activity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0.75em;
+  margin: 0.9em 0.22em 1.1em 0;
+  padding: 0.55em 1em 0.55em 0.8em;
+  border-radius: var(--radius-card, 0.3em);
+  background: color-mix(in oklab, var(--activity) 20%, var(--paper));
+  --card-edge: color-mix(in oklab, var(--activity) 78%, black);
+  box-shadow: 0.22em 0.22em 0 var(--card-edge);
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  color: var(--ink);
+  text-align: left;
+}
+.activity .activity-glyph {
+  width: 1.55em;
+  height: 1.55em;
+  color: var(--activity);
+  align-self: center;
+}
+.activity .activity-body > :first-child { margin-top: 0; }
+.activity .activity-body > :last-child { margin-bottom: 0; }
+.activity .activity-body strong { color: inherit; }
+</style>`;
+}
+
+// An icon beside the bold belongs to the heading, whichever side it is
+// written on: `**HTML** :fa-code:\` and `:fa-code: **HTML**\` are both a
+// card heading with a mark in it. Without that the bold is not the whole of
+// the line, the lead is not recognised, and the icon lands outside the
+// <strong> in the body's ink beside a heading set in colour - the one place
+// a room reads an icon as a label. So the icons are taken into the lead and
+// take its colour through currentColor. The two extra groups match nothing
+// in a deck with no `:fa-…:` token, so no existing card moves a byte.
+const CARD_LEAD_ICON = String.raw`:(?:fa|far|fab)-[a-z0-9]+(?:-[a-z0-9]+)*:`;
+const CARD_LEAD_RE = new RegExp(String.raw`^((?:${CARD_LEAD_ICON}[ \t]+)*)`
+  + String.raw`(\*\*(?:[^*]|\*(?!\*))+\*\*|__(?:[^_]|_(?!_))+__)`
+  + String.raw`((?:[ \t]+${CARD_LEAD_ICON})*)(\s*\\[ \t]*|[ \t]{2,})$`);
 const CARD_IMG_ONLY_RE = /^!\[[^\]]*\]\([^)]*\)$/;
-function markCardLeads(lines) {
+// A card's own colour, written after its heading: `- **HTML** {.accent}\`.
+// The row's `tone` slot colours every card alike or in turn; this is the one
+// card that wants a colour of its own, which is what a row of three different
+// things side by side asks for. Only the tones and the accent, the
+// words the figure language and the row already use for colour.
+const CARD_TONE_WORDS = ['accent', 'tone-1', 'tone-2', 'tone-3', 'tone-4'];
+const CARD_TONE_TAIL_RE = /^(.*?)[ \t]+\{\.([^}\s]+)\}(\s*\\[ \t]*|[ \t]{2,})$/;
+function markCardLeads(lines, onProblem = () => {}) {
   let open = false;   // still at the item's opening slot
   return lines.map(raw => {
     let head, rest;
@@ -2290,10 +2578,26 @@ function markCardLeads(lines) {
       if (!cont || !cont[2].trim() || /^[-*+][ \t]/.test(cont[2])) { open = false; return raw; }
       [, head, rest] = cont;
     } else return raw;
+    let tone = null;
+    const tail = CARD_TONE_TAIL_RE.exec(rest);
+    if (tail && /\*\*|__/.test(tail[1])) {
+      tone = tail[2];
+      if (!CARD_TONE_WORDS.includes(tone)) {
+        onProblem(`{.${tone}} after a card heading is not a colour a card takes.\n` +
+          `  Write one of: ${CARD_TONE_WORDS.map(w => '{.' + w + '}').join(', ')}.`);
+        tone = null;
+      }
+      rest = tail[1] + tail[3];
+    }
     const lead = CARD_LEAD_RE.exec(rest);
     if (lead) {
       open = false;
-      return head + `<strong class="card-lead">${lead[1].slice(2, -2)}</strong>` + lead[2];
+      if (tone) currentCardTones = true;
+      return head + `<strong class="card-lead"${tone ? ` data-tone="${tone}"` : ''}>${lead[1]}${lead[2].slice(2, -2)}${lead[3]}</strong>` + lead[4];
+    }
+    if (tone) {
+      onProblem(`{.${tone}} colours a card through its heading, and this line is not one.\n` +
+        '  A heading is a bold on a line of its own, ending in a hard break:  - **HTML** {.accent}\\');
     }
     if (rest.trim() && !CARD_IMG_ONLY_RE.test(rest.trim())) open = false;
     return raw;
@@ -2301,6 +2605,9 @@ function markCardLeads(lines) {
 }
 
 function renderCardsBlock(b) {
+  // Collected while the leads are marked and raised once the refusal helper
+  // below exists - it is declared after the markup is built.
+  const cardLeadProblems = [];
   const o = readTail(b.attrs, CARDS_SLOTS, b.rows ? 'rows' : 'cards', b.where);
   // An item is its `- ` line *plus its continuation lines* - the indented
   // lines under it that are not themselves list items. Counting the marker
@@ -2390,7 +2697,7 @@ function renderCardsBlock(b) {
   } else {
     // A row's term is already its own element in its own column, so the
     // lead-in question is a card question only.
-    body = markCardLeads(b.lines);
+    body = markCardLeads(b.lines, (msg) => cardLeadProblems.push(msg));
   }
   // A card's default anchor is `top`. A row's depends on what the term sits
   // on, and that is the whole of this rule: the alignment follows from the
@@ -2415,6 +2722,10 @@ function renderCardsBlock(b) {
   const cls = [b.rows ? 'cards rows' : 'cards', `cards-${b.n}`, `cs-${size}`, `ca-${align}`,
     `cv-${o.anchor}`, `cd-${o.detail}`, `cg-${o.ground}`, `ck-${o.corner}`,
     `cx-${o.scrim}`];
+  // A tone's class only when one is written: every existing card row would
+  // otherwise gain a `ct-none` and every tracked view would move a byte for a
+  // word nobody wrote.
+  if (o.tone !== 'none') { cls.push(`ct-${o.tone}`); currentCardTones = true; }
   // A .photo ground, and a scrim over it, are words the drawing ignores
   // unless a card actually carries a picture - and a word that does nothing
   // is a refusal in this format, not a silent no-op. Both are checked against
@@ -2443,6 +2754,16 @@ function renderCardsBlock(b) {
   if (o.written.anchor && o.anchor === 'baseline' && !b.rows) {
     bad('.baseline lines a term up with the body beside it, and a card has no body beside it.\n' +
         '       Use .top or .middle here, or write ::: rows if the items are term-and-definition pairs.');
+  }
+  // A tone tints a ground, so it needs one that has a tint to take. The
+  // accent is already a colour, a photo is a picture, and clear has no fill
+  // and no border - on any of the three the word would draw nothing.
+  if (cardLeadProblems.length) bad(cardLeadProblems[0]);
+  const cardTone = b.lines.some(l => { const t = CARD_TONE_TAIL_RE.exec(l); return t && /\*\*|__/.test(t[1]); });
+  if ((o.tone !== 'none' || cardTone) && ['accent', 'photo', 'clear'].includes(o.ground)) {
+    bad(`${o.tone !== 'none' ? '.' + o.tone : 'a card colour'} tints a card's ground, and .${o.ground} has no tint to take:\n` +
+        '  the accent is already a colour, a photo is a picture, and clear draws no box.\n' +
+        '  Use it on panel (the default), outline or paper.');
   }
   if (o.written.ground && o.ground === 'photo' && !hasPicture) {
     bad('.photo makes a card\'s first image its ground, and no card here carries one.\n' +
@@ -2774,6 +3095,30 @@ marked.use({
       renderer(token) {
         return `<span class="math-inline">${renderMath(token.text, false)}</span>`;
       },
+    },
+  ],
+});
+
+// An icon is an inline token, registered the way the two math ones are and
+// with the same property falling out of it: a codespan consumes its interior
+// before the walker reaches it, so `` `:fa-key:` `` in a sentence about the
+// syntax stays the text it is. The tokenizer declines when the lecture has no
+// `icons:` key, which leaves `:fa-key:` as ordinary prose rather than failing
+// a build over a colon - and lint.js says so, because prose that was meant to
+// be an icon and silently is not is the failure worth catching there.
+marked.use({
+  extensions: [
+    {
+      name: 'faIcon',
+      level: 'inline',
+      start(src) { return src.indexOf(':fa'); },
+      tokenizer(src) {
+        if (currentIconMode === 'none') return;
+        const m = ICON_RE.exec(src);
+        if (!m) return;
+        return { type: 'faIcon', raw: m[0], prefix: m[1], name: m[2] };
+      },
+      renderer(token) { return iconSvg(token.prefix, token.name); },
     },
   ],
 });
@@ -3685,6 +4030,28 @@ function parseLecture(src) {
   // before it splices.
   src = String(src).replace(/\r\n?/g, '\n');
   const { data: frontmatter, content } = matter(src);
+  // Which icon set this lecture asked for, and which icons it names. Module
+  // state for the same reason currentSourceDir is: a marked extension is
+  // registered once for the process and has to know which lecture it is
+  // rendering. Set HERE, at the head of the parse, and not in buildOnce's
+  // pre-flight where it first lived: a ::: cards, ::: overlay or ::: dock body
+  // is rendered through marked during the parse, so an icon in a card was
+  // tokenized while the mode still said none and came out as its own text.
+  // The icons reference deck, which puts one in a card, is what found it.
+  // Cleared here too, or a --watch rebuild would keep emitting the notice for
+  // an icon the author has just deleted. A bad value fails here, which is
+  // still before any view is written.
+  currentIconMode = iconMode(frontmatter);
+  currentIconsUsed.clear();
+  currentIconProblems.length = 0;
+  // Whether any card row in this lecture carries a tone, so the tone rules are
+  // emitted only into a deck that uses one. Set by renderCardsBlock, which
+  // runs during the parse; cleared here, at its head, for --watch.
+  currentCardTones = false;
+  // Whether this lecture writes a ::: activity box, so its stylesheet reaches
+  // only a deck that does. Set as a box is opened below; cleared here for
+  // --watch.
+  currentActivities = false;
   // The lecture-wide diagram layer, parsed once and handed to every block.
   // Validated here rather than at the first diagram, because a lecture whose
   // frontmatter is wrong should say so even when it has no diagram yet.
@@ -4681,7 +5048,7 @@ function parseLecture(src) {
         // lines are its caption, and a wrapper or an svg inside a
         // <figcaption> is markup no reader asked for.
         const layoutWord = diagramOpen ? 'draw'
-          : (line.match(/^:::\s+(cols|side|flip|marginalia|embed|slide|script)\b/) || [])[1];
+          : (line.match(/^:::\s+(cols|side|flip|marginalia|embed|slide|script|activity)\b/) || [])[1];
         if (layoutWord && layoutWord !== 'draw' && currentOverlay) {
           refuse(
             `::: ${layoutWord} inside ::: overlay (${chunkRef()}).\n` +
@@ -4871,6 +5238,35 @@ function parseLecture(src) {
           }
           top.flipped = true;
           target.push('', `</div><div class="side-b">`, '');
+          continue;
+        }
+        // ::: activity <kind> – a box that says what the reader is to do.
+        // A wrapper in the body like ::: marginalia, and like it a container
+        // that has already chosen its width: a card row inside it is refused
+        // by the same narrowing rule. Refused itself inside a text flow, an
+        // aside, or another box - each of those has divided the measure or
+        // is already a box.
+        const activityOpen = line.match(/^:::\s+activity(?:\s+(\S+))?\s*$/);
+        if (activityOpen) {
+          const kind = activityOpen[1];
+          if (!kind || !ACTIVITY_KINDS[kind]) {
+            refuse(
+              `::: activity ${kind || ''}`.trim() + ` is not a box this directive draws (${chunkRef()}).\n` +
+              `  Write the kind after it: ${Object.keys(ACTIVITY_KINDS).map(k => '::: activity ' + k).join(', ')}.`);
+          }
+          const encl = layoutStack.find(l => ['cols', 'marginalia', 'activity'].includes(l.kind));
+          if (encl) {
+            refuse(
+              `::: activity inside ::: ${encl.kind} (${chunkRef()}).\n` +
+              (encl.kind === 'cols'
+                ? '  ::: cols is one text flow balanced across columns, and a box in it\n  breaks the flow. Put the box before or after the columns.'
+                : encl.kind === 'marginalia'
+                  ? '  A marginalia aside is a narrow note beside the slide, and a box is\n  a full-width statement on it. Put the box in the chunk body.'
+                  : '  A box is already a box. Close the first one before opening another.'));
+          }
+          currentActivities = true;
+          target.push('', `<aside class="activity activity-${kind}" role="note">${activityGlyph(kind)}<div class="activity-body">`, '');
+          layoutStack.push({ close: '</div></aside>', kind: 'activity', narrows: true });
           continue;
         }
         if (/^:::\s+marginalia\s*$/.test(line)) {
@@ -5738,6 +6134,44 @@ const STYLE_SPEC = {
   // neighbours; below 0.6 a headline stops being one and above 1.8 no cover
   // composition holds it.
   'display-scale': { kind: 'num', min: 0.6, max: 1.8, dflt: 1 },
+  // How far a card stands off the page. The ladder is already built and
+  // already right - --shadow-rest, --shadow-float, --shadow-quiet, in em so a
+  // shadow keeps its proportion to the card, on --accent-h so it carries the
+  // palette's hue. What was missing is an author's say over *which grounds
+  // use it*. Today exactly one does: .cards.cg-paper, and the comment there
+  // says why - "it carries a shadow rather than a border for that reason: the
+  // edge has to come from depth, because there is no tint to separate it". A
+  // cg-panel card is tinted, so it gets none, and a deck that wants depth
+  // everywhere has no way to ask.
+  //
+  //   flat    - today's rendering, and the default. A deck that says nothing
+  //             emits no rule and builds byte-identical HTML.
+  //   soft    - --shadow-rest on every card ground and every overlay/dock
+  //             ground, the resting step of the same ladder.
+  //   lifted  - --shadow-float instead, which is where an overlay card on
+  //             paper already sits, so the top of the ladder is not new.
+  //
+  // It is a deck-level key and not a class on a card, for the reason card
+  // size is one: "three sizes in one row read as a mistake rather than as a
+  // hierarchy". Elevation is the same kind of decision at the same altitude.
+  //
+  // The two grounds with no box are left out by construction rather than by a
+  // guard on each rule: cg-clear has no fill and no border, and ov-clear
+  // zeroes its padding and background, so a shadow on either would be a
+  // rectangle drawn around nothing.
+  //
+  // **Live views only.** A printed page is ink on paper and a drop shadow
+  // there is a grey smear that costs toner and says nothing; PRINT_CSS
+  // separates a card with a rule instead, deliberately, "a document that may
+  // be printed in black and white". Emitted where the EXERCISE eyebrow's
+  // override is and by the same test - print passes no strings table.
+  //   offset  - a hard shadow at 45 degrees, no blur, in a darker shade of
+  //             the box's own colour: the edge a printed slide master draws
+  //             under a callout. Unlike the two soft steps it reaches paper,
+  //             because a solid offset prints as a solid edge where a blur
+  //             prints as a smear - and a handout that loses the boxes' edge
+  //             loses what separated them.
+  elevation: { kind: 'enum', values: ['flat', 'soft', 'lifted', 'offset'], dflt: 'flat' },
   // Whether headings are balanced across their lines and prose gets a
   // protected last line. A preference in its own right - some authors want
   // the browser's plain greedy wrapping - and it is also the setting a deck
@@ -5978,6 +6412,37 @@ function styleSettings(frontmatter = {}) {
 // The settings as one <style> element plus the two body attributes the
 // selectors key off. Emitted for every view, print included: a lecture set
 // in a larger body size should print in one.
+// Every ground that has a box to lift, written once. The two that have no
+// box are excluded here rather than in each rule: `cg-clear` has neither fill
+// nor border and `ov-clear` zeroes both, so a shadow on either draws a
+// rectangle around nothing. `.cards.rows` puts its ground on the term rather
+// than on the item - the li there is display: contents - which is why it is a
+// third entry and not a variation on the first.
+const ELEVATION_GROUNDS = [
+  '.cards:not(.rows):not(.cg-clear) > :is(ul, ol) > li',
+  '.cards:not(.rows):not(.cg-clear) > :not(ul):not(ol)',
+  '.cards.rows:not(.cg-clear) li > :is(strong, b):first-child',
+  ':is(.overlay-card, .dock):not(.ov-clear)',
+].join(',\n');
+
+// The offset shadow's colour, per ground: a darker shade of what the box is
+// filled with, so the edge reads as the box's own and not as a grey line
+// drawn under it. A custom property rather than a value, and read through a
+// second one: `--card-edge`, when something more specific sets it - a card
+// row's tone, an activity box's kind - wins over the ground's default, and
+// neither has to know the other exists.
+const ELEVATION_EDGES = [
+  ['.cards.cg-panel > :is(ul, ol) > li, .cards.cg-panel > :not(ul):not(ol), .cards.rows.cg-panel li > :is(strong, b):first-child',
+    'color-mix(in oklab, var(--ink) 30%, var(--paper))'],
+  ['.cards.cg-accent > :is(ul, ol) > li, .cards.cg-accent > :not(ul):not(ol), .cards.rows.cg-accent li > :is(strong, b):first-child, :is(.overlay-card, .dock).ov-accent',
+    'color-mix(in oklab, var(--emph) 72%, black)'],
+  ['.cards:is(.cg-paper, .cg-outline, .cg-photo) > :is(ul, ol) > li, .cards:is(.cg-paper, .cg-outline, .cg-photo) > :not(ul):not(ol), .cards.rows:is(.cg-paper, .cg-outline) li > :is(strong, b):first-child, :is(.overlay-card, .dock):is(.ov-paper, .ov-glass, .ov-ink)',
+    'color-mix(in oklab, var(--ink) 38%, var(--paper))'],
+];
+// Half the reach of the lightest soft step, and exactly as far right as it is
+// down, which is what makes it read as 45 degrees at any size.
+const ELEVATION_OFFSET = '0.22em';
+
 function styleBlockCss(st, S) {
   const rootVars = [];
   if (st['heading-scale'] !== 1) rootVars.push(`--heading-scale: ${st['heading-scale']};`);
@@ -5999,6 +6464,25 @@ function styleBlockCss(st, S) {
     if (word !== STRINGS.en.type.exercise.toUpperCase()) {
       rules.push(`.chunk[data-tag=exercise] .chunk-content::before { content: "${cssString(word)}"; }`);
     }
+  }
+  // Elevation, and live only - see the note on the key. The test is `S`,
+  // which the two document renderers do not pass, exactly as the localised
+  // eyebrow above uses it. Emitted only away from the default, so a deck that
+  // says nothing carries no rule and no byte moves.
+  if (S && (st.elevation === 'soft' || st.elevation === 'lifted')) {
+    const step = st.elevation === 'lifted' ? '--shadow-float' : '--shadow-rest';
+    rules.push(`${ELEVATION_GROUNDS} { box-shadow: var(${step}); }`);
+  }
+  // The offset is emitted into every view, the two documents included - the
+  // whole point of it. `print-color-adjust: exact` is what keeps a browser
+  // from dropping it as "background graphics" when the reader prints without
+  // that box ticked; a box-shadow is otherwise treated as decoration and
+  // discarded, and the handout loses the edge the projection had.
+  if (st.elevation === 'offset') {
+    for (const [sel, edge] of ELEVATION_EDGES) rules.push(`${sel} { --card-edge-ground: ${edge}; }`);
+    rules.push(`${ELEVATION_GROUNDS} { box-shadow: ${ELEVATION_OFFSET} ${ELEVATION_OFFSET} 0 `
+      + `var(--card-edge, var(--card-edge-ground, color-mix(in oklab, var(--ink) 30%, var(--paper)))); `
+      + `-webkit-print-color-adjust: exact; print-color-adjust: exact; }`);
   }
   return rules.length ? `<style>${rules.join(' ')}</style>` : '';
 }
@@ -6029,6 +6513,31 @@ const IDENTITY_SPEC = {
   // a dark ground the ink is light, and a grey chosen for white paper would
   // be unreadable there.
   ink:           { kind: 'colour' },
+  // The bildmarke. An ordinary asset reference, resolved by resolveAssetUrl
+  // like every other image in the format, so it inherits the inline budget,
+  // the 2 MB per-image cap and `--no-inline-images` rather than reading the
+  // file behind their backs.
+  logo:          { kind: 'asset' },
+  // Where it goes, and the default is not the corner. The corner is already
+  // occupied: `.marginalia` sits at top / right of the chunk's own padding
+  // and the slide numbers push it down, which is why a deck that puts a logo
+  // there has to turn a feature off to make room for a picture. In the
+  // footer band there is one reserve instead of two and nothing is evicted.
+  // `corner` stays for a deck that wants the mark up top and is told what it
+  // costs - lint.js warns when the same deck uses ::: margin or leaves the
+  // slide numbers on.
+  'logo-place':  { kind: 'enum', values: ['footer', 'corner', 'none'], dflt: 'footer' },
+  // And where it goes on paper, which is a different question with a
+  // different default. A document already has a cover and page numbers; a
+  // running head on every page is a choice, and one that costs something -
+  // in print it can only be a fixed element repeated per page, because a
+  // @page margin box cannot carry a generated image. `cover` is the default
+  // so the risky half is opt-in and the page flow is untouched.
+  'logo-print':  { kind: 'enum', values: ['cover', 'every', 'none'], dflt: 'cover' },
+  // The two halves of the footer line. Plain text: a frame is not a place to
+  // put a sentence, and anything that wants markup wants to be on the slide.
+  'footer-left':  { kind: 'text' },
+  'footer-right': { kind: 'text' },
 };
 // A key that used to exist and does not any more - same courtesy STYLE_KEYS_REMOVED pays.
 const IDENTITY_KEYS_REMOVED = {};
@@ -6053,11 +6562,202 @@ function identitySettings(frontmatter = {}) {
       err.userFacing = true;
       throw err;
     }
+    const val = String(v).trim();
+    if (spec.kind === 'colour') {
+      if (!hexToOklch(val)) {
+        const err = new Error(
+          `Frontmatter: "identity.${k}: ${v}" is not a colour.\n` +
+          '  A house colour is a hex value: "#EC8A3C", or "#f71" for short.\n' +
+          '  Quote it - an unquoted # starts a YAML comment.');
+        err.userFacing = true;
+        throw err;
+      }
+    } else if (spec.kind === 'enum' && !spec.values.includes(val)) {
+      const err = new Error(
+        `Frontmatter: "identity.${k}: ${val}" is not a value this key accepts.\n` +
+        `  Valid values for ${k}: ${spec.values.join(', ')}`);
+      err.userFacing = true;
+      throw err;
+    }
+    out[k] = val;
+  }
+  if (!Object.keys(out).length) return null;
+  for (const [k, spec] of Object.entries(IDENTITY_SPEC))
+    if (spec.dflt != null && out[k] == null) out[k] = spec.dflt;
+  return out;
+}
+
+// ── palette: four accents that mean something ────────────────────────
+//
+// `tone-1`…`tone-4` are mixed from the page's own two inks - a tone on a box
+// is `--emph` or `--ink` at a percentage over the paper, and a column reads
+// its tone at roughly twice a box's strength. That is a good default: it
+// cannot clash, and it survives all seven themes, which is why the tones are
+// derived rather than named in the first place.
+//
+// It is also one hue and three greys. A deck that uses colour to *mean*
+// something - attacker, infrastructure, user, data, held constant over a
+// semester - has one hue and three greys to say it with, and draws three
+// different kinds of thing as two greys and a pale accent.
+//
+// `palette:` re-points the base each tone is mixed FROM and nothing else. The
+// mixing percentages, the bar strengths, the box/column distinction and
+// DG_BAR_CONTRAST_MIN all stay exactly as they are and operate on the new
+// base colours, so a palette colour too pale for a column still gets the
+// warning it would have got. The figure language needs no new vocabulary
+// either: `{.tone-1}` already exists and is already documented.
+//
+// **All of this lives here and not in diagram-core.mjs**, though that is
+// where the tone vocabulary lives and where DG_BAR_FILLS is. The reason is
+// mechanical: diagramCoreScript() splices that file into every built page as
+// TEXT, comments included, so a table added there costs four views their
+// bytes on every deck in the repository - measured, 114 lines across the
+// tutorial's four outputs, for a table the browser never reads. The build is
+// the only thing that needs these, so they are the build's.
+
+// What a BOX of each tone is filled and outlined with, as the token it is
+// mixed from and the percentage of it - the shape DG_BAR_FILLS uses for a
+// column, because a colour that a rule states and a warning computes has to
+// be one colour.
+//
+// This is a mirror of the `── tones ──` block in DIAGRAM_CSS rather than its
+// source: the stylesheet keeps its four hand-written rules, whose formatting
+// is not worth generating, and `test/gates/palette.mjs` parses the numbers
+// back out of it and asserts the two agree. The table exists because
+// `palette:` has to restate those rules with a different base, and restating
+// them from a second hand-written copy is how a mix drifts.
+//
+// A fill is over `paper` and a stroke over `ink`, which is the whole
+// difference between the two columns: an outline wants to be darker than its
+// fill in every theme, including the dark ones where darker is lighter.
+const DG_BOX_FILLS = {
+  'tone-1': { fill: ['emph', 13, 'paper'], stroke: ['emph', 60, 'ink'] },
+  'tone-2': { fill: ['ink', 8, 'paper'],   stroke: ['ink', 100, 'ink'] },
+  'tone-3': { fill: ['ink', 20, 'paper'],  stroke: ['ink', 100, 'ink'] },
+  'tone-4': { fill: ['emph', 100, 'paper'], stroke: ['emph', 100, 'ink'] },
+};
+const PALETTE_KEYS = Object.keys(DG_BOX_FILLS);
+// The four ::: activity kinds, whose colours a palette may re-point too. They
+// are emitted as the --activity-<kind> custom properties the boxes read, so
+// this block needs nothing from the construct but its names - and a palette
+// that sets them in a deck with no box costs four declarations and draws
+// nothing.
+const PALETTE_ACTIVITY_KEYS = ['link', 'info', 'task', 'example'];
+
+/** The four box rules with each tone's base replaced by the deck's colour. */
+function paletteBoxCss(palette, scope) {
+  const at = (tone, slot) => {
+    const [tok, pct, over] = DG_BOX_FILLS[tone][slot];
+    const base = palette[tone] || `var(--${tok})`;
+    return pct >= 100 ? base : `color-mix(in oklab, ${base} ${pct}%, var(--${over}))`;
+  };
+  const pre = scope ? scope + ' ' : '';
+  return PALETTE_KEYS.filter(t => palette[t]).map(tone =>
+    `${pre}.psi-diagram .${tone} > :is(rect, circle, .dg-shape) {`
+    + ` fill: ${at(tone, 'fill')}; stroke: ${at(tone, 'stroke')}; }`).join('\n');
+}
+/** The same for a column, off DG_BAR_FILLS - the table lint.js already reads. */
+function paletteBarCss(palette, scope) {
+  const pre = scope ? scope + ' ' : '';
+  // `emph` is deliberately absent: a palette names a tone, not a token, and
+  // `{.emph}` on a column means "this is the one to look at" rather than
+  // "this is infrastructure". It keeps the theme's accent.
+  return PALETTE_KEYS.filter(t => palette[t] && DG_BAR_FILLS[t]).map(tone => {
+    const [, pct] = DG_BAR_FILLS[tone];
+    const fill = pct >= 100 ? palette[tone]
+      : `color-mix(in oklab, ${palette[tone]} ${pct}%, var(--paper))`;
+    return `${pre}.psi-diagram .dg-bar.${tone} > rect { fill: ${fill}; }`;
+  }).join('\n');
+}
+
+let currentCardTones = false;
+
+// The four tone colours as custom properties, and what a toned card does with
+// its own. Emitted only when a card row in the deck carries a tone. Defaults
+// are the page's own inks - the accent, the ink, the soft ink, the accent -
+// so a deck with no palette still gets four distinguishable rows; a palette
+// re-points them, scoped the same way its figure tones are.
+const CARD_TONE_DEFAULTS = {
+  'tone-1': 'var(--emph)',
+  'tone-2': 'var(--ink)',
+  'tone-3': 'var(--ink-soft)',
+  'tone-4': 'var(--emph)',
+};
+function cardToneCss(view) {
+  if (!currentCardTones) return [];
+  // No :root declaration of the four tones. A value of var(--emph) declared
+  // there is substituted there, before a theme or a deck's identity has set
+  // the body's accent, so a toned card ignored both - the same trap the
+  // activity boxes fell into. The default rides in each use as a fallback,
+  // resolved on the card, and a palette's --tone-N still wins where it sets
+  // one.
+  const rules = [];
+  const tv = (t) => `var(--${t}, ${CARD_TONE_DEFAULTS[t]})`;
+  const items = (cls, nth = '') => [
+    `.cards.${cls}:not(.rows) > :is(ul, ol) > li${nth}`,
+    `.cards.${cls}:not(.rows) > :not(ul):not(ol)${nth}`,
+    `.cards.rows.${cls} li${nth} > :is(strong, b):first-child`,
+  ].join(',\n');
+  const paint = (tone) =>
+    // The fill is the tone at a fifth over the paper - a tint, so the body
+    // text stays the page's own ink - and the lead takes the tone at full
+    // strength, which is what a coloured heading on a pale box is. The edge
+    // is a darker shade of the same, for `elevation: offset` to draw.
+    ` { --card-bg: color-mix(in oklab, ${tv(tone)} 22%, var(--paper));`
+    + ` background-color: var(--card-bg);`
+    + ` --card-edge: color-mix(in oklab, ${tv(tone)} 78%, black);`
+    + ` --card-lead: ${tv(tone)};`
+    + ` border-color: color-mix(in oklab, ${tv(tone)} 55%, var(--paper)); }`;
+  for (const tone of Object.keys(CARD_TONE_DEFAULTS)) rules.push(items(`ct-${tone}`) + paint(tone));
+  // tones: the cards of a row take the four tones in order, and a fifth card
+  // starts again - by position in the row, so it needs no word per card.
+  Object.keys(CARD_TONE_DEFAULTS).forEach((tone, i) =>
+    rules.push(items('ct-tones', `:nth-child(4n+${i + 1})`) + paint(tone)));
+  // A card's own colour, from its heading. After the row's rules and one
+  // attribute more specific, so it wins over a row tone on the same card.
+  for (const tone of CARD_TONE_WORDS) {
+    const v = tone === 'accent' ? 'var(--emph)' : tv(tone);
+    rules.push(`.cards:not(.rows) > :is(ul, ol) > li:has(> .card-lead[data-tone="${tone}"])`
+      + ` { --card-bg: color-mix(in oklab, ${v} 22%, var(--paper)); background-color: var(--card-bg);`
+      + ` --card-edge: color-mix(in oklab, ${v} 78%, black); --card-lead: ${v};`
+      + ` border-color: color-mix(in oklab, ${v} 55%, var(--paper)); }`);
+  }
+  rules.push(`.cards[class*=" ct-"] .card-lead, .cards.rows[class*=" ct-"] li > :is(strong, b):first-child, .card-lead[data-tone] { color: var(--card-lead); }`);
+  if (view === 'print') {
+    // Print draws a card with a rule and no fill; a toned card is the one
+    // that asks for its colour on paper, and keeps it without background
+    // graphics for the reason the offset edge does.
+    rules.push(`.cards[class*=" ct-"] > :is(ul, ol) > li, .cards[class*=" ct-"] > :not(ul):not(ol), .cards li:has(> .card-lead[data-tone]) { -webkit-print-color-adjust: exact; print-color-adjust: exact; }`);
+  }
+  return rules;
+}
+
+function paletteSettings(frontmatter = {}) {
+  const raw = frontmatter.palette;
+  if (raw == null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    const err = new Error(
+      'Frontmatter: "palette:" is a block of keys, not a single value.\n' +
+      '  palette:\n    tone-1: "#2E6DB4"');
+    err.userFacing = true;
+    throw err;
+  }
+  const out = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (!PALETTE_KEYS.includes(k) && !PALETTE_ACTIVITY_KEYS.includes(k)) {
+      const err = new Error(
+        `Frontmatter: palette has no key "${k}".\n` +
+        `  Keys: ${[...PALETTE_KEYS, ...PALETTE_ACTIVITY_KEYS].join(', ')}\n` +
+        "  These are the figure language's own tone names, so a deck writes\n" +
+        '  `{.tone-1}` in a ::: draw block and means what it set here.');
+      err.userFacing = true;
+      throw err;
+    }
     const hex = String(v).trim();
     if (!hexToOklch(hex)) {
       const err = new Error(
-        `Frontmatter: "identity.${k}: ${v}" is not a colour.\n` +
-        '  A house colour is a hex value: "#EC8A3C", or "#f71" for short.\n' +
+        `Frontmatter: "palette.${k}: ${v}" is not a colour.\n` +
+        '  A tone is a hex value: "#2E6DB4", or "#2b4" for short.\n' +
         '  Quote it - an unquoted # starts a YAML comment.');
       err.userFacing = true;
       throw err;
@@ -6065,6 +6765,68 @@ function identitySettings(frontmatter = {}) {
     out[k] = hex;
   }
   return Object.keys(out).length ? out : null;
+}
+
+/**
+ * **Light themes only, and the derived mixes stay as the fallback.** Four
+ * hues tuned against white paper are not four hues on `terminal-green`, and
+ * the property that makes a theme switch survivable is exactly the derivation
+ * a palette replaces. So the rules are scoped and the two terminal themes and
+ * `dark` keep the mixes they were tuned for - one rule, no new vocabulary,
+ * nothing to remember. The document is unscoped: it has no themes.
+ */
+function paletteCss(palette, view) {
+  if (!palette) return [];
+  const scope = view === 'print' ? '' : IDENTITY_LIGHT_SEL;
+  // The card tones, re-pointed in the same scope as the figure tones, so a
+  // card row and a figure that name one tone stay one colour through A.
+  const vars = [
+    ...PALETTE_KEYS.filter(t => palette[t]).map(t => `--${t}: ${palette[t]};`),
+    ...PALETTE_ACTIVITY_KEYS.filter(k => palette[k]).map(k => `--activity-${k}: ${palette[k]};`),
+  ].join(' ');
+  return [paletteBoxCss(palette, scope), paletteBarCss(palette, scope),
+    vars ? `${scope || ':root'} { ${vars} }` : ''].filter(Boolean);
+}
+
+/**
+ * What the build says about a palette: the tones a room will not be able to
+ * tell from the paper. Same floor and the same arithmetic the figure
+ * language's own column warning uses - WCAG 1.4.11, below which a projector,
+ * which flattens every mid-tone toward the paper, has nothing left to show.
+ */
+function paletteNotes(palette) {
+  if (!palette) return [];
+  const paper = DG_THEMES['light-orange'].paper;
+  const out = [];
+  for (const [tone, hex] of Object.entries(palette)) {
+    const entry = DG_BAR_FILLS[tone];
+    if (!entry) continue;
+    const pct = entry[1];
+    // The column's strength, which is the stronger of the two mixes and so
+    // the one that has a chance of clearing the floor. A box's fill is far
+    // paler on purpose - it carries a label and the ink has to stay legible
+    // on it - and is not held to a non-text contrast floor at all.
+    //
+    // Mixed in oklab and not in oklch, because that is what the browser does:
+    // `color-mix(in oklab, …)` interpolates L, a and b, and interpolating a
+    // *hue* linearly instead takes the short way round a circle and lands on
+    // a different colour. dgBarContrast converts before it mixes for exactly
+    // this reason; so does this.
+    const c = oklchToLab(hexToOklch(hex));
+    const bg = oklchToLab(paper);
+    const mixed = [0, 1, 2].map(i => c[i] * pct / 100 + bg[i] * (1 - pct / 100));
+    const a = labLuminance(mixed), b = labLuminance(bg);
+    const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    if (ratio < WCAG_NON_TEXT) {
+      out.push(`[palette] ${tone} (${hex}) draws a column at ${ratio.toFixed(2)}:1 against the `
+        + `paper, under the ${WCAG_NON_TEXT} of WCAG 1.4.11 - a projector flattens a mid-tone `
+        + `toward the paper and has nothing left to show. A column of this tone is mixed at `
+        + `${pct}%, which is a strength tuned for the near-black ink and the accent; at that `
+        + `mix a mid-lightness colour cannot clear the floor. Boxes are unaffected - they are `
+        + `mixed far paler on purpose, so the label on them stays legible.`);
+    }
+  }
+  return out;
 }
 
 // The two grounds that paint the accent and reverse the ink onto it. Written
@@ -6219,8 +6981,12 @@ function splitSelectorList(list) {
  * renderers, so it wins on source order, and emitted at all only when the
  * deck declares an accent.
  */
-function identityStyleTag(identity, st, view) {
-  if (!identity) return '';
+function identityStyleTag(identity, st, view, palette) {
+  // No early return on a missing identity: a deck may write `palette:` and no
+  // `identity:` at all, and returning here dropped its palette without a word
+  // - the figures kept the theme's mixed tones and nothing said why. Found by
+  // the palette reference deck, which sets no accent. The function returns
+  // nothing only when there are no rules, further down.
   const groups = identityColours(identity, view) || [];
   // Print reads its own neutrals key, and the live views theirs: the two
   // grounds are not the same ground, which is why STYLE_SPEC carries both.
@@ -6257,7 +7023,8 @@ function identityStyleTag(identity, st, view) {
     rules.push(ground(view === 'print' ? ACCENT_GROUND_CARD.print : ACCENT_GROUND_CARD.live, 78));
     rules.push(ground(ACCENT_GROUND_OVERLAY, 80));
   }
-  if (identity.ink) {
+  rules.push(...(view === 'print' ? framePrintCss(identity) : frameCss(identity)));
+  if (identity && identity.ink) {
     // The same scope the accent takes on the light themes, and the document
     // unscoped. --ink-soft follows it, a third of the way to the paper, so
     // captions and the soft greys stay in the family instead of reverting to
@@ -6265,8 +7032,277 @@ function identityStyleTag(identity, st, view) {
     const scope = view === 'print' ? 'body' : IDENTITY_LIGHT_SEL;
     rules.push(`${scope} { --ink: ${identity.ink}; --ink-soft: color-mix(in oklab, ${identity.ink} 68%, var(--paper)); }`);
   }
+  rules.push(...cardToneCss(view));
+  rules.push(...paletteCss(palette, view));
   if (!rules.length) return '';
   return `\n<style>\n${rules.join('\n')}\n</style>`;
+}
+
+// ── the frame: a mark and a line, and the band the text yields ───────
+//
+// A frame is a dock. That is not an analogy - it is the mechanism, and it is
+// already in this file: `::: dock` reserves its column by growing the chunk's
+// own padding (`.chunk[data-dock=left] { padding-left: … }`), and `--exp-band`
+// reserves the chevrons' strip the same way, "which is also where
+// flowHeightProbe() wants it, since that function reads a level's own
+// paddings". Writing the frame's band as padding rather than as a new
+// measurement means auto-fit counts it, the speaker mirror matches pixel for
+// pixel, the camera and the zoom leave it alone, and --check-fit measures a
+// content box that already stops short of the footer. None of that is code
+// this feature had to write.
+//
+// The three expressions the foot of a slide is made of, written once here and
+// interpolated back into AUDIENCE_CSS so the stylesheet emits the bytes it
+// always did. The frame's rules are these plus the band, which is the only
+// way to be sure the two agree about where the floor is.
+const SLIDE_FOOT = {
+  chunk: 'var(--slide-pad-y)',
+  expanded: 'calc(var(--slide-pad-y) + var(--exp-band, 0px))',
+  exps: 'calc(var(--slide-pad-y) * 0.65)',
+};
+
+// Every state in which the frame must not paint. The workaround this replaces
+// guessed at three spellings of "some panel is up" - `body:is([data-overview],
+// .overview, [data-panel])` - none of which was real and none of which covered
+// `B`. This is the list, and a fast gate holds it against build.js: every body
+// class in a selector that dims, blurs, blanks or hides the stage has to be in
+// here, so a new overlay fails a check in a fifth of a second rather than
+// shipping a logo over a search panel.
+//
+// Two of them are not body classes at all - the help sheet and the search
+// panel are toggled by `.hidden` on their own elements - so the list is
+// selectors on the body rather than class names, and those two are written
+// with :has(), which this stylesheet already uses (`.chunk:has(> .exps)`).
+const FRAME_HIDDEN_STATES = [
+  'body.overview-mode',
+  'body.blanked',
+  'body.figure-focused',
+  'body.demo-live',
+  'body.toc-visible',
+  // The four full-screen panels, each of which is toggled by `.hidden` on
+  // its own element rather than by a class on the body. The gate derives
+  // that set from the stylesheet's own `#x.hidden { display: none }` rules,
+  // which is how #link-overlay and #demo-overlay got here: they were missing
+  // from the first draft of this list and nothing but the gate said so.
+  'body:has(#help-overlay:not(.hidden))',
+  'body:has(#search-panel:not(.hidden))',
+  'body:has(#link-overlay:not(.hidden))',
+  'body:has(#demo-overlay:not(.hidden))',
+  // The export modal is the exception: it is removed from the DOM on close
+  // rather than hidden, so its presence IS its state.
+  'body:has(#export-modal)',
+];
+
+/** The frame's three pieces, resolved, or null when the deck wears none. */
+function frameParts(identity) {
+  if (!identity) return null;
+  const place = identity['logo-place'] || 'footer';
+  const logo = place === 'none' ? null : (identity.logo ? resolveAssetUrl(identity.logo) : null);
+  const left = identity['footer-left'] || '';
+  const right = identity['footer-right'] || '';
+  if (!logo && !left && !right) return null;
+  return { logo, left, right, place: logo ? place : 'none' };
+}
+
+/**
+ * The frame's markup: a sibling of #stage inside #stage-viewport, never a
+ * descendant of a .chunk. The stage is transformed - the camera pans it and
+ * auto-fit scales it - and a mark that rides along is not a frame.
+ *
+ * aria-hidden, because every word in it is already in the document's own
+ * metadata and a screen reader should not read the lecturer's name once per
+ * slide.
+ */
+function frameHtml(identity) {
+  const f = frameParts(identity);
+  if (!f) return '';
+  const img = f.logo
+    ? `<img class="frame-logo" src="${escapeHtml(f.logo)}" alt="">` : '';
+  const foot = (f.left || f.right || f.place === 'footer')
+    ? `<div class="frame-foot-line">`
+      + `<span class="frame-left">${escapeHtml(f.left)}</span>`
+      + `<span class="frame-right">${escapeHtml(f.right)}</span>`
+      + (f.place === 'footer' ? img : '')
+      + `</div>`
+    : '';
+  const corner = f.place === 'corner' ? `<div class="frame-corner">${img}</div>` : '';
+  return `\n  <div id="frame" aria-hidden="true">${corner}${foot}</div>`;
+}
+
+/**
+ * The frame's stylesheet, appended to the identity block. Two halves and they
+ * are separate concerns: the band the text yields, and the paint.
+ */
+function frameCss(identity) {
+  const f = frameParts(identity);
+  if (!f) return [];
+  const rules = [];
+  // The band, sized off --slide-h like every other slide-internal length, so
+  // the four views measure it identically and the zoom does not move it.
+  rules.push(`:root {
+  --frame-foot: calc(var(--slide-h) * 0.032);
+  --frame-type: calc(var(--slide-h) * 0.0145);
+  --frame-head: ${f.place === 'corner' ? 'calc(var(--slide-h) * 0.1)' : '0px'};
+}`);
+  // What the text yields. Each of these is the expression AUDIENCE_CSS uses
+  // plus the band, taken from SLIDE_FOOT rather than retyped - a number that
+  // drifts here is a line of prose sitting on the footer, which is exactly
+  // the failure the reserve exists to prevent.
+  rules.push(`body .chunk {
+  padding-block-end: calc(${SLIDE_FOOT.chunk} + var(--frame-foot));
+  padding-block-start: calc(${SLIDE_FOOT.chunk} + var(--frame-head));
+}`);
+  rules.push(`body .chunk.expanded { padding-block-end: calc(${SLIDE_FOOT.expanded} + var(--frame-foot)); }`);
+  rules.push(`body .exps { bottom: calc(${SLIDE_FOOT.exps} + var(--frame-foot)); }`);
+  if (f.place === 'corner') {
+    // The corner the mark takes is .marginalia's corner, so the aside moves
+    // down by the mark's own height rather than being drawn over.
+    rules.push(`body .marginalia { top: calc(var(--slide-pad-y) + var(--frame-head)); }`);
+  }
+  // The paint. Everything here is inside #stage-viewport and above #stage,
+  // below every overlay - a frame is the room's furniture, not the slide's.
+  rules.push(`#frame {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  font-family: var(--sans-font);
+  color: color-mix(in oklab, var(--ink) 45%, var(--paper));
+}
+/* The band holds its own ground. A chunk taller than the frame is read by
+   scrolling - the stage walks down it as the reveals advance - and its prose
+   passes straight through the footer on the way: measured on a twelve-
+   paragraph chunk, "Paragraph 5" was drawn over the lecturer's name. The
+   reserve cannot help there, because that chunk never fitted the band in the
+   first place. So the foot fades to paper under the line, which both keeps
+   the footer legible and gives the scroll somewhere to go. Gradient rather
+   than a flat fill: a hard edge across the slide reads as a rule nobody
+   drew. */
+#frame::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: calc(var(--frame-foot) * 2.1);
+  background: linear-gradient(to top, var(--paper) 0%, var(--paper) 52%, transparent 100%);
+}
+#frame .frame-foot-line {
+  position: absolute;
+  inset: auto var(--slide-pad-x) 0 var(--slide-pad-x);
+  z-index: 1;
+  height: var(--frame-foot);
+  display: flex;
+  align-items: center;
+  gap: 0.9em;
+  font-size: var(--frame-type);
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+#frame .frame-left { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#frame .frame-right { flex: 0 0 auto; }
+#frame .frame-foot-line .frame-logo { flex: 0 0 auto; height: calc(var(--frame-foot) * 0.62); width: auto; }
+/* The corner mark is a signature, not a thumbnail. It sat inside the slide's
+   side padding at 62% of a 7.5% band - 42 px on a 900 px frame, beside a
+   heading set at twice that - and on a projector it read as a speck rather
+   than as whose lecture this is. It now takes the corner a printed slide
+   master gives a logo: up against the frame's top and right edges, at two
+   thirds of a 10% band, which is the proportion a mark plus a two-line
+   wordmark needs to be read from the back. The band still reserves its
+   height as padding, so a heading cannot run under it. */
+#frame .frame-corner {
+  position: absolute;
+  top: calc(var(--slide-h) * 0.03);
+  right: calc(var(--slide-w) * 0.022);
+}
+#frame .frame-corner .frame-logo { display: block; height: calc(var(--frame-head) * 0.66); width: auto; }`);
+  // And where it yields. One list, and the gate is what keeps it honest.
+  rules.push(`${FRAME_HIDDEN_STATES.map(sel => `${sel} #frame`).join(',\n')} { display: none; }`);
+  return rules;
+}
+
+/**
+ * The frame on paper. A different shape from the live one, because a document
+ * is a different object: it already has a cover and page numbers, and the two
+ * marks a room needs on every slide are marks a reader needs once.
+ *
+ *   cover  (default) - the mark and the line sit at the head of the first
+ *                      page, in the flow, above the title block. Nothing is
+ *                      positioned and no page's geometry changes.
+ *   every            - a running foot on every page. Only `position: fixed`
+ *                      does that in a print stylesheet; a `@page` margin box
+ *                      cannot carry a generated image.
+ *   none             - nothing.
+ */
+function framePrintHtml(identity) {
+  const f = frameParts(identity);
+  if (!f) return '';
+  const mode = (identity && identity['logo-print']) || 'cover';
+  if (mode === 'none') return '';
+  const img = f.logo ? `<img class="frame-logo" src="${escapeHtml(f.logo)}" alt="">` : '';
+  return `\n<div id="frame-print" data-print-frame="${mode}" aria-hidden="true">`
+    + `<span class="frame-left">${escapeHtml(f.left)}</span>`
+    + `<span class="frame-right">${escapeHtml(f.right)}</span>`
+    + img
+    + `</div>`;
+}
+
+function framePrintCss(identity) {
+  const f = frameParts(identity);
+  if (!f) return [];
+  const mode = (identity && identity['logo-print']) || 'cover';
+  if (mode === 'none') return [];
+  const rules = [`#frame-print {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+}
+#frame-print .frame-left { flex: 1 1 auto; }
+#frame-print .frame-right { flex: 0 0 auto; }
+#frame-print .frame-logo { flex: 0 0 auto; height: 1.6rem; width: auto; }`];
+  if (mode === 'cover') {
+    rules.push(`#frame-print[data-print-frame=cover] {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 2.4rem 1.5rem 0;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 0.5rem;
+}`);
+  } else {
+    // A fixed element is repeated on every printed page by the browser, and
+    // it is the only construct that is. It is taken out of the flow, so the
+    // page has to be given the room: @page's own margin is what reserves it,
+    // and the element sits inside that margin rather than over the text.
+    // On screen this is a document somebody scrolls, and a fixed element
+    // there is not a running foot - it is a bar pinned over the last two
+    // lines of whatever is on screen, measured at 77px of overlap. So the
+    // running foot is a print-only construct and the screen gets the same
+    // head the `cover` mode has. The block below is the whole difference
+    // between the two modes, which is the shape it should have: one mode is
+    // the other plus a repeat.
+    rules.push(`#frame-print[data-print-frame=every] {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 2.4rem 1.5rem 0.5rem;
+  border-bottom: 1px solid var(--rule);
+}
+@media print {
+  /* @page's own margin is what reserves the strip; the element sits inside
+     it rather than over the text. A @page margin box cannot carry a
+     generated image, which is why this is a fixed element and not one. */
+  @page { margin-bottom: 22mm; }
+  #frame-print[data-print-frame=every] {
+    position: fixed;
+    left: 0; right: 0; bottom: 8mm;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+    border-bottom: 0;
+  }
+}`);
+  }
+  return rules;
 }
 
 /**
@@ -7135,6 +8171,7 @@ function renderDocument(lecture, opts = {}) {
   const printNums = printSlideNums(frontmatter);
   const styleOpts = styleSettings(frontmatter);
   const identity = identitySettings(frontmatter);
+  const palette = paletteSettings(frontmatter);
   return `<!DOCTYPE html>
 <html lang="${escapeHtml(lectureLang(frontmatter))}">
 <head>
@@ -7146,12 +8183,12 @@ ${PRINT_CSS}
 ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'print')}
-${styleBlockCss(styleOpts)}${identityStyleTag(identity, styleOpts, 'print')}
-${codeTag(styleOpts, opts.codeSizing, 'print')}
+${styleBlockCss(styleOpts)}${identityStyleTag(identity, styleOpts, 'print', palette)}
+${iconStyleTag()}${activityStyleTag()}${codeTag(styleOpts, opts.codeSizing, 'print')}
 ${katexStyleTag(anonHtml + namedHtml)}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
-<body data-slide-nums="${printNums}" ${styleBodyAttrs(styleOpts, frontmatter)}>
+<body data-slide-nums="${printNums}" ${styleBodyAttrs(styleOpts, frontmatter)}>${framePrintHtml(identity)}
 <main>
 ${anonHtml}
 ${toc}
@@ -8948,6 +9985,7 @@ function renderAudience(lecture, opts = {}) {
   const defaults = viewDefaults(frontmatter);
   const styleOpts = styleSettings(frontmatter);
   const identity = identitySettings(frontmatter);
+  const palette = paletteSettings(frontmatter);
 
   return `<!DOCTYPE html>
 <html lang="${escapeHtml(lectureLang(frontmatter))}">
@@ -8960,8 +9998,8 @@ ${AUDIENCE_CSS}
 ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'live')}
-${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live')}
-${codeTag(styleOpts, opts.codeSizing, 'live')}
+${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live', palette)}
+${iconStyleTag()}${activityStyleTag()}${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
@@ -8970,7 +10008,7 @@ ${themeBootScript(defaults)}
 <div id="stage-viewport">
   <div id="stage">
 ${columnsHtml}
-  </div>
+  </div>${frameHtml(identity)}
 </div>
 <div id="laser-pointer" aria-hidden="true"></div>
 <div id="figure-overlay" aria-hidden="true"></div>
@@ -9377,7 +10415,7 @@ body.text-selecting #figure-overlay > .figure-focus-target { cursor: text; }
   display: grid;
   grid-template-columns: 1fr minmax(0, var(--content-w, 36em)) 1fr;
   align-items: center;
-  padding: var(--slide-pad-y) var(--slide-pad-x);
+  padding: ${SLIDE_FOOT.chunk} var(--slide-pad-x);
   transition: opacity var(--camera-duration) ease;
 }
 /* 22em was a genuinely narrow column: a claim of two sentences became a
@@ -9438,7 +10476,7 @@ body.text-selecting #figure-overlay > .figure-focus-target { cursor: text; }
   padding-block-end: max(0px, calc(var(--exp-band) - var(--slide-pad-y) * 0.35));
 }
 .chunk.expanded {
-  padding-block-end: calc(var(--slide-pad-y) + var(--exp-band, 0px));
+  padding-block-end: ${SLIDE_FOOT.expanded};
 }
 
 .tag-label {
@@ -12330,7 +13368,7 @@ body[data-view=audience] .chunk.has-annot .annot-box { opacity: 1; }
 /* expansion chevrons – bottom-right of the slide */
 .exps {
   position: absolute;
-  bottom: calc(var(--slide-pad-y) * 0.65);
+  bottom: ${SLIDE_FOOT.exps};
   right: var(--slide-pad-x);
   display: flex;
   flex-direction: row;
@@ -17414,6 +18452,7 @@ function renderSpeaker(lecture, opts = {}) {
   const defaults = viewDefaults(frontmatter);
   const styleOpts = styleSettings(frontmatter);
   const identity = identitySettings(frontmatter);
+  const palette = paletteSettings(frontmatter);
 
   return `<!DOCTYPE html>
 <html lang="${escapeHtml(lectureLang(frontmatter))}">
@@ -17426,9 +18465,9 @@ ${AUDIENCE_CSS}
 ${DIAGRAM_CSS}
 ${SPEAKER_CSS}
 </style>
-${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live')}
+${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live', palette)}
 ${fontStyleTag(opts.fontEmbed, 'live')}
-${codeTag(styleOpts, opts.codeSizing, 'live')}
+${iconStyleTag()}${activityStyleTag()}${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
@@ -17441,7 +18480,7 @@ ${scrubberHtml}
   <div id="stage-viewport">
     <div id="stage">
 ${columnsHtml}
-    </div>
+    </div>${frameHtml(identity)}
   </div>
   <button id="add-note-btn" type="button" title="Open speaker notes (Shift-N)">+ note</button>
   <button id="clock" type="button" title="Elapsed since the talk began · click to restart from 0:00"><span id="timer">0:00</span><span id="drift" hidden></span><span id="clock-hint" aria-hidden="true">reset</span></button>
@@ -20417,6 +21456,8 @@ function buildOnce(absIn, only, opts = {}) {
   // here, and not per view: they are about the deck, not about an output.
   const identity = identitySettings(lecture.frontmatter);
   for (const note of identityNotes(identity)) console.log(note);
+  const palette = paletteSettings(lecture.frontmatter);
+  for (const note of paletteNotes(palette)) console.log(note);
   // Same pre-flight contract: an unknown `labels:` key fails the build here,
   // before any view is written, rather than inside a renderer. Resolved once
   // and passed to all three renderers via renderOpts.strings, which is why
@@ -20562,6 +21603,21 @@ function buildOnce(absIn, only, opts = {}) {
     inlineSvgCounter = svgIdFloor;
     return [name, render(lecture, renderOpts)];
   });
+  // Icons, refused here rather than from inside a renderer - see the note on
+  // currentIconProblems. Between the two passes, so a deck with a typo in an
+  // icon name leaves the last good build whole on disk.
+  if (currentIconProblems.length) {
+    // Deduplicated before it is counted: the same icon is rendered once per
+    // view, so a single typo arrives here four times and "4 icons" would be
+    // a lie about the author's source.
+    const problems = [...new Set(currentIconProblems)];
+    const err = new Error(
+      `This lecture names ${problems.length} icon(s) the set does not have:\n`
+      + problems.join('\n')
+      + '\n  The three prefixes are fa- (solid), far- (regular) and fab- (brands).');
+    err.userFacing = true;
+    throw err;
+  }
   const written = [];
   for (const [name, html] of rendered) {
     const p = path.join(outDir, `${name}.html`);
@@ -21158,6 +22214,19 @@ async function runCheckFit(absIn, viewport) {
     const content = act.querySelector('.chunk-content') || act;
     const r = content.getBoundingClientRect();
     const vp = document.getElementById('stage-viewport').getBoundingClientRect();
+    // The frame's band is not part of the frame a slide may use. An
+    // `identity:` deck reserves it as chunk padding, so content that fits
+    // stops short of the footer on its own - but content that does NOT fit
+    // overflows that padding downward and lands ON the footer while still
+    // being inside the viewport, which is `over: 0` and no finding at all.
+    // So the usable box is the viewport minus whatever the frame occupies,
+    // measured off the frame's own elements rather than off a number: a deck
+    // with no frame has none and every verdict here is what it always was.
+    const frame = document.getElementById('frame');
+    const foot = frame && frame.querySelector('.frame-foot-line');
+    const corner = frame && frame.querySelector('.frame-corner');
+    const useTop = corner ? Math.max(0, corner.getBoundingClientRect().bottom - vp.top) : 0;
+    const useBot = foot ? Math.max(0, vp.bottom - foot.getBoundingClientRect().top) : 0;
     // What the height is *made of*, which is not the same question as how
     // many words the chunk holds. Under topic-bold the collapse renders the
     // first sentence of each paragraph plus every promoted bold, and hides
@@ -21180,6 +22249,8 @@ async function runCheckFit(absIn, viewport) {
       tag: act.dataset.tag || '', width: act.dataset.width || '',
       top: Math.round(r.top - vp.top), bottom: Math.round(r.bottom - vp.top),
       h: Math.round(r.height), vpH: Math.round(vp.height),
+      useTop: Math.round(useTop), useBot: Math.round(useBot),
+      usableH: Math.round(vp.height - useTop - useBot),
       collapse, bolds, boldPx: Math.round(boldPx),
     };
   });
@@ -21201,7 +22272,7 @@ async function runCheckFit(absIn, viewport) {
     // puzzle a reviewer should not have to solve.
     if (hash === lastHash) { if (++same >= 2) break; } else { same = 0; states++; }
     lastHash = hash;
-    const over = Math.max(0, -st.top) + Math.max(0, st.bottom - st.vpH);
+    const over = Math.max(0, st.useTop - st.top) + Math.max(0, st.bottom - (st.vpH - st.useBot));
     if (over > 0) {
       const prev = worst.get(st.id);
       if (!prev || over > prev.over) worst.set(st.id, { ...st, over, beat: i });
@@ -21226,8 +22297,11 @@ async function runCheckFit(absIn, viewport) {
   // it is what this command exists to catch. Reported as the failure; the
   // tall ones are reported as a note and change no exit code.
   const all = [...worst.values()].sort((a, b) => b.over - a.over);
-  const clipped = all.filter(b => b.h <= b.vpH);
-  const tall = all.filter(b => b.h > b.vpH);
+  // `usableH` is `vpH` on a deck with no frame, so this reads exactly as it
+  // did; on one with a frame it is the question the author is actually
+  // asking - does the slide fit the part of the frame the slide may use.
+  const clipped = all.filter(b => b.h <= b.usableH);
+  const tall = all.filter(b => b.h > b.usableH);
   const where = `${viewport.width}x${viewport.height}`;
   const tallNote = tall.length
     ? ` ${tall.length} chunk(s) are taller than the frame and are read by scrolling`
@@ -21240,10 +22314,13 @@ async function runCheckFit(absIn, viewport) {
   console.error(`[check-fit] ${states} state(s) at ${where}: ${clipped.length} slide(s) fit the frame`
     + ` and are positioned outside it.${tallNote}`);
   for (const b of clipped) {
-    const side = b.top < 0 && b.bottom > b.vpH ? 'clipped at both ends'
-      : b.top < 0 ? `${-b.top} px off the top` : `${b.bottom - b.vpH} px off the bottom`;
+    const lo = b.useTop, hi = b.vpH - b.useBot;
+    const side = b.top < lo && b.bottom > hi ? 'clipped at both ends'
+      : b.top < lo ? `${lo - b.top} px off the top` : `${b.bottom - hi} px off the bottom`;
+    const band = b.usableH === b.vpH ? `${b.vpH} px frame`
+      : `${b.usableH} px of usable frame (${b.vpH} px less the identity frame's band)`;
     console.error(`  #${b.id} (${b.tag}${b.width ? ', .' + b.width : ''}) – ${side}`
-      + ` at beat ${b.beat}; content ${b.h} px in a ${b.vpH} px frame, so it would fit.`);
+      + ` at beat ${b.beat}; content ${b.h} px in a ${band}, so it would fit.`);
     // The composition, not just the total. Reported because the total sends
     // an author at the word count, and under topic-bold that is the one lever
     // with no effect: a shortened continuation is hidden either way. This
