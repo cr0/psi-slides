@@ -313,8 +313,8 @@ from building the same way is a major version.
   tail on a line that is not a heading, is refused by both files
   (`cards-card-tone`).
 
-  **A palette may re-point the four `::: activity` colours too** -
-  `palette: {link: …, info: …, task: …, example: …}` - emitted as the
+  **A palette may re-point the five `::: activity` colours too** -
+  `palette: {link: …, info: …, task: …, example: …, takeaway: …}` - emitted as the
   `--activity-<kind>` properties the boxes read, in the same scope as the
   tones. In a deck with no box they draw nothing.
 

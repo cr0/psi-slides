@@ -6645,12 +6645,12 @@ const DG_BOX_FILLS = {
   'tone-4': { fill: ['emph', 100, 'paper'], stroke: ['emph', 100, 'ink'] },
 };
 const PALETTE_KEYS = Object.keys(DG_BOX_FILLS);
-// The four ::: activity kinds, whose colours a palette may re-point too. They
+// The five ::: activity kinds, whose colours a palette may re-point too. They
 // are emitted as the --activity-<kind> custom properties the boxes read, so
 // this block needs nothing from the construct but its names - and a palette
-// that sets them in a deck with no box costs four declarations and draws
+// that sets them in a deck with no box costs five declarations and draws
 // nothing.
-const PALETTE_ACTIVITY_KEYS = ['link', 'info', 'task', 'example'];
+const PALETTE_ACTIVITY_KEYS = ['link', 'info', 'task', 'example', 'takeaway'];
 
 /** The four box rules with each tone's base replaced by the deck's colour. */
 function paletteBoxCss(palette, scope) {
