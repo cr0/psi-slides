@@ -82,7 +82,7 @@ const KNOWN_FRONTMATTER_KEYS = new Set([
   'cover', 'cover-image', 'cover-ratio', 'cover-align', 'cover-ground',
   'closing-image', 'closing-credits',
   // dividers, identity, type and language
-  'section', 'section-mark', 'lecture', 'course', 'lang', 'labels', 'style',
+  'section', 'section-mark', 'section-ink', 'lecture', 'course', 'lang', 'labels', 'style',
   'identity', 'palette',
   'fonts', 'font', 'ligatures', 'draw-defaults', 'icons',
   // viewer defaults
@@ -123,6 +123,8 @@ const VIEW_DEFAULTS = {
   'cover-align': ['top', 'middle', 'bottom'],
   // How a column's divider slide is drawn. Mirrors SECTION_VARIANTS.
   'section': ['plain', 'tinted', 'rule', 'card', 'number', 'outline', 'poster'],
+  // Who decides the poster divider's ink. Mirrors SECTION_INKS.
+  'section-ink': ['auto', 'light', 'dark'],
   // Mirrors LIGATURE_MODES. The default is `text` and not `none`, because
   // code ligatures are already off and defaulting to none would take fi and
   // fl out of every existing lecture's prose.

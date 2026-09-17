@@ -1661,9 +1661,61 @@ console.log('\nlayout generations');
      'the frame steps off a poster divider');
   ok(/--poster-ink: var\(--emph-ink, #fff\)/.test(pst.html),
      'white ink, unless the identity measured that white does not carry');
+  // Capitals with tracking in a third of the slide is where a heading breaks
+  // mid-word - SCHUTZWE / RTE, which reads as a defect of the tool. Nothing
+  // may break a word; the type gives instead, sized off the longest word.
+  const pstLong = posterBuild('');
+  ok(/--poster-chars: 3\b/.test(pstLong.html) || /--poster-chars: \d+/.test(pstLong.html),
+     'the heading carries its longest word length');
+  const pstWord = (() => {
+    fs.writeFileSync(path.join(dir, 'source.md'),
+      '---\ntitle: T\nsection: poster\n---\n\n## title: {#title}\n\n' +
+      '# Schutzwerte und Schutzziele {#s}\n\n## free: A {#a}\n\nX.\n\n## free: B {#b}\n\nY.\n');
+    const r = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+    return r.status === 0 ? fs.readFileSync(path.join(dir, 'audience.html'), 'utf8') : '';
+  })();
+  ok(/--poster-chars: 11/.test(pstWord), 'counted from the longest word of the heading');
+  ok(/\.chunk\[data-section=poster\] \.section-heading \{[^}]*hyphens: none;[^}]*word-break: normal;[^}]*overflow-wrap: normal;/.test(pstWord),
+     'and nothing in the rule may break a word');
+  ok(/font-size: min\(calc\(2\.8em \* var\(--zoom\)\), calc\(36vw \/ \(var\(--poster-chars[^)]*\) \* 0\.82\)\)\)/.test(pstWord),
+     'the size is the smaller of the poster size and what the longest word allows');
   const pLint = spawnSync(process.execPath, [path.join(ROOT, 'lint.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
   ok(!/section/.test((pLint.stdout || '') + (pLint.stderr || '')), 'and the linter knows the word',
      ((pLint.stdout || '') + (pLint.stderr || '')).split('\n')[0]);
+
+  // section-ink: the one place a deck overrules the measurement, and only on
+  // the poster divider's two lines. The build still reports the ratio.
+  const ACCENT = '#EC8A3C';   // light enough that white cannot carry on it
+  const inkBuild = (ink) => {
+    fs.writeFileSync(path.join(dir, 'source.md'),
+      `---\ntitle: T\nsection: poster\n${ink ? `section-ink: ${ink}\n` : ''}identity:\n  accent: "${ACCENT}"\n---\n\n` +
+      '## title: {#title}\n\n# One {#o}\n\n## free: A {#a}\n\nX.\n\n## free: B {#b}\n\nY.\n');
+    const r = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+    return { out: (r.stdout || '') + (r.stderr || ''), code: r.status,
+             html: r.status === 0 ? fs.readFileSync(path.join(dir, 'audience.html'), 'utf8') : '' };
+  };
+  const inkAuto = inkBuild('');
+  const inkLight = inkBuild('light');
+  const inkDark = inkBuild('dark');
+  ok(/--poster-ink: var\(--emph-ink, #fff\)/.test(inkAuto.html), 'auto is the measurement');
+  ok(/--poster-ink: #fff/.test(inkLight.html) && !/--poster-ink: var/.test(inkLight.html),
+     'light is white whatever the accent measured');
+  ok(/--poster-ink: var\(--emph-ink, var\(--ink\)\)/.test(inkDark.html), 'dark is the dark ink');
+  ok(/\[section-ink\][^\n]*white[^\n]*under the/.test(inkLight.out),
+     'and the overruled measurement is reported, not suppressed', inkLight.out.split('\n').find(l => l.includes('[section-ink]')) || '');
+  ok(!/\[section-ink\]/.test(inkAuto.out) && !/\[section-ink\]/.test(inkDark.out),
+     'nothing is said where nothing was overruled');
+  ok(!/--poster-ink/.test(build('').html), 'a deck without a poster divider carries none of it');
+  const inkBad = inkBuild('weiss');
+  ok(inkBad.code !== 0 && /is not an ink this tool sets/.test(inkBad.out), 'an unknown value fails the build');
+  const inkLint = (() => {
+    fs.writeFileSync(path.join(dir, 'source.md'),
+      '---\ntitle: T\nsection: poster\nsection-ink: weiss\n---\n\n## title: {#title}\n\n# One {#o}\n\n## free: A {#a}\n\nX.\n\n## free: B {#b}\n\nY.\n');
+    const r = spawnSync(process.execPath, [path.join(ROOT, 'lint.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+    return (r.stdout || '') + (r.stderr || '');
+  })();
+  ok(/section-ink/.test(inkLint), 'and the linter names it too', inkLint.split('\n')[0]);
+
 
   // ── backdrop reveal, the over layer, and an overlay held to a beat ──
   const mask = (body) => {
