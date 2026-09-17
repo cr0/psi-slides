@@ -2510,7 +2510,7 @@ let currentActivities = false;
  * exposed as `--card-edge`, which is the name `style: {elevation: offset}`
  * reads, so the two agree about what a box's edge is.
  */
-function activityStyleTag() {
+function activityStyleTag(st) {
   if (!currentActivities) return '';
   const kinds = Object.entries(ACTIVITY_KINDS);
   // Resolved on the box, not declared on :root. A custom property whose value
@@ -2519,7 +2519,7 @@ function activityStyleTag() {
   // box took the root's accent and ignored both, drawn in the theme's red-
   // brown under an orange house colour. `--activity-<kind>` stays a hook a
   // deck may set; the kind's own colour is only the fallback.
-  return `\n<style>
+  return edgeCss(`\n<style>
 ${kinds.map(([k, v]) => `.activity-${k} { --activity: var(--activity-${k}, ${v.colour}); }`).join('\n')}
 /* The two terminal themes are a single phosphor tone; four hues on them are
    not four hues, so every kind takes the theme's own accent there and the
@@ -2550,7 +2550,7 @@ body[data-theme^=terminal] .activity { --activity: var(--emph); }
 .activity .activity-body > :first-child { margin-top: 0; }
 .activity .activity-body > :last-child { margin-bottom: 0; }
 .activity .activity-body strong { color: inherit; }
-</style>`;
+</style>`, st);
 }
 
 // An icon beside the bold belongs to the heading, whichever side it is
@@ -6180,6 +6180,14 @@ const STYLE_SPEC = {
   //             prints as a smear - and a handout that loses the boxes' edge
   //             loses what separated them.
   elevation: { kind: 'enum', values: ['flat', 'soft', 'lifted', 'offset'], dflt: 'flat' },
+  // What colour a box's hard edge is. `shade` (default) is the box's colour
+  // mixed toward black, the look `offset` and the activity boxes were built
+  // with; `tone` is the box's colour at full strength, for a house style
+  // whose manual draws the edge in the colour itself. Only the edges that are
+  // a shade of a colour move: a colourless ground's grey edge has no colour
+  // to take. Emitted by rewriting the shade where it is written (edgeCss), so
+  // a deck at `shade` builds byte for byte what it built before.
+  edge: { kind: 'enum', values: ['shade', 'tone'], dflt: 'shade' },
   // Whether headings are balanced across their lines and prose gets a
   // protected last line. A preference in its own right - some authors want
   // the browser's plain greedy wrapping - and it is also the setting a deck
@@ -6451,6 +6459,35 @@ const ELEVATION_EDGES = [
 // down, which is what makes it read as 45 degrees at any size.
 const ELEVATION_OFFSET = '0.22em';
 
+// `style: {edge: tone}`: every hard edge written as a shade of a colour -
+// `color-mix(in oklab, <colour> N%, black)` - becomes the colour itself. One
+// rewrite over the emitted rules rather than a flag threaded into each place
+// that writes an edge (activity boxes, card and row tones, the accent ground,
+// figure boxes), so a new edge written the same way follows without knowing
+// this key exists, and `shade` returns the text untouched.
+//
+// Scanned with the parentheses counted, not matched with a regex: a rule
+// carries several color-mix() calls and the colour inside one is itself a
+// var() with a fallback, so a lazy pattern reached from a tint's opening to
+// the edge's `black)` and ate the fill between them.
+function edgeCss(css, st) {
+  if (!st || st.edge !== 'tone') return css;
+  const OPEN = 'color-mix(in oklab, ';
+  let out = '', i = 0;
+  for (let at = css.indexOf(OPEN); at !== -1; at = css.indexOf(OPEN, i)) {
+    let depth = 1, j = at + OPEN.length;
+    for (; j < css.length && depth; j++) {
+      if (css[j] === '(') depth++;
+      else if (css[j] === ')') depth--;
+    }
+    const inner = css.slice(at + OPEN.length, j - 1);
+    const m = inner.match(/^([\s\S]+) \d+%, black$/);
+    out += css.slice(i, at) + (m ? m[1] : css.slice(at, j));
+    i = j;
+  }
+  return out + css.slice(i);
+}
+
 // A figure box is the same construct as a card drawn in SVG, and under
 // `elevation: offset` it wears the card's look: the tone as a tint, a lighter
 // rule, the first label line as the heading in the tone, and the hard edge.
@@ -6526,11 +6563,11 @@ function styleBlockCss(st, S) {
   // that box ticked; a box-shadow is otherwise treated as decoration and
   // discarded, and the handout loses the edge the projection had.
   if (st.elevation === 'offset') {
-    for (const [sel, edge] of ELEVATION_EDGES) rules.push(`${sel} { --card-edge-ground: ${edge}; }`);
+    for (const [sel, edge] of ELEVATION_EDGES) rules.push(edgeCss(`${sel} { --card-edge-ground: ${edge}; }`, st));
     rules.push(`${ELEVATION_GROUNDS} { box-shadow: ${ELEVATION_OFFSET} ${ELEVATION_OFFSET} 0 `
       + `var(--card-edge, var(--card-edge-ground, color-mix(in oklab, var(--ink) 30%, var(--paper)))); `
       + `-webkit-print-color-adjust: exact; print-color-adjust: exact; }`);
-    rules.push(...figureCardCss());
+    rules.push(...figureCardCss().map(r => edgeCss(r, st)));
   }
   return rules.length ? `<style>${rules.join(' ')}</style>` : '';
 }
@@ -7080,7 +7117,7 @@ function identityStyleTag(identity, st, view, palette) {
     const scope = view === 'print' ? 'body' : IDENTITY_LIGHT_SEL;
     rules.push(`${scope} { --ink: ${identity.ink}; --ink-soft: color-mix(in oklab, ${identity.ink} 68%, var(--paper)); }`);
   }
-  rules.push(...cardToneCss(view));
+  rules.push(...cardToneCss(view).map(r => edgeCss(r, st)));
   rules.push(...paletteCss(palette, view));
   if (!rules.length) return '';
   return `\n<style>\n${rules.join('\n')}\n</style>`;
@@ -8243,7 +8280,7 @@ ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'print')}
 ${styleBlockCss(styleOpts)}${identityStyleTag(identity, styleOpts, 'print', palette)}
-${iconStyleTag()}${activityStyleTag()}${codeTag(styleOpts, opts.codeSizing, 'print')}
+${iconStyleTag()}${activityStyleTag(styleOpts)}${codeTag(styleOpts, opts.codeSizing, 'print')}
 ${katexStyleTag(anonHtml + namedHtml)}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
@@ -10058,7 +10095,7 @@ ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'live')}
 ${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live', palette)}
-${iconStyleTag()}${activityStyleTag()}${codeTag(styleOpts, opts.codeSizing, 'live')}
+${iconStyleTag()}${activityStyleTag(styleOpts)}${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
@@ -18561,7 +18598,7 @@ ${SPEAKER_CSS}
 </style>
 ${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live', palette)}
 ${fontStyleTag(opts.fontEmbed, 'live')}
-${iconStyleTag()}${activityStyleTag()}${codeTag(styleOpts, opts.codeSizing, 'live')}
+${iconStyleTag()}${activityStyleTag(styleOpts)}${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>

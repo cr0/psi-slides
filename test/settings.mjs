@@ -3226,6 +3226,48 @@ console.log('\nlayout generations');
      'which the linter can see too, from the other end');
 }
 
+// ── style.edge: a hard edge in a shade of the box, or in the box's colour ──
+// `shade` is the look offset and the activity boxes were built with, so a deck
+// that says nothing has to keep every `…, black)` it had. `tone` takes the
+// black out of every edge that is a shade of a colour - activity boxes, toned
+// cards, the accent ground and figure boxes - and leaves the colourless
+// grounds' grey edges alone, because they have no colour to take.
+{
+  const EDGE_SRC = (st) => `---\ntitle: T\nstyle:\n  elevation: offset\n${st}---\n\n## title: {#title}\n\n`
+    + '## free: F {.wide #f}\n\n::: cards 2 {.tones}\n- **A**\\\n  a\n- **B**\\\n  b\n:::\n\n'
+    + '::: activity info\nA hint.\n:::\n\n::: draw 150x30\nbox a "A\\nsub" at 0,0 {.tone-1}\nbox b "B" right of a gap 1 {.accent}\n:::\n';
+  const edgeBuild = (st) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-edge-'));
+    fs.writeFileSync(path.join(dir, 'source.md'), EDGE_SRC(st));
+    const r = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+    if (r.status !== 0) throw new Error(`edge build failed:\n${r.stdout}${r.stderr}`);
+    return { html: fs.readFileSync(path.join(dir, 'audience.html'), 'utf8'), print: fs.readFileSync(path.join(dir, 'print.html'), 'utf8'), dir };
+  };
+  const shade = edgeBuild('');
+  const shadeExplicit = edgeBuild('  edge: shade\n');
+  const tone = edgeBuild('  edge: tone\n');
+  const blacks = (h) => (h.match(/color-mix\(in oklab, [^;{}]*? \d+%, black\)/g) || []).length;
+  ok(blacks(shade.html) > 0 && blacks(shade.print) > 0,
+     'at the default the edges are shades mixed toward black, live and on paper', `${blacks(shade.html)} live`);
+  ok(blacks(shade.html) === blacks(shadeExplicit.html) && blacks(shade.print) === blacks(shadeExplicit.print),
+     'edge: shade writes the same edges as saying nothing');
+  ok(blacks(tone.html) === 0 && blacks(tone.print) === 0,
+     'edge: tone leaves no edge mixed toward black, live or on paper', `${blacks(tone.html)} left`);
+  ok(/--card-edge: var\(--activity\);/.test(tone.html),
+     'the activity box edge is the kind colour itself');
+  ok(/drop-shadow\(\d+px \d+px 0 var\(--tone-1, var\(--emph\)\)\)/.test(tone.html),
+     'and so is a figure box edge');
+  ok(/drop-shadow\(\d+px \d+px 0 color-mix\(in oklab, var\(--ink\) 30%, var\(--paper\)\)\)/.test(tone.html),
+     'a colourless box keeps its grey edge, it has no colour to take');
+  const eDir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-edge-bad-'));
+  fs.writeFileSync(path.join(eDir, 'source.md'), '---\ntitle: T\nstyle: {edge: colour}\n---\n\n## title: {#title}\n\n## free: F {#f}\n\nA.\n');
+  const eBuild = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(eDir, 'source.md'), '--audience-only'], { cwd: ROOT, encoding: 'utf8' });
+  ok(eBuild.status !== 0 && /is not a value this key accepts/.test((eBuild.stdout || '') + (eBuild.stderr || '')),
+     'an unknown edge value fails the build');
+  const eLint = spawnSync(process.execPath, [path.join(ROOT, 'lint.js'), path.join(eDir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+  ok(/unknown-style-setting/.test((eLint.stdout || '') + (eLint.stderr || '')), 'and the linter names it too');
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.log(failures.map(f => '  ✗ ' + f).join('\n'));

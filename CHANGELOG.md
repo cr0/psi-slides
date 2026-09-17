@@ -9,6 +9,16 @@ from building the same way is a major version.
 
 ### Added
 
+- **`style: {edge: shade | tone}` picks the colour of a box's hard edge.**
+  `shade`, the default, is the box's colour mixed toward black - the look
+  `elevation: offset` and the `::: activity` boxes were built with, and a deck
+  that says nothing builds byte for byte what it built before. `tone` draws the
+  edge in the box's own colour at full strength, for a house manual that does
+  not darken it: activity boxes, toned cards and rows, the accent ground and
+  figure boxes. Colourless grounds keep their grey edge; there is no colour to
+  take. It is one rewrite over the emitted rules (`edgeCss()`), scanned with
+  the parentheses counted, so an edge written later the same way follows.
+
 - **Under `style: {elevation: offset}` a box in a `::: draw` figure is drawn
   the way a card is.** The tone as a 22% tint, a 55% rule, the first label
   line as the heading in the tone and bold, the lines after it in the ink, and
