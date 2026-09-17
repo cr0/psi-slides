@@ -507,14 +507,17 @@ from building the same way is a major version.
   Icons are out of scope inside a `::: draw` block: `editor.mjs` rewrites
   those by character span, and a figure that wants a mark uses the `image`
   statement, which already takes an SVG.
-- **`::: activity link | info | task | example` – a box that says what the
-  reader is to do.** Four kinds, one question each: follow this, note this, do
-  this, look at this. The kind is the whole vocabulary; its colour and its mark
+- **`::: activity link | info | task | example | takeaway` – a box that says
+  what the reader is to do.** Five kinds, one question each: follow this, note
+  this, do this, look at this, remember this. The kind is the whole vocabulary; its colour and its mark
   come with it, so a box looks the same on every slide without an author
-  assembling a card, a tone and an icon each time. The four marks are drawn by
+  assembling a card, a tone and an icon each time. The five marks are drawn by
   the build rather than taken from an icon set, so a box does not depend on a
-  deck installing one, and they are inline SVG in the kind's colour. `info`
-  takes the deck's accent; on the two terminal themes all four take the
+  deck installing one, and they are inline SVG in the kind's colour.
+  `takeaway` takes the deck's accent, and it is the only kind that does: it
+  holds the one sentence a slide wants remembered, and an accent on a second
+  kind would leave the two told apart by their marks alone. `info` has a hue
+  of its own for that reason. On the two terminal themes all five take the
   phosphor tone and the mark tells them apart.
 
   Each box carries a hard edge at 45 degrees in a darker shade of its colour.

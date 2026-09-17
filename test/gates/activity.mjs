@@ -1,5 +1,5 @@
 /*
- * ::: activity – the four kinds, held across the two files that read them.
+ * ::: activity – the five kinds, held across the two files that read them.
  *
  * The build owns the kinds (their colour and their mark); lint.js mirrors
  * their names, because a word the linter refuses and the build draws is a
@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT } from './harness.mjs';
 
-export const name = 'activity: the four kinds, and where a box may open, agree across build and lint';
+export const name = 'activity: the five kinds, and where a box may open, agree across build and lint';
 
 export async function run({ report }) {
   const build = fs.readFileSync(path.join(ROOT, 'build.js'), 'utf8');
@@ -30,7 +30,11 @@ export async function run({ report }) {
   const names = [...mirror[1].matchAll(/'([a-z]+)'/g)].map(m => m[1]);
   report.ok(kinds.join() === names.join(), 'lint.js knows exactly the kinds build.js draws',
     `${kinds.join()} | ${names.join()}`);
-  report.ok(kinds.join() === 'link,info,task,example', 'and they are link, info, task and example');
+  report.ok(kinds.join() === 'link,info,task,example,takeaway', 'and they are link, info, task, example and takeaway');
+  // One kind carries the deck's accent, and it is the takeaway: two kinds in
+  // one colour would be told apart only by their marks.
+  const accented = kinds.filter(k => new RegExp(`\\b${k}:\\s*\\{[^}]*colour: 'var\\(--emph\\)'`).test(table[1]));
+  report.ok(accented.join() === 'takeaway', 'exactly one kind, the takeaway, takes the deck\'s accent', accented.join());
   for (const k of kinds) {
     const entry = table[1].match(new RegExp(`\\b${k}:\\s*\\{[^}]*glyph: '([^']*)'`));
     report.ok(!!entry && /<(path|circle|rect|ellipse)\b/.test(entry[1]),
@@ -47,7 +51,7 @@ export async function run({ report }) {
   // before the theme or an identity had set the body's accent, and the info
   // box ignored both.
   report.ok(!/:root \{ \$\{kinds\.map/.test(build) && /\.activity-\$\{k\} \{ --activity: var\(--activity-\$\{k\}, \$\{v\.colour\}\); \}/.test(build),
-    "a box's colour is resolved on the box, so the info box follows the theme's and the deck's accent");
+    "a box's colour is resolved on the box, so the takeaway box follows the theme's and the deck's accent");
 
   // The edge prints.
   const css = build.slice(build.indexOf('function activityStyleTag'), build.indexOf('function activityStyleTag') + 2600);

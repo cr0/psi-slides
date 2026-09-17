@@ -275,7 +275,7 @@ function paletteTonesOf(header) {
 
 // Mirrors the keys of ACTIVITY_KINDS in build.js: the words ::: activity
 // takes. test/gates/activity.mjs holds the two lists together.
-const ACTIVITY_KINDS = ['link', 'info', 'task', 'example'];
+const ACTIVITY_KINDS = ['link', 'info', 'task', 'example', 'takeaway'];
 
 // Mirrors STYLE_KEYS_REMOVED in build.js.
 const STYLE_KEYS_REMOVED = {
