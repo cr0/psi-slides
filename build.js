@@ -1770,6 +1770,7 @@ const DISPLAY_TRACK = {
     '.chunk[data-cover=hero] .title-main',
     '.chunk[data-cover=quote][data-closing] .title-main',
     '.chunk-section .section-heading',
+    '.chunk[data-section=poster] .section-heading',
   ],
 };
 
@@ -2139,7 +2140,7 @@ function resolveAssetUrl(ref) {
 //
 // `plain` is what the tool always drew, minus the paragraph sign - see
 // SECTION_MARK below.
-const SECTION_VARIANTS = ['plain', 'tinted', 'rule', 'card', 'number', 'outline'];
+const SECTION_VARIANTS = ['plain', 'tinted', 'rule', 'card', 'number', 'outline', 'poster'];
 // `outline` is the one divider that is not a treatment of the heading but a
 // different slide: it lists every part of the lecture and says which one
 // starts here. That is the running agenda a long lecture keeps wanting, and
@@ -2496,6 +2497,70 @@ const activityGlyph = (kind) =>
 // conditional block in this file exists: a deck with none builds byte for
 // byte what it built before.
 let currentActivities = false;
+
+// The poster divider's stylesheet, emitted only into a deck that asks for
+// `section: poster`, so every other deck builds byte for byte what it did.
+// Live views only: print ignores dividers.
+function posterStyleTag(frontmatter) {
+  if (sectionSettings(frontmatter).variant !== 'poster') return '';
+  return `\n<style>
+/* poster - the accent edge to edge, the heading large and in capitals on the
+   left, the divider's own line under it as a spaced caption, and flat shapes
+   in three tints of the accent to the right and along the top (posterShapes).
+   The one variant that is allowed to be loud, because a deck that asks for it
+   is asking for a part to be a stop the room notices. Ink: white, unless the
+   deck's identity measured that white does not carry on its accent - then
+   the ink it picked (--emph-ink), the rule every accent ground follows. */
+.chunk[data-section=poster] {
+  background: var(--emph);
+  overflow: hidden;
+  --poster-ink: var(--emph-ink, #fff);
+}
+.chunk[data-section=poster] .section-shapes {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+.chunk[data-section=poster] .section-shapes .ps1 { fill: color-mix(in oklab, var(--emph), white 30%); }
+.chunk[data-section=poster] .section-shapes .ps2 { fill: color-mix(in oklab, var(--emph), white 55%); }
+.chunk[data-section=poster] .section-shapes .ps3 { fill: color-mix(in oklab, var(--emph), white 80%); }
+.chunk[data-section=poster] .chunk-content {
+  position: relative; z-index: 1;
+  align-self: stretch;
+  justify-content: center;
+  /* The shapes start at 54% of the width; the text column starts after the
+     slide's left track, so it may be about 36% wide before it reaches them. */
+  max-width: 36vw;
+  padding-top: calc(var(--slide-h) * 0.16);
+  gap: 0;
+}
+.chunk[data-section=poster] .section-heading {
+  color: var(--poster-ink);
+  font-size: calc(2.8em * var(--zoom));
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  line-height: 1.08;
+}
+.chunk[data-section=poster] .section-mark {
+  color: var(--poster-ink);
+  opacity: 0.85;
+}
+.chunk[data-section=poster] .section-body {
+  margin-top: 0.9em;
+  max-width: none;
+  color: var(--poster-ink);
+  font-size: calc(0.55em * var(--zoom));
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  white-space: nowrap;
+}
+.chunk[data-section=poster] .section-body p { margin: 0; }
+</style>`;
+}
 
 /**
  * The boxes' stylesheet. One colour per kind, as a custom property a deck
@@ -7176,6 +7241,11 @@ const FRAME_HIDDEN_STATES = [
   // The export modal is the exception: it is removed from the DOM on close
   // rather than hidden, so its presence IS its state.
   'body:has(#export-modal)',
+  // A poster divider is the accent edge to edge, and a logo in the house
+  // colour on it is a hole in the shapes. The divider is the part's title
+  // slide, so the frame steps off it the way it does for the full-screen
+  // states, rather than inverting a picture the build did not draw.
+  'body:has(.chunk-section[data-section=poster].active)',
 ];
 
 /** The frame's three pieces, resolved, or null when the deck wears none. */
@@ -7756,7 +7826,9 @@ function sectionSettings(frontmatter = {}) {
       `    tinted  the whole slide takes the accent, lightly\n` +
       `    rule    the heading between two rules across the measure\n` +
       `    card    the heading on a panel, like a card\n` +
-      `    number  a large counter above the heading`);
+      `    number  a large counter above the heading\n` +
+      `    outline the running agenda, this part live\n` +
+      `    poster  the accent edge to edge, the heading large, shapes to the right`);
     err.userFacing = true;
     throw err;
   }
@@ -9731,6 +9803,65 @@ function renderOutlineList(parts, now) {
   }).join('');
   return `<ol class="section-outline">${items}</ol>`;
 }
+// `section: poster` - the one divider that is louder than a treatment of the
+// heading: the accent edge to edge, and overlapping flat shapes cut by the
+// top, right and bottom edges, in three tints of the accent. The shapes are a
+// function of the part number, so every part is arranged differently and a
+// rebuild draws the same slide - a random layout would move under the
+// lecturer between two builds of one deck.
+//
+// Drawn in a 160x90 box anchored right (xMaxYMid slice), so at 16:9 the
+// shapes stay right of 54% of the width and in a band above 18% of the
+// height, and the heading - left, from about the middle down - never sits on
+// one. Each cell of a coarse grid holds one shape or none; a shape is drawn a
+// fifth larger than its cell so neighbours overlap, and the outer cells run
+// past the edge so the frame cuts them.
+function posterShapes(num) {
+  let seed = (Number(num) || 0) * 0x9E3779B1 + 0x6D2B79F5;
+  const rnd = () => {                                   // mulberry32
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+  const pick = (list) => list[Math.floor(rnd() * list.length)];
+  const f = (n) => Number(n.toFixed(2));
+  const cells = [];
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) cells.push({ x: 88 + c * 18, y: r * 30, w: 18, h: 30, keep: 0.8 });
+  for (let c = 0; c < 4; c++) cells.push({ x: c * 22, y: -6, w: 22, h: 22, keep: 0.45 });
+  const out = [];
+  for (const cell of cells) {
+    if (rnd() > cell.keep) continue;
+    const tint = pick(['ps1', 'ps2', 'ps3']);
+    const { x, y, w, h } = cell;
+    const cx = x + w / 2, cy = y + h / 2, k = 1.2;
+    const kind = pick(['circle', 'pill-h', 'pill-v', 'half', 'quarter']);
+    if (kind === 'circle') {
+      out.push(`<circle class="${tint}" cx="${f(cx)}" cy="${f(cy)}" r="${f(Math.min(w, h) * 0.5 * k)}"/>`);
+    } else if (kind === 'pill-h') {
+      const ph = h * 0.46;
+      out.push(`<rect class="${tint}" x="${f(x - w * 0.1)}" y="${f(cy - ph / 2)}" width="${f(w * k)}" height="${f(ph)}" rx="${f(ph / 2)}"/>`);
+    } else if (kind === 'pill-v') {
+      const pw = w * 0.62;
+      out.push(`<rect class="${tint}" x="${f(cx - pw / 2)}" y="${f(y - h * 0.1)}" width="${f(pw)}" height="${f(h * k)}" rx="${f(pw / 2)}"/>`);
+    } else if (kind === 'half') {
+      // A bar with one end fully rounded: the rect and the circle that rounds
+      // it are the same fill, so they read as one shape.
+      const bh = Math.min(w, h) * 0.9, left = rnd() < 0.5;
+      const bx = x - w * 0.1, bw = w * k;
+      out.push(`<g class="${tint}"><rect x="${f(left ? bx + bh / 2 : bx)}" y="${f(cy - bh / 2)}" width="${f(bw - bh / 2)}" height="${f(bh)}"/>`
+        + `<circle cx="${f(left ? bx + bh / 2 : bx + bw - bh / 2)}" cy="${f(cy)}" r="${f(bh / 2)}"/></g>`);
+    } else {
+      const r = Math.min(w, h) * k;
+      const corner = pick(['tl', 'tr', 'bl', 'br']);
+      const ox = corner.endsWith('l') ? x : x + w, oy = corner.startsWith('t') ? y : y + h;
+      const sx = corner.endsWith('l') ? 1 : -1, sy = corner.startsWith('t') ? 1 : -1;
+      const sweep = sx * sy > 0 ? 1 : 0;
+      out.push(`<path class="${tint}" d="M${f(ox)} ${f(oy)}H${f(ox + sx * r)}A${f(r)} ${f(r)} 0 0 ${sweep} ${f(ox)} ${f(oy + sy * r)}Z"/>`);
+    }
+  }
+  return `<svg class="section-shapes" viewBox="0 0 160 90" preserveAspectRatio="xMaxYMid slice" aria-hidden="true" focusable="false">${out.join('')}</svg>`;
+}
 function renderColumnSectionChunk(col, ci, frontmatter = {}, num = 0, parts = [], nums = chunkNumbers([])) {
   const chunkId = col.id ? `${col.id}-section` : `__section-c${ci}`;
   const sec = sectionSettings(frontmatter);
@@ -9766,7 +9897,7 @@ function renderColumnSectionChunk(col, ci, frontmatter = {}, num = 0, parts = []
   // measured, the list's centre sat 132px below the figure's. Everywhere
   // else the wrapper is `display: contents`, so it changes nothing.
   return `<article class="chunk chunk-section" data-tag="section" data-width="full" data-section="${sec.variant}"${bdAttr}${scrimAttr}${dockAttrs(col.dock)} data-chunk-id="${escapeHtml(chunkId)}">
-  ${art.html}
+  ${art.html}${sec.variant === 'poster' ? posterShapes(num) : ''}
   <div class="chunk-content">
     <div class="section-lead">
       ${mark}
@@ -10095,7 +10226,7 @@ ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'live')}
 ${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live', palette)}
-${iconStyleTag()}${activityStyleTag(styleOpts)}${codeTag(styleOpts, opts.codeSizing, 'live')}
+${iconStyleTag()}${activityStyleTag(styleOpts)}${posterStyleTag(frontmatter)}${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
@@ -18598,7 +18729,7 @@ ${SPEAKER_CSS}
 </style>
 ${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live', palette)}
 ${fontStyleTag(opts.fontEmbed, 'live')}
-${iconStyleTag()}${activityStyleTag(styleOpts)}${codeTag(styleOpts, opts.codeSizing, 'live')}
+${iconStyleTag()}${activityStyleTag(styleOpts)}${posterStyleTag(frontmatter)}${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>

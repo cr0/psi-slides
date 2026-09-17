@@ -331,7 +331,10 @@ export async function run({ report }) {
     };
     const sheets = {
       print: cut(/const PRINT_CSS = `/, 'const AUDIENCE'),
-      live: cut(/const AUDIENCE_CSS = `/, '// \u2500\u2500 audience runtime JS'),
+      // The poster divider's rules are a conditional sheet of their own
+      // (posterStyleTag), emitted into the live views like AUDIENCE_CSS.
+      live: cut(/const AUDIENCE_CSS = `/, '// \u2500\u2500 audience runtime JS')
+        + cut(/function posterStyleTag\(/, '</style>`;'),
     };
     const declared = {};
     for (const m of bsrc.slice(bsrc.indexOf('const DISPLAY_TRACK = {'))

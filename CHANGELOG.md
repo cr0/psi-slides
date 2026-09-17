@@ -9,6 +9,18 @@ from building the same way is a major version.
 
 ### Added
 
+- **`section: poster`, a divider that is the accent edge to edge.** The heading
+  large, bold and in spaced capitals on the left, the line written under the
+  `# Heading` as a spaced caption beneath it, and overlapping flat shapes -
+  circles, pills, bars with one round end, quarter circles - in three tints of
+  the accent, cut by the top, right and bottom edges. The arrangement is seeded
+  from the part number: each part differs, a rebuild draws the same slide. The
+  heading is white unless the deck's `identity:` measured that white does not
+  carry on its accent, in which case it takes the same dark ink as every other
+  accent ground. The logo and footer step off the slide (`FRAME_HIDDEN_STATES`),
+  and print ignores the divider as it ignores every one. Reference deck:
+  `lectures/divider-poster/`.
+
 - **`style: {edge: shade | tone}` picks the colour of a box's hard edge.**
   `shade`, the default, is the box's colour mixed toward black - the look
   `elevation: offset` and the `::: activity` boxes were built with, and a deck

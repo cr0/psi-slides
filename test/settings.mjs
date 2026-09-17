@@ -1631,6 +1631,40 @@ console.log('\nlayout generations');
   ok(!/<ol class="section-outline">/.test(outl.print),
      'and print carries no divider outline, like every other divider variant');
 
+  // ── section: poster ──
+  // The accent edge to edge with seeded shapes. The shapes are a function of
+  // the part number: different per part, identical between two builds.
+  const posterBuild = (fm) => {
+    fs.writeFileSync(path.join(dir, 'source.md'),
+      `---\ntitle: T\nsection: poster\n${fm}---\n\n## title: {#title}\n\n` +
+      '# One {#o}\n\nA • B • C\n\n## free: A {#a}\n\nX.\n\n' +
+      '# Two {#t}\n\n## free: B {#b}\n\nX.\n');
+    const r = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+    return { failed: r.status !== 0, out: (r.stdout || '') + (r.stderr || ''),
+             html: r.status === 0 ? fs.readFileSync(path.join(dir, 'audience.html'), 'utf8') : '',
+             print: r.status === 0 ? fs.readFileSync(path.join(dir, 'print.html'), 'utf8') : '' };
+  };
+  const pst = posterBuild('');
+  ok(!pst.failed, 'section: poster builds', pst.out.split('\n')[0]);
+  const pdivs = pst.html.match(/<article class="chunk chunk-section"[\s\S]*?<\/article>/g) || [];
+  const shapesOf = (d) => (d.match(/<svg class="section-shapes"[\s\S]*?<\/svg>/) || [''])[0];
+  ok(pdivs.length === 2 && pdivs.every(d => /data-section="poster"/.test(d) && shapesOf(d).length > 60),
+     'every divider carries its shapes');
+  ok(shapesOf(pdivs[0]) !== shapesOf(pdivs[1]), 'and each part is arranged differently');
+  const pst2 = posterBuild('');
+  const pdivs2 = pst2.html.match(/<article class="chunk chunk-section"[\s\S]*?<\/article>/g) || [];
+  ok(pdivs.map(shapesOf).join('') === pdivs2.map(shapesOf).join(''), 'and a rebuild draws the same shapes');
+  ok(/class="section-body"[\s\S]*?A • B • C/.test(pdivs[0]), 'the line under the heading is the caption');
+  ok(!/section-shapes/.test(pst.print.replace(/<style[\s\S]*?<\/style>/g, '')), 'and print draws no poster, like every divider');
+  const pstFrame = posterBuild('identity:\n  footer-left: "Footer"\n');
+  ok(/body:has\(\.chunk-section\[data-section=poster\]\.active\)[^{]*#frame/.test(pstFrame.html),
+     'the frame steps off a poster divider');
+  ok(/--poster-ink: var\(--emph-ink, #fff\)/.test(pst.html),
+     'white ink, unless the identity measured that white does not carry');
+  const pLint = spawnSync(process.execPath, [path.join(ROOT, 'lint.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+  ok(!/section/.test((pLint.stdout || '') + (pLint.stderr || '')), 'and the linter knows the word',
+     ((pLint.stdout || '') + (pLint.stderr || '')).split('\n')[0]);
+
   // ── backdrop reveal, the over layer, and an overlay held to a beat ──
   const mask = (body) => {
     fs.writeFileSync(path.join(dir, 'source.md'),
