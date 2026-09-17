@@ -2273,6 +2273,94 @@ const CARDS_MEDIUM_MAX = 12;
 // bleeds an image: there the lead-in is the line *under* the picture, and
 // the two position-dependent selector pairs this replaces existed only to
 // reach it. A class on the run reaches it wherever it sits.
+// ── ::: activity – a box that says what the reader is to do ─────────────
+//
+// Four kinds, and each is one question a lecture asks of its room: follow a
+// link, note this, do this, look at this. A box of each kind is recognisable
+// before it is read, by its colour and its mark, which is the whole point of
+// having more than one - so the kind is a word on the directive and the
+// colour and the mark come with it, not something the author assembles out
+// of a card row, a tone and an icon on every slide.
+//
+// The marks are drawn here, four small paths, rather than taken from an icon
+// set. A box that says "task" must not depend on whether the deck installed
+// a 41 MB development dependency, and the four marks are inline SVG in
+// currentColor, so they follow the kind's colour and every theme.
+const ACTIVITY_KINDS = {
+  link:    { label: 'Link',    colour: 'oklch(0.58 0.12 155)',
+    glyph: '<circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><ellipse cx="12" cy="12" rx="4.2" ry="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2.5 12h19M4.2 7h15.6M4.2 17h15.6" fill="none" stroke="currentColor" stroke-width="1.8"/>' },
+  info:    { label: 'Info',    colour: 'var(--emph)',
+    glyph: '<circle cx="12" cy="12" r="11" fill="currentColor"/><circle cx="12" cy="6.8" r="1.7" fill="var(--paper)"/><rect x="10.4" y="10" width="3.2" height="8.6" rx="1" fill="var(--paper)"/>' },
+  task:    { label: 'Task',    colour: 'oklch(0.46 0.13 320)',
+    glyph: '<path d="M10 1.5a8.5 8.5 0 0 0-8.5 8.6c0 2.7 1.2 4.7 3.2 6.1v6.3h8.4v-3h2.8a2 2 0 0 0 2-2v-2.8l2.1-.8c.6-.2.8-.9.4-1.4l-2.1-3.3A8.6 8.6 0 0 0 10 1.5z" fill="currentColor"/><circle cx="9.6" cy="9.4" r="3" fill="none" stroke="var(--paper)" stroke-width="1.9" stroke-dasharray="1.45 0.9"/><circle cx="9.6" cy="9.4" r="1" fill="var(--paper)"/>' },
+  example: { label: 'Example', colour: 'oklch(0.50 0.12 245)',
+    glyph: '<rect x="2" y="4" width="20" height="16" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4.5 17.5l5.2-6.5 3.6 4.2 2.6-3 3.6 5.3z" fill="currentColor"/><circle cx="8" cy="8.8" r="1.7" fill="currentColor"/>' },
+};
+const activityGlyph = (kind) =>
+  `<svg class="activity-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ACTIVITY_KINDS[kind].glyph}</svg>`;
+
+// Module state, set during the parse and cleared at its head, so the rules
+// below reach only a deck that writes a box - the reason every other
+// conditional block in this file exists: a deck with none builds byte for
+// byte what it built before.
+let currentActivities = false;
+
+/**
+ * The boxes' stylesheet. One colour per kind, as a custom property a deck
+ * could re-point, and everything else derived from it: a tint for the
+ * ground, the colour itself for the mark, and a darker shade for the hard
+ * edge under the box, at 45 degrees - as far right as down.
+ *
+ * The edge is part of the construct rather than a `style:` setting, because
+ * it is part of what makes the box recognisable, and it prints: a solid
+ * offset prints as an edge where a blur prints as a smear, and
+ * print-color-adjust keeps it when background graphics are off. It is also
+ * exposed as `--card-edge`, which is the name `style: {elevation: offset}`
+ * reads, so the two agree about what a box's edge is.
+ */
+function activityStyleTag() {
+  if (!currentActivities) return '';
+  const kinds = Object.entries(ACTIVITY_KINDS);
+  // Resolved on the box, not declared on :root. A custom property whose value
+  // is var(--emph) is substituted where it is declared, and the theme and a
+  // deck's identity set --emph on the body - so declared on :root the info
+  // box took the root's accent and ignored both, drawn in the theme's red-
+  // brown under an orange house colour. `--activity-<kind>` stays a hook a
+  // deck may set; the kind's own colour is only the fallback.
+  return `\n<style>
+${kinds.map(([k, v]) => `.activity-${k} { --activity: var(--activity-${k}, ${v.colour}); }`).join('\n')}
+/* The two terminal themes are a single phosphor tone; four hues on them are
+   not four hues, so every kind takes the theme's own accent there and the
+   mark tells them apart. */
+body[data-theme^=terminal] .activity { --activity: var(--emph); }
+.activity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0.75em;
+  margin: 0.9em 0.22em 1.1em 0;
+  padding: 0.55em 1em 0.55em 0.8em;
+  border-radius: var(--radius-card, 0.3em);
+  background: color-mix(in oklab, var(--activity) 20%, var(--paper));
+  --card-edge: color-mix(in oklab, var(--activity) 78%, black);
+  box-shadow: 0.22em 0.22em 0 var(--card-edge);
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  color: var(--ink);
+  text-align: left;
+}
+.activity .activity-glyph {
+  width: 1.55em;
+  height: 1.55em;
+  color: var(--activity);
+  align-self: center;
+}
+.activity .activity-body > :first-child { margin-top: 0; }
+.activity .activity-body > :last-child { margin-bottom: 0; }
+.activity .activity-body strong { color: inherit; }
+</style>`;
+}
+
 const CARD_LEAD_RE = /^(\*\*(?:[^*]|\*(?!\*))+\*\*|__(?:[^_]|_(?!_))+__)(\s*\\[ \t]*|[ \t]{2,})$/;
 const CARD_IMG_ONLY_RE = /^!\[[^\]]*\]\([^)]*\)$/;
 function markCardLeads(lines) {
@@ -3683,6 +3771,10 @@ function parseLecture(src) {
   // before it splices.
   src = String(src).replace(/\r\n?/g, '\n');
   const { data: frontmatter, content } = matter(src);
+  // Whether this lecture writes a ::: activity box, so its stylesheet reaches
+  // only a deck that does. Set as a box is opened below; cleared here for
+  // --watch.
+  currentActivities = false;
   // The lecture-wide diagram layer, parsed once and handed to every block.
   // Validated here rather than at the first diagram, because a lecture whose
   // frontmatter is wrong should say so even when it has no diagram yet.
@@ -4679,7 +4771,7 @@ function parseLecture(src) {
         // lines are its caption, and a wrapper or an svg inside a
         // <figcaption> is markup no reader asked for.
         const layoutWord = diagramOpen ? 'draw'
-          : (line.match(/^:::\s+(cols|side|flip|marginalia|embed|slide|script)\b/) || [])[1];
+          : (line.match(/^:::\s+(cols|side|flip|marginalia|embed|slide|script|activity)\b/) || [])[1];
         if (layoutWord && layoutWord !== 'draw' && currentOverlay) {
           refuse(
             `::: ${layoutWord} inside ::: overlay (${chunkRef()}).\n` +
@@ -4869,6 +4961,35 @@ function parseLecture(src) {
           }
           top.flipped = true;
           target.push('', `</div><div class="side-b">`, '');
+          continue;
+        }
+        // ::: activity <kind> – a box that says what the reader is to do.
+        // A wrapper in the body like ::: marginalia, and like it a container
+        // that has already chosen its width: a card row inside it is refused
+        // by the same narrowing rule. Refused itself inside a text flow, an
+        // aside, or another box - each of those has divided the measure or
+        // is already a box.
+        const activityOpen = line.match(/^:::\s+activity(?:\s+(\S+))?\s*$/);
+        if (activityOpen) {
+          const kind = activityOpen[1];
+          if (!kind || !ACTIVITY_KINDS[kind]) {
+            refuse(
+              `::: activity ${kind || ''}`.trim() + ` is not a box this directive draws (${chunkRef()}).\n` +
+              `  Write the kind after it: ${Object.keys(ACTIVITY_KINDS).map(k => '::: activity ' + k).join(', ')}.`);
+          }
+          const encl = layoutStack.find(l => ['cols', 'marginalia', 'activity'].includes(l.kind));
+          if (encl) {
+            refuse(
+              `::: activity inside ::: ${encl.kind} (${chunkRef()}).\n` +
+              (encl.kind === 'cols'
+                ? '  ::: cols is one text flow balanced across columns, and a box in it\n  breaks the flow. Put the box before or after the columns.'
+                : encl.kind === 'marginalia'
+                  ? '  A marginalia aside is a narrow note beside the slide, and a box is\n  a full-width statement on it. Put the box in the chunk body.'
+                  : '  A box is already a box. Close the first one before opening another.'));
+          }
+          currentActivities = true;
+          target.push('', `<aside class="activity activity-${kind}" role="note">${activityGlyph(kind)}<div class="activity-body">`, '');
+          layoutStack.push({ close: '</div></aside>', kind: 'activity', narrows: true });
           continue;
         }
         if (/^:::\s+marginalia\s*$/.test(line)) {
@@ -6852,7 +6973,7 @@ ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'print')}
 ${styleBlockCss(styleOpts)}
-${codeTag(styleOpts, opts.codeSizing, 'print')}
+${activityStyleTag()}${codeTag(styleOpts, opts.codeSizing, 'print')}
 ${katexStyleTag(anonHtml + namedHtml)}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
@@ -8665,7 +8786,7 @@ ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'live')}
 ${styleBlockCss(styleOpts, S)}
-${codeTag(styleOpts, opts.codeSizing, 'live')}
+${activityStyleTag()}${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
@@ -17134,7 +17255,7 @@ ${SPEAKER_CSS}
 </style>
 ${styleBlockCss(styleOpts, S)}
 ${fontStyleTag(opts.fontEmbed, 'live')}
-${codeTag(styleOpts, opts.codeSizing, 'live')}
+${activityStyleTag()}${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>

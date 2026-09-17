@@ -528,6 +528,20 @@ explicit paths in `source.md` are rewritten for you. SVG is never touched: it
 is spliced inline as a real `<svg>` element so it inherits the theme colours.
 `--no-inline-images` is the escape hatch that ships external paths on purpose.
 
+## Activity boxes
+
+`::: activity <kind>` draws a box that says what the reader is to do. Four kinds: `link` (follow this), `info` (note this), `task` (do this), `example` (look at this). The kind brings its colour and its mark; `info` takes the deck's accent.
+
+```md
+::: activity task
+Open three sites you use daily and count the requests each one makes.
+:::
+```
+
+- **One or two sentences.** A box is a statement on the slide, and it is collapsed like any other prose.
+- **Not inside `::: cols`, `::: marginalia` or another box,** and no card row inside one. Overlays, embeds and docks refuse it like any directive.
+- The hard edge under the box is part of it and prints.
+
 ## Math
 
 `$inline$` and `$$display$$` render with KaTeX at build time. No flag, no

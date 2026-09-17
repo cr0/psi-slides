@@ -221,6 +221,28 @@ from building the same way is a major version.
 
 ### Added
 
+- **`::: activity link | info | task | example` – a box that says what the
+  reader is to do.** Four kinds, one question each: follow this, note this, do
+  this, look at this. The kind is the whole vocabulary; its colour and its mark
+  come with it, so a box looks the same on every slide without an author
+  assembling a card, a tone and an icon each time. The four marks are drawn by
+  the build rather than taken from an icon set, so a box does not depend on a
+  deck installing one, and they are inline SVG in the kind's colour. `info`
+  takes the deck's accent; on the two terminal themes all four take the
+  phosphor tone and the mark tells them apart.
+
+  Each box carries a hard edge at 45 degrees in a darker shade of its colour.
+  It is part of the box, not a setting, and it prints - a solid edge prints as
+  an edge, and `print-color-adjust: exact` keeps it without background
+  graphics. The shade is exposed as `--card-edge`.
+
+  A box is refused inside `::: cols` (it breaks the flow), `::: marginalia` (a
+  box is not a margin note) and another box, and a card row cannot open inside
+  one; `::: overlay`, `::: embed` and `::: dock` refuse it as they refuse any
+  directive. `lint.js` mirrors the kinds and every refusal (`bad-activity`,
+  `activity-nested`, `cards-nested`), and `test/gates/activity.mjs` holds the
+  two files together. A deck that writes no box emits nothing.
+
 - **A fourth font role: `fonts: {display: …}` gives the cover, the closing
   slide and the section dividers a typeface nothing else in the deck wears.**
   Those three are the one place where a loud face is not a mistake – nobody

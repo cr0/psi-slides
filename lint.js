@@ -210,6 +210,10 @@ const STYLE_NUM_SPEC = {
   // STYLE_SPEC entry for why the roster normalises width and this key exists.
   'display-scale': [0.6, 1.8],
 };
+// Mirrors the keys of ACTIVITY_KINDS in build.js: the words ::: activity
+// takes. test/gates/activity.mjs holds the two lists together.
+const ACTIVITY_KINDS = ['link', 'info', 'task', 'example'];
+
 // Mirrors STYLE_KEYS_REMOVED in build.js.
 const STYLE_KEYS_REMOVED = {
   reveal: 'every reveal reserves its space now, which is what `hold` bought, so delete the key',
@@ -3433,7 +3437,7 @@ function lintFile(filePath) {
       // has already divided that measure. `slide` and `script` divide
       // nothing - they say which half of the chunk is on screen - so they
       // are not in the list.
-      const narrowing = layoutStack.filter(l => /^(cols|marginalia|embed)/.test(l.kind)).pop();
+      const narrowing = layoutStack.filter(l => /^(cols|marginalia|embed|activity)/.test(l.kind)).pop();
       const encl = narrowing ? `::: ${narrowing.kind.split(' ')[0]}`
         : activeDirective ? `::: ${activeDirective.kind}` : null;
       if (encl) {
@@ -3464,6 +3468,18 @@ function lintFile(filePath) {
       }
     }
     const flipMark = /^:::\s+flip\s*$/.test(line);
+    // ::: activity <kind>. Mirrors ACTIVITY_KINDS in build.js by name - the
+    // colours and marks are the build's, the words are the contract.
+    const activityMatch = line.match(/^:::\s+activity(?:\s+(\S+))?\s*$/);
+    const activityOpen = !!activityMatch;
+    if (activityOpen && !ACTIVITY_KINDS.includes(activityMatch[1])) {
+      add(ln, 'error', 'bad-activity',
+          `::: activity ${activityMatch[1] || ''}`.trim() + ` – write the kind after it: `
+          + ACTIVITY_KINDS.map(k => '::: activity ' + k).join(', '));
+    } else if (!activityOpen && /^:::\s+activity\b/.test(line)) {
+      add(ln, 'error', 'bad-activity',
+          '::: activity takes one kind and nothing else: ' + ACTIVITY_KINDS.join(', '));
+    }
     const marginaliaOpen = /^:::\s+marginalia\s*$/.test(line);
     const slideOpen = /^:::\s+slide\s*$/.test(line);
     const scriptOpen = /^:::\s+script\s*$/.test(line);
@@ -3485,7 +3501,7 @@ function lintFile(filePath) {
             `::: embed needs a YouTube or Vimeo link, or an https URL - got '${v}'`);
       }
     }
-    if (colsOpen || cardsOpen || rowsOpen || sideOpen || marginaliaOpen || slideOpen || scriptOpen || embedOpen) {
+    if (colsOpen || cardsOpen || rowsOpen || sideOpen || marginaliaOpen || slideOpen || scriptOpen || embedOpen || activityOpen) {
       // A divider takes a card row or a row block beside its backdrop and
       // its figure; every other directive there is a slide that has stopped
       // being a divider, and the build refuses it with the same words.
@@ -3499,6 +3515,7 @@ function lintFile(filePath) {
         : cardsOpen ? `cards ${cardsOpen[1]}`
         : sideOpen ? 'side'
         : marginaliaOpen ? 'marginalia'
+        : activityOpen ? 'activity'
         : embedOpen ? 'embed'
         : slideOpen ? 'slide' : 'script';
       const word = kind.split(' ')[0];
@@ -3517,6 +3534,16 @@ function lintFile(filePath) {
       if (!isCards && stackHas(/^embed$/)) {
         add(ln, 'error', 'directive-in-embed',
             `::: ${word} inside ::: embed (line ${stackHas(/^embed$/).line}) – the lines under an embed are its caption`);
+      }
+      // Mirrors build.js: a box is refused inside a text flow, a narrow aside
+      // and another box.
+      if (activityOpen && stackHas(/^(cols|marginalia|activity)/)) {
+        const encl = stackHas(/^(cols|marginalia|activity)/).kind.split(' ')[0];
+        add(ln, 'error', 'activity-nested',
+            `::: activity inside ::: ${encl} – ` + (encl === 'cols'
+              ? 'a box breaks the column flow; put it before or after the columns'
+              : encl === 'marginalia' ? 'a box is a full-width statement, not a margin note; put it in the chunk body'
+              : 'a box is already a box; close the first one'));
       }
       if (sideOpen && stackHas(/^cols/)) {
         add(ln, 'error', 'side-in-cols',

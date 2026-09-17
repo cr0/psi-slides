@@ -252,6 +252,7 @@ Checks enforced:
   – and the corpus nests exactly one thing, a figure in a pane, so none of
   them costs an existing lecture a build.
 - Unknown value for a viewer-default frontmatter key (`unknown-view-default`, error) or for a `style:` key (`unknown-style-setting`, error). Both mirror a build refusal that now runs in the `buildOnce` pre-flight, so `--print-only` refuses a typo in `auto-fit` and `--audience-only` refuses one in `print-slide-numbers`.
+- `::: activity <kind>` – `bad-activity` for a kind the build does not draw, `activity-nested` for a box inside `::: cols`, `::: marginalia` or another box, and `cards-nested` for a card row inside one. The kinds are `ACTIVITY_KINDS` in `build.js`, mirrored by name and held by `test/gates/activity.mjs`.
 - Assets over the 2 MB inline cap (`oversized-asset`, warning) – the pre-commit gate for the single-file property.
 - Unclosed display math (`unclosed-math`, warning). Fence-aware. Inline `$…$` is deliberately not checked: a lone dollar in prose is legitimate and the build leaves it alone.
 - A bold of two words or fewer sitting after a paragraph's first sentence
