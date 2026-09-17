@@ -2141,6 +2141,8 @@ function resolveAssetUrl(ref) {
 // `plain` is what the tool always drew, minus the paragraph sign - see
 // SECTION_MARK below.
 const SECTION_VARIANTS = ['plain', 'tinted', 'rule', 'card', 'number', 'outline', 'poster'];
+// Who decides the ink on a poster divider: the measurement, or the deck.
+const SECTION_INKS = ['auto', 'light', 'dark'];
 // `outline` is the one divider that is not a treatment of the heading but a
 // different slide: it lists every part of the lecture and says which one
 // starts here. That is the running agenda a long lecture keeps wanting, and
@@ -2502,7 +2504,13 @@ let currentActivities = false;
 // `section: poster`, so every other deck builds byte for byte what it did.
 // Live views only: print ignores dividers.
 function posterStyleTag(frontmatter) {
-  if (sectionSettings(frontmatter).variant !== 'poster') return '';
+  const sec = sectionSettings(frontmatter);
+  if (sec.variant !== 'poster') return '';
+  // auto is the measurement: white unless the identity found that white does
+  // not carry on this accent, in which case --emph-ink is the dark it picked.
+  const ink = sec.ink === 'light' ? '#fff'
+    : sec.ink === 'dark' ? 'var(--emph-ink, var(--ink))'
+    : 'var(--emph-ink, #fff)';
   return `\n<style>
 /* poster - the accent edge to edge, the heading large and in capitals on the
    left, the divider's own line under it as a spaced caption, and flat shapes
@@ -2514,7 +2522,7 @@ function posterStyleTag(frontmatter) {
 .chunk[data-section=poster] {
   background: var(--emph);
   overflow: hidden;
-  --poster-ink: var(--emph-ink, #fff);
+  --poster-ink: ${ink};
 }
 .chunk[data-section=poster] .section-shapes {
   position: absolute; inset: 0;
@@ -2537,9 +2545,19 @@ function posterStyleTag(frontmatter) {
 }
 .chunk[data-section=poster] .section-heading {
   color: var(--poster-ink);
-  font-size: calc(2.8em * var(--zoom));
+  /* Capitals with tracking, in a column about a third of the slide wide, is
+     exactly where a heading with one long word breaks mid-word - SCHUTZWE /
+     RTE reads as a typo the room blames on the tool. Nothing here may break
+     a word, so the type has to give instead: --poster-chars is the longest
+     word of this heading, counted by the build, and the second term is the
+     size at which that word still fits the column. 0.82em per capital is
+     measured on the bundled faces with the tracking below included; a face
+     wider than that loses a little air at the right, not a word. */
+  font-size: min(calc(2.8em * var(--zoom)), calc(36vw / (var(--poster-chars, 9) * 0.82)));
   font-weight: 700;
-  overflow-wrap: anywhere;
+  hyphens: none;
+  word-break: normal;
+  overflow-wrap: normal;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   line-height: 1.08;
@@ -7835,11 +7853,47 @@ function sectionSettings(frontmatter = {}) {
   // `section-mark: none` is the way to say "no mark at all"; anything else
   // is used verbatim. Absent means none, because the sign that used to be
   // here was one nobody asked for.
+  // `section-ink` is the one place a deck overrules the measurement, and it
+  // reaches the poster divider's two lines and nothing else. `auto` (the
+  // default) is what the build measured: white where white carries on the
+  // accent, the dark ink where it does not. A house manual that prints its
+  // divider in white says `light` and gets white, and the build still
+  // reports the ratio - the measurement is not wrong, it has been overruled.
+  const inkRaw = frontmatter['section-ink'] == null ? 'auto' : String(frontmatter['section-ink']).trim();
+  if (!SECTION_INKS.includes(inkRaw)) {
+    const err = new Error(
+      `Frontmatter: "section-ink: ${inkRaw}" is not an ink this tool sets.\n` +
+      `  Valid values: ${SECTION_INKS.join(', ')}\n` +
+      `    auto   what the accent measured: white, or the dark ink where white cannot carry (the default)\n` +
+      `    light  white, whatever the measurement says\n` +
+      `    dark   the dark ink, whatever the measurement says`);
+    err.userFacing = true;
+    throw err;
+  }
   const markRaw = frontmatter['section-mark'];
   const mark = markRaw == null || String(markRaw).trim().toLowerCase() === 'none'
     ? null
     : String(markRaw).trim();
-  return { variant: raw, mark };
+  return { variant: raw, mark, ink: inkRaw };
+}
+
+/**
+ * What the build says about `section-ink: light` on an accent white cannot
+ * carry. Reported, never suppressed: the divider carries two short lines of
+ * very large capitals and no reading text, so a house manual may want it -
+ * but the room should be a decision, not a surprise.
+ */
+function sectionInkNotes(frontmatter, identity) {
+  const sec = sectionSettings(frontmatter);
+  if (sec.variant !== 'poster' || sec.ink !== 'light') return [];
+  const hex = identity && identity.accent;
+  const accent = hex ? hexToOklch(hex) : null;
+  if (!accent) return [];
+  const ratio = contrast(accent, hexToOklch('#ffffff'));
+  if (ratio >= WCAG_TEXT) return [];
+  return [`[section-ink] the poster divider is set in white by request. White carries `
+    + `${ratio.toFixed(2)}:1 on ${hex}, under the ${WCAG_TEXT} a sentence needs - `
+    + `section-ink: auto would take the dark ink the accent measured.`];
 }
 
 function coverSettings(frontmatter = {}) {
@@ -9872,9 +9926,15 @@ function renderColumnSectionChunk(col, ci, frontmatter = {}, num = 0, parts = []
   // list's current item, which is the whole reason the variant exists: a
   // heading plus a list of headings says the same thing twice, and the
   // second copy is the one the room reads.
+  // A poster heading is set in capitals in a column a third of the slide
+  // wide, so its longest word is what decides the size it can be set at -
+  // see the rule. Counted here because the build has the string and the
+  // stylesheet has only the box.
+  const posterChars = sec.variant === 'poster'
+    ? String(col.heading || '').split(/\s+/).reduce((n, w) => Math.max(n, w.length), 0) : 0;
   const body = sec.variant === 'outline' && parts.length
     ? renderOutlineList(parts, num)
-    : `<h1 class="section-heading">${escapeHtml(col.heading)}</h1>`;
+    : `<h1 class="section-heading"${posterChars ? ` style="--poster-chars: ${posterChars}"` : ''}>${escapeHtml(col.heading)}</h1>`;
   // The divider's own content, if the author wrote any under the heading.
   // It is what makes a part open on a picture, a quotation or a figure with
   // no vocabulary of its own for any of the three: a ::: backdrop is the
@@ -21776,6 +21836,7 @@ function buildOnce(absIn, only, opts = {}) {
   // here, and not per view: they are about the deck, not about an output.
   const identity = identitySettings(lecture.frontmatter);
   for (const note of identityNotes(identity)) console.log(note);
+  for (const note of sectionInkNotes(lecture.frontmatter, identity)) console.log(note);
   const palette = paletteSettings(lecture.frontmatter);
   for (const note of paletteNotes(palette)) console.log(note);
   // Same pre-flight contract: an unknown `labels:` key fails the build here,

@@ -18,8 +18,17 @@ from building the same way is a major version.
   heading is white unless the deck's `identity:` measured that white does not
   carry on its accent, in which case it takes the same dark ink as every other
   accent ground. The logo and footer step off the slide (`FRAME_HIDDEN_STATES`),
-  and print ignores the divider as it ignores every one. Reference deck:
-  `lectures/divider-poster/`.
+  and print ignores the divider as it ignores every one. **`section-ink: auto |
+  light | dark`** overrules that measurement for the divider's two lines and
+  nothing else - `auto` is the default and today's behaviour, `light` is white
+  whatever the accent measured, `dark` is the dark ink. `light` on an accent
+  white cannot carry is reported on the build log rather than suppressed.
+  Reference deck:
+  `lectures/divider-poster/`. **Nothing in the heading breaks a word** -
+  capitals with tracking in a column a third of the slide wide is exactly
+  where one does - so the type gives instead: the build counts the heading's
+  longest word into `--poster-chars` and the rule sets the smaller of the
+  poster size and the size at which that word still fits the column.
 
 - **`style: {edge: shade | tone}` picks the colour of a box's hard edge.**
   `shade`, the default, is the box's colour mixed toward black - the look
