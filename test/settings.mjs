@@ -3365,11 +3365,11 @@ console.log('\nlayout generations');
     if (r.status !== 0) throw new Error(`slide-bold build failed:\n${r.stdout}${r.stderr}`);
     return { html: fs.readFileSync(path.join(dir, 'audience.html'), 'utf8'), print: fs.readFileSync(path.join(dir, 'print.html'), 'utf8'), dir };
   };
-  const RULE = /\.slide-explicit p:not\(:is\(\.cards, \.overlay-card, aside\) p\) strong:not\(\.card-lead\) \{ color: inherit; \}/;
+  const RULE = /\.slide-explicit strong:not\(\.card-lead\):not\(\.rows li > :first-child\):not\(\.overlay-card strong\) \{ color: inherit; \}/;
   const none = sbBuild(''), ink = sbBuild('ink');
   ok(!RULE.test(none.html) && !RULE.test(none.print), 'a deck that says nothing keeps the accent lead and carries no rule');
   ok(RULE.test(ink.html) && RULE.test(ink.print), 'slide-bold: ink sets the lead in the ink, live and on paper');
-  ok(/strong:not\(\.card-lead\) em \{ font-style: normal; font-weight: inherit; color: var\(--emph\); \}/.test(ink.html),
+  ok(/:not\(\.overlay-card strong\) em \{ font-style: normal; font-weight: inherit; color: var\(--emph\); \}/.test(ink.html),
      'and the stress inside it upright, in the accent');
   const bad = spawnSync(process.execPath, [path.join(ROOT, 'lint.js'), (() => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-sb-bad-')); fs.writeFileSync(path.join(d, 'source.md'), SB('black')); return path.join(d, 'source.md'); })()], { cwd: ROOT, encoding: 'utf8' });
   ok(/unknown-style-setting/.test((bad.stdout || '') + (bad.stderr || '')), 'the linter names an unknown value');

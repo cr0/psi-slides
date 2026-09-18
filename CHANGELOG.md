@@ -14,7 +14,9 @@ from building the same way is a major version.
   typed for the look, and that look was the accent: a lead sentence came out
   entirely orange with its stress in italics. `ink` sets it bold in the ink and
   only the `*…*` inside it in the accent, upright - the accent marks one phrase
-  instead of the sentence. Live and in print; `accent` stays the default and a
+  instead of the sentence. It reaches every bold in the block - a term in a
+  list item, a table cell - except a card's heading and a row's term, which
+  keep their tone. Live and in print; `accent` stays the default and a
   deck that says nothing carries no new rule.
 
 - **`section: poster`, a divider that is the accent edge to edge.** The heading
