@@ -22781,12 +22781,46 @@ function readViewportFlag(argv, fallback = { width: 1600, height: 900 }) {
 //
 // Degrades rather than fails: no browser, or no playwright-core, reports
 // that it could not look and leaves the build's own exit code alone.
+// How large a figure's labels are drawn, against the body text beside them.
+// A figure scales as one picture, so a label's size is its font-size in the
+// figure's own units times the ratio of the drawn width to the viewBox - and
+// a wide, flat strip (`::: draw 150x24`) is scaled down to fit the column,
+// labels and all. Measured on the page, because neither number is known
+// before layout. The median label of each figure is the one that counts:
+// a `.small` callout is small on purpose, a figure whose typical label is
+// small is not legible. Runs inside the page (serialised by evaluate), so it
+// may read nothing from this file's scope.
+const FIGURE_LABEL_MIN_SHARE = 0.7;
+function figureLabelSizes(root) {
+  const bodyEl = root.querySelector('.chunk-body p, .chunk-content p, main p, p') || root;
+  const body = parseFloat(getComputedStyle(bodyEl).fontSize) || 16;
+  const out = [];
+  for (const svg of root.querySelectorAll('svg.psi-diagram')) {
+    const vb = svg.viewBox && svg.viewBox.baseVal;
+    const w = svg.getBoundingClientRect().width;
+    if (!vb || !vb.width || !w) continue;
+    const scale = w / vb.width;
+    const sizes = [...svg.querySelectorAll('.dg-lbl text')]
+      .map(t => parseFloat(t.getAttribute('font-size')) * scale).filter(n => n > 0).sort((a, b) => a - b);
+    if (!sizes.length) continue;
+    const median = sizes[Math.floor(sizes.length / 2)];
+    // Numbered by position in the chunk: the svg's own id is the compiler's
+    // (dg3-root) and says nothing to an author looking at their source.
+    const n = [...root.querySelectorAll('svg.psi-diagram')].indexOf(svg) + 1;
+    out.push({ fig: `figure ${n}`, px: Math.round(median * 10) / 10, body: Math.round(body * 10) / 10,
+               share: Math.round((median / body) * 100) / 100 });
+  }
+  return out;
+}
+
 async function runCheckFit(absIn, viewport) {
   const opened = await openAudienceProbe(absIn, '--check-fit', viewport, 'measured');
   if (!opened.page) return opened.code;
   const { browser, page } = opened;
+  await page.addScriptTag({ content: `window.__figureLabelSizes = ${figureLabelSizes.toString()};` });
 
   const probe = () => page.evaluate(() => {
+    const figureLabelSizes = window.__figureLabelSizes;
     const act = document.querySelector('.chunk.active');
     if (!act) return null;
     const content = act.querySelector('.chunk-content') || act;
@@ -22830,6 +22864,7 @@ async function runCheckFit(absIn, viewport) {
       useTop: Math.round(useTop), useBot: Math.round(useBot),
       usableH: Math.round(vp.height - useTop - useBot),
       collapse, bolds, boldPx: Math.round(boldPx),
+      labels: figureLabelSizes(act),
     };
   });
 
@@ -22838,6 +22873,7 @@ async function runCheckFit(absIn, viewport) {
   // from the document reports "nothing moved" and stops the walk on the
   // first stepped figure in the deck.
   const worst = new Map();
+  const smallLabels = new Map();
   let states = 0, lastHash = null, same = 0;
   for (let i = 0; i < 400; i++) {
     const st = await probe();
@@ -22850,6 +22886,11 @@ async function runCheckFit(absIn, viewport) {
     // puzzle a reviewer should not have to solve.
     if (hash === lastHash) { if (++same >= 2) break; } else { same = 0; states++; }
     lastHash = hash;
+    for (const l of st.labels || []) {
+      if (l.share >= FIGURE_LABEL_MIN_SHARE) continue;
+      const key = st.id + ' ' + l.fig;
+      if (!smallLabels.has(key)) smallLabels.set(key, { id: st.id, ...l });
+    }
     const over = Math.max(0, st.useTop - st.top) + Math.max(0, st.bottom - (st.vpH - st.useBot));
     if (over > 0) {
       const prev = worst.get(st.id);
@@ -22858,7 +22899,37 @@ async function runCheckFit(absIn, viewport) {
     await page.keyboard.press('ArrowRight');
     await page.waitForTimeout(360);
   }
+  // The same question on paper: the handout sets a figure at the column's
+  // width, where a wide strip's labels can end up at a few pixels. Read off
+  // print.html beside the source when it was built.
+  const printSmall = [];
+  const printFile = path.join(path.dirname(absIn), 'print.html');
+  if (fs.existsSync(printFile)) {
+    try {
+      const pp = await browser.newPage({ viewport: { width: 1000, height: 1400 }, deviceScaleFactor: 1 });
+      await pp.emulateMedia({ media: 'print' });
+      await pp.goto(pathToFileURL(printFile).href);
+      await pp.addScriptTag({ content: `window.__figureLabelSizes = ${figureLabelSizes.toString()};` });
+      const found = await pp.evaluate(() => [...document.querySelectorAll('article.chunk')]
+        .flatMap(a => window.__figureLabelSizes(a).map(l => ({ id: a.id, ...l }))));
+      for (const l of found) if (l.share < FIGURE_LABEL_MIN_SHARE) printSmall.push(l);
+      await pp.close();
+    } catch { /* print could not be read; the live check stands */ }
+  }
   await browser.close();
+
+  // Figure labels are a note, never the exit code: a strip can be drawn at
+  // label size on purpose, and the author is the one who knows.
+  const labelLine = (l) => `  #${l.id}, ${l.fig} – labels ${l.px} px, `
+    + `${Math.round(l.share * 100)}% of the ${l.body} px body text`;
+  if (smallLabels.size || printSmall.length) {
+    console.log(`[check-fit] figure labels under ${Math.round(FIGURE_LABEL_MIN_SHARE * 100)}% of the body text`
+      + ` (a figure scales as one picture, so a wide strip shrinks its labels with it):`);
+    for (const l of smallLabels.values()) console.log(labelLine(l) + ` at ${viewport.width}x${viewport.height}`);
+    for (const l of printSmall) console.log(labelLine(l) + ' in print.html');
+    console.log('  Give the figure fewer canvas units – ::: draw 60x10 rather than 150x24 – so the same'
+      + ' drawing is set larger, or split a long strip into two rows.');
+  }
 
   // Two different things, and only one of them is a defect.
   //

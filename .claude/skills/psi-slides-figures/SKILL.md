@@ -271,6 +271,12 @@ Consequences worth not breaking:
 
 `lint.js` **imports** the diagram vocabulary from `diagram-core.mjs` rather than mirroring it – every table that used to have to change in two files in one commit. Tables only, never a function: a function would pull the whole compiler in behind it and the linter would stop being runnable without the Markdown/Shiki stack. It also **captures the diagram body verbatim, ahead of the heading matchers but behind the fence tracker**: a diagram comment starts with `#`, and read as markdown that is a column heading – while a `::: draw` inside a code fence is a syntax example and must not be compiled. Getting that order wrong made the linter fail any lecture that documented the directive, which is the tutorial the release job publishes. Its `oversized-asset` gate and `collectImageRefs` (for `--optimize-images`) both scan diagram `image` lines too, or the pre-commit gate would let through exactly what `assertInlinable` refuses.
 
+## Label size: a figure scales as one picture
+
+A label's drawn size is its font-size in canvas units times the ratio of the drawn width to the viewBox. A wide, flat strip is scaled down to the column – labels and all. Measured on a house deck: a `::: draw 150x24` strip under a lead sentence set its labels at **58% of the body text** on the projection and at about 7 px in the handout. **`--check-fit` reports it** (`figureLabelSizes`, a note that never changes the exit code): every figure whose median label is under **70%** (`FIGURE_LABEL_MIN_SHARE`) of the body text beside it, per slide state at the check's viewport and once more in `print.html` if it was built. The median, because a `.small` callout is small on purpose.
+
+The recipe: **fewer canvas units for the same drawing** – `::: draw 60x10` instead of `150x24` sets everything 2.5× larger, labels included; re-space with `gap`/`w`/`h` in the smaller grid. If a strip is too long to shrink its grid, split it into two rows. For print the same fix holds; the handout column is narrower than the projection, so a figure that passes live can still fail on paper.
+
 ## Record bars and leaders to a note
 
 A packet header or record layout is a row of **flat fields**: `default box h 2.4 {.bare .mono}`, then `box t "Type\n1 Byte" at 0,0 w 1.6 {.tone-1}` and each next field `right of <prev> gap 0`. Under `elevation: offset` a toned `.bare` box takes the card tint with no outline and no edge; the first label line (the name) is ink, the lines under it take the tone. Several adjacent fields in one tone read as a group.
