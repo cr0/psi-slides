@@ -702,6 +702,27 @@ Covered above. In directive terms they behave like the other layout wrappers:
 they nest inside `::: cols` or `::: side`, they work inside an `expand` or
 `margin`, and a bare `:::` closes them.
 
+### `::: recall <source.md>#<chunk-id>`
+
+Shows a slide from another lecture again, unchanged, read from that lecture's **current** source at every build, so it cannot drift from the original. One line in a chunk body, no closing `:::`; the path is relative to this source.
+
+```md
+## recall: {#r-layers}
+
+::: recall ../networks-1/source.md#osi-layers
+
+One bridge sentence for the handout: why the slide comes back now.
+
+> note: Only briefly – they have seen it.
+```
+
+- **Heading and type.** `## recall:` takes the recalled chunk's type; an empty heading takes its heading and sub-heading, and its width unless this chunk names one. Any other type with its own heading keeps both.
+- **What is shown.** The recalled chunk's `::: slide` block; without one, its body as the collapse shows it – lists, directives and figures whole, each paragraph cut to its first sentence – without notes, `::: expand`, `::: footnote` and `::: script`. A tag above it says `Recap · <title>` (`labels: {recall: …}`, localised by `lang:`).
+- **Handout.** The slide, then a generated line instead of the recalled text – `Recap from “<title>” (<subtitle>), slide “<heading>” – in full in that lecture's handout.` (`labels: {recall-ref: …}` with `{title}`, `{sub}`, `{heading}`) – then this chunk's own prose.
+- **Notes.** Only this chunk's own `> note:`; the recalled chunk's notes stay there.
+- **Assets** in the recalled slide – `![](…)`, `::: backdrop`, a `::: draw` `image` – are re-pointed to resolve from here. A recalled figure is not offered to the diagram editor: it belongs to the other file.
+- **Refused** by build and lint: a missing file or chunk and a `recall:` chunk without the line (`recall-missing`), a recall of a recall (`recall-nested`).
+
 ### `::: table {…}`
 
 A Markdown table in the house look: no grid, the header in the ink over a rule, hairlines between rows, a closing rule. Optional: a tone for the header (`.tone-1` … `.tone-4`, tinted ground and rules in the tone) and **exactly one** highlight in the accent – a body row `.row-N`, a column `.col-N` or a cell `.cell-R-C` (counted from 1; the header is not a row). The header stays ink so the accent means one thing on the slide.

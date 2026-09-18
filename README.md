@@ -289,6 +289,10 @@ Everything below is off unless a deck writes it. Details live in the skills (`.c
 - A leader that turns once: `edge m.bottom -- note.left {.elbow .muted}` between anchors on crossing axes.
 - `--check-fit` reports figures whose labels are under 70% of the body text, live and in `print.html`. Fix: fewer canvas units (`::: draw 60x10`, not `150x24`).
 
+**Across lectures**
+
+- `::: recall ../networks-1/source.md#osi-layers` in a chunk (typically `## recall: {#r-osi}`) – shows that slide again, read from the other lecture's current source at every build, under a `Recap · <title>` tag. The handout carries a reference line to the original instead of its text, and only this chunk's own notes. Lint: `recall-missing`, `recall-nested`.
+
 **Dividers and print**
 
 - `section: poster` – the accent edge to edge, the heading large in spaced capitals, the line under `# Heading` as a caption, pastel shapes arranged per part. `section-ink: auto | light | dark` overrules the measured ink for its two lines; `light` on a pale accent is reported, not hidden.

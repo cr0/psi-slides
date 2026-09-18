@@ -9,6 +9,17 @@ from building the same way is a major version.
 
 ### Added
 
+- **`::: recall <source.md>#<chunk-id>` shows a slide from another lecture
+  again, unchanged.** Read from the target's current source at every build, so
+  it cannot drift; `## recall:` takes the recalled type and heading, a
+  `Recap · <title>` tag marks it, and the handout carries a reference line to
+  the original instead of repeating its text. The recalled lines are spliced
+  into the parse as *injected*: they advance no byte offset, so every editor
+  range still points into this lecture's own file, and a recalled figure is
+  not offered to the editor. Assets are re-pointed to resolve from here.
+  Refused by build and lint: a missing file or chunk (`recall-missing`) and a
+  recall of a recall (`recall-nested`).
+
 - **`style: {neighbours: dim | hidden}`**, the third neighbour mode of PRD §2
   rule 6, which had been specified and never built. `dim` stays the default and
   the design: the lecture is one canvas the camera moves over, and the faint

@@ -3537,6 +3537,39 @@ console.log('\nlayout generations');
   ok(!RULE.test(hidden.print), 'and print, which has no neighbours, is not touched');
 }
 
+// ── ::: recall: a slide from another lecture, read from its current source ──
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-recall-'));
+  fs.mkdirSync(path.join(root, 'one')); fs.mkdirSync(path.join(root, 'two'));
+  fs.writeFileSync(path.join(root, 'one', 'source.md'), '---\ntitle: One\nsubtitle: First\nlang: en\n---\n\n## title: {#title}\n\n'
+    + '## definition: Layers | Seven of them {.wide #layers}\n\n::: slide\n**Each layer uses the one below.**\n:::\n\nThe long handout text.\n\n> note: The original note.\n\n'
+    + '## free: Addresses {.wide #addr}\n\nAn address names an interface. It is not a host.\n\n::: expand More\nHidden.\n:::\n\n'
+    + '## free: Again {#again}\n\n::: recall source.md#layers\n');
+  const run = (body) => {
+    fs.writeFileSync(path.join(root, 'two', 'source.md'), '---\ntitle: Two\nlang: en\n---\n\n## title: {#title}\n\n' + body);
+    const b = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(root, 'two', 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+    const l = spawnSync(process.execPath, [path.join(ROOT, 'lint.js'), path.join(root, 'two', 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+    const read = (f) => b.status === 0 ? fs.readFileSync(path.join(root, 'two', f), 'utf8') : '';
+    return { code: b.status, out: (b.stdout || '') + (b.stderr || ''), lint: (l.stdout || '') + (l.stderr || ''),
+             html: read('audience.html'), speaker: read('speaker.html'), print: read('print.html') };
+  };
+  const ok1 = run('## recall: {#r}\n\n::: recall ../one/source.md#layers\n\nThe bridge sentence.\n\n> note: Only briefly.\n');
+  const art = (ok1.html.match(/<article[^>]*id="r"[\s\S]*?<\/article>/) || [''])[0];
+  ok(ok1.code === 0 && /chunk-definition/.test(art) && /Layers/.test(art), 'a recall: chunk takes the recalled slide\'s type and heading', ok1.out.split('\n')[0]);
+  ok(/<p class="recall-tag">Recap · One<\/p>/.test(art) && /Each layer uses the one below/.test(art), 'and shows its slide under a recall tag');
+  ok(!/The long handout text/.test(ok1.print) && /class="recall-ref">Recap from “One” \(First\), slide “Layers”/.test(ok1.print),
+     'the handout refers back instead of repeating the recalled text');
+  ok(/Only briefly/.test(ok1.speaker) && !/The original note/.test(ok1.speaker), 'only the recalling chunk\'s own note is spoken');
+  ok(!/recall-missing|recall-nested|unknown-type/.test(ok1.lint), 'and the linter accepts it');
+  const derived = run('## free: Addresses again {.wide #r2}\n\n::: recall ../one/source.md#addr\n');
+  ok(/An address names an interface\./.test(derived.html) && !/It is not a host/.test(derived.html) && !/Hidden\./.test(derived.html),
+     'a slide without ::: slide is recalled as the collapse shows it: first sentences, no expansions');
+  const missing = run('## free: X {#x}\n\n::: recall ../one/source.md#nope\n');
+  ok(missing.code !== 0 && /has no chunk \{#nope\}/.test(missing.out) && /recall-missing/.test(missing.lint), 'a missing chunk fails the build and the linter');
+  const nested = run('## free: Y {#y}\n\n::: recall ../one/source.md#again\n');
+  ok(nested.code !== 0 && /itself a recall/.test(nested.out) && /recall-nested/.test(nested.lint), 'a recall of a recall is refused by both');
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.log(failures.map(f => '  ✗ ' + f).join('\n'));
