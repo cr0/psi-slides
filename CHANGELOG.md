@@ -28,6 +28,11 @@ from building the same way is a major version.
   unsicher*`), set upright in the card's colour, on any ground. **`.dashed`**
   is a new `rule` slot: a dashed rule in the middle of the gutter between the
   cards of a row, printed too; refused on `::: rows`, which stacks.
+- **`style: {print-pages: flow | slide}` pages the handout.** `slide` reads
+  like a small book: every chunk opens a page - its slide words, figure and
+  handout text together - and every part opens a page with its heading on top
+  of its first chunk. A chunk longer than a page still flows on; only where a
+  chunk starts is fixed. `flow` stays the default. Print only.
 
 - **A row takes its own colour the way a card does: `- **Kopf** {.tone-2} the
   body`.** In `::: rows` the tail after a term was left in the text and the

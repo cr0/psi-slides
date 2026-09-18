@@ -3433,6 +3433,23 @@ console.log('\nlayout generations');
      'and under offset a toned dot is the same solid badge');
 }
 
+// ── style.print-pages: one chunk per page in the handout ──
+{
+  const PP = (v) => `---\ntitle: T\n${v ? `style:\n  print-pages: ${v}\n` : ''}---\n\n## title: {#title}\n\n## free: A {#a}\n\nX.\n\n# Part {#p}\n\n## free: B {#b}\n\nY.\n`;
+  const ppBuild = (v) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-pp-'));
+    fs.writeFileSync(path.join(dir, 'source.md'), PP(v));
+    const r = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+    if (r.status !== 0) throw new Error(`print-pages build failed:\n${r.stdout}${r.stderr}`);
+    return { html: fs.readFileSync(path.join(dir, 'audience.html'), 'utf8'), print: fs.readFileSync(path.join(dir, 'print.html'), 'utf8') };
+  };
+  const RULE = /\.column \+ \.column, article\.chunk \+ article\.chunk \{ break-before: page; page-break-before: always; \}/;
+  const flow = ppBuild(''), slide = ppBuild('slide');
+  ok(!RULE.test(flow.print), 'a handout flows by default');
+  ok(RULE.test(slide.print), 'print-pages: slide opens every chunk and every part on a new page');
+  ok(!RULE.test(slide.html), 'and the live views are not touched');
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.log(failures.map(f => '  ✗ ' + f).join('\n'));
