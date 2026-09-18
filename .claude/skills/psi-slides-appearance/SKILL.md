@@ -364,6 +364,10 @@ What it does **not** reach yet: the slide's shadows and scrims, which are hard-c
 
 `bold` and `print-bold` reach the prose the collapse derives from (`DERIVED_STRONG`), and on purpose not a `::: slide` block: there the author typed the bold for the look, and `.chunk-body strong` sets it in the accent. That is right for a single keyword and wrong for a lead sentence, which then arrives entirely in the accent with its stress in italics. `slide-bold: ink` (`slideBoldCss`, emitted through `styleBlockCss` into both views, only when set) targets `SLIDE_STRONG` - a ::: slide paragraph's strong, not a card lead, a row term, an overlay or an aside - sets it in the ink and its `*…*` upright in the accent. `accent` is the default and emits nothing.
 
+## How the handout is paged (`style.print-pages`)
+
+`flow` (default) runs chunk after chunk. `slide` (`styleBlockCss`, print only - the renderer that passes no strings table) adds `.column + .column, article.chunk + article.chunk { break-before: page }`: every chunk opens a page and every part opens one with its heading on its first chunk, so the handout reads like a small book. Only the start of a chunk is fixed; a long chunk still flows onto the next page, because forcing it whole would clip it.
+
 ## How far a card stands off the page (`style.elevation`)
 
 The ladder is built and correct: `--shadow-rest`, `--shadow-float`, `--shadow-quiet`, in em so a shadow keeps its proportion to the card it models, on `--accent-h` so a tinted palette carries its shadows with it. What `elevation` adds is an author's say over **which grounds use it**. Before it, exactly one did: `.cards.cg-paper`, and the comment says why - the edge has to come from depth because there is no tint to separate it. `flat` (default) emits nothing; `soft` is `--shadow-rest` on every card and overlay ground; `lifted` is `--shadow-float`, which is where `.ov-paper` already sits, so the top of the ladder is not new.

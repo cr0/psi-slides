@@ -9,6 +9,12 @@ from building the same way is a major version.
 
 ### Added
 
+- **`style: {print-pages: flow | slide}` pages the handout.** `slide` reads
+  like a small book: every chunk opens a page - its slide words, figure and
+  handout text together - and every part opens a page with its heading on top
+  of its first chunk. A chunk longer than a page still flows on; only where a
+  chunk starts is fixed. `flow` stays the default. Print only.
+
 - **A row takes its own colour the way a card does: `- **Kopf** {.tone-2} the
   body`.** In `::: rows` the tail after a term was left in the text and the
   colour dropped without a word, so a row block could not mirror the tones of

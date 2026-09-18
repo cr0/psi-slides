@@ -340,6 +340,8 @@ const STYLE_ENUMS = {
   // weight, which is why `plain` is a legal answer.
   'bold':       ['plain', 'bold', 'italic', 'accent', 'accent-bold', 'accent-italic'],
   'print-bold': ['plain', 'bold', 'italic', 'accent', 'accent-bold', 'accent-italic'],
+  // How the handout is paged: flow (default) or one chunk per page.
+  'print-pages': ['flow', 'slide'],
   // The bolds inside ::: slide: the accent (default) or the ink, stress in the accent.
   'slide-bold': ['accent', 'ink'],
   // How an inline code span looks in running text. `plain` is the mono face

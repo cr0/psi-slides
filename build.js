@@ -6460,6 +6460,13 @@ const STYLE_SPEC = {
   // see BOLD_LOOKS. The old look of both is `accent-bold`.
   'bold':       { kind: 'enum', values: Object.keys(BOLD_LOOKS), dflt: 'plain' },
   'print-bold': { kind: 'enum', values: Object.keys(BOLD_LOOKS), dflt: 'bold' },
+  // How the handout is paged. `flow` (default) runs chunk after chunk and
+  // breaks where the page is full. `slide` reads like a small book: every
+  // chunk opens a page - the slide's words, its figure and its handout text
+  // together, the next chunk on the next page - and every part opens a page
+  // with its heading on top of its first chunk. A chunk longer than a page
+  // still flows onto the next; only the start is fixed. Print only.
+  'print-pages': { kind: 'enum', values: ['flow', 'slide'], dflt: 'flow' },
   // The bolds inside a `::: slide` block, which `bold` and `print-bold`
   // deliberately do not reach (DERIVED_STRONG): there the author typed the
   // bold for the look, and the look has always been the accent. `ink` is the
@@ -6655,6 +6662,11 @@ function styleBlockCss(st, S) {
   if (st['body-scale'] !== 1) rootVars.push(`--body-scale: ${st['body-scale']};`);
   const rules = [];
   if (rootVars.length) rules.push(`:root { ${rootVars.join(' ')} }`);
+  // print-pages: slide. Only in the documents - the renderer that passes no
+  // strings table (S) is print, the test the elevation ladder uses too.
+  if (!S && st['print-pages'] === 'slide') {
+    rules.push(`.column + .column, article.chunk + article.chunk { break-before: page; page-break-before: always; }`);
+  }
   rules.push(...slideBoldCss(st));
   // The projection's one generated eyebrow, EXERCISE, is a CSS `content:`
   // string and cannot read the strings table. Rather than change the base
