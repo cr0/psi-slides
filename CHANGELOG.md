@@ -9,6 +9,18 @@ from building the same way is a major version.
 
 ### Added
 
+- **`palette: {tone-N-text: …}` - a tone's colour for words.** A house colour
+  that fills a card well can be too light to read as a heading on the paper -
+  a cyan or a green lands near 2.5:1. `tone-2-text` is the darker step a
+  corporate manual prescribes for text, and it reaches only what is read in
+  the tone: card headings and sub-lines, open-column bullets, row terms, the
+  heading line of a figure box and the size line of a flat field. Fills,
+  rules, edges, `{.number}` badges and dots keep the tone, so a figure's badge
+  and its list's badge stay one mark. Optional; the default is the tone
+  itself. **`tone-text-contrast`** warns when the words in a tone - its text
+  step where set - fall under 4.5:1; a rule of its own, so a deck that accepts
+  light chart columns does not silence unreadable headings with it.
+
 - **`--check-fit` reports figure labels that are too small to read**, live and
   in `print.html`: every figure whose median label is under 70% of the body
   text beside it. A figure scales as one picture, so a wide strip shrinks its

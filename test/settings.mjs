@@ -3493,6 +3493,33 @@ console.log('\nlayout generations');
      'a toned bare box is a flat field: the tint, no outline');
 }
 
+// ── palette tone-N-text: words in a tone take a darker step, fills keep the tone ──
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-tonetext-'));
+  const src = (extra) => '---\ntitle: T\nstyle:\n  elevation: offset\npalette:\n  tone-3: "#3FA46A"\n' + extra + '---\n\n## title: {#title}\n\n## free: F {.wide #f}\n\n'
+    + '::: draw 60x12\nbox a "Head\\nline" at 0,0 {.tone-3}\n:::\n\n::: cards 2 {.number}\n- **A** {.tone-3}\\\n  a\n- **B**\\\n  b\n:::\n';
+  const run = (extra) => {
+    fs.writeFileSync(path.join(dir, 'source.md'), src(extra));
+    const b = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+    const l = spawnSync(process.execPath, [path.join(ROOT, 'lint.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+    return { code: b.status, html: b.status === 0 ? fs.readFileSync(path.join(dir, 'audience.html'), 'utf8') : '',
+             lint: (l.stdout || '') + (l.stderr || '') };
+  };
+  const plain = run('');
+  const text = run('  tone-3-text: "#2C7349"\n');
+  ok(/tone-text-contrast/.test(plain.lint), 'a tone too light to read as words is warned about (tone-text-contrast)');
+  ok(text.code === 0 && !/tone-text-contrast/.test(text.lint), 'and a text step that carries silences it');
+  ok(/--tone-3-text: #2C7349;/.test(text.html), 'the text step is a custom property beside the tone');
+  ok(/--card-lead: var\(--tone-3[^;]*; --card-ink: var\(--tone-3-text, var\(--tone-3/.test(text.html),
+     'a card reads its words from --card-ink and keeps --card-lead for what is seen as the colour');
+  ok(/\.cm-number[^{]*::before \{[^}]*background: var\(--card-lead, var\(--emph\)\)/.test(text.html),
+     'so a badge stays the tone, the same mark as the figure\'s');
+  ok(/\.dg-box:not\(\.dg-bar\):not\(\.bare\):not\(\.clear\)\.tone-3 \.dg-lbl text[^{]*\{ fill: var\(--tone-3-text,/.test(text.html),
+     'and a figure box\'s heading line reads the text step too');
+  const bad = run('  tone-5-text: "#000000"\n');
+  ok(bad.code !== 0 && /unknown-palette-tone/.test(bad.lint), 'a text key for a tone that does not exist is refused by both files');
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.log(failures.map(f => '  ✗ ' + f).join('\n'));

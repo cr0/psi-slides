@@ -6715,20 +6715,20 @@ function figureCardCss() {
   const tv = (t) => `var(--${t}, ${CARD_TONE_DEFAULTS[t]})`;
   const edge = (c) => `filter: drop-shadow(${FIGURE_EDGE_OFFSET} ${FIGURE_EDGE_OFFSET} 0 ${c});`
     + ' -webkit-print-color-adjust: exact; print-color-adjust: exact;';
-  const paint = (sel, v, dark) =>
+  const paint = (sel, v, dark, ink) =>
     `${box}${sel}${shape} { fill: color-mix(in oklab, ${v} 22%, var(--paper));`
     + ` stroke: color-mix(in oklab, ${v} 55%, var(--paper)); ${edge(`color-mix(in oklab, ${v} ${dark}%, black)`)} }`
     // The heading is the first line; every tspan from the second line on
     // (a line starts at a tspan carrying x) goes back to the body ink.
     // Named on the tspans too: `.tone-4` inverts its label on the tspans, for
     // the solid fill this tint replaces. The inline accents keep their own.
-    + ` ${box}${sel} .dg-lbl text, ${box}${sel} .dg-lbl text > tspan:not(.dg-em):not(.dg-mu) { fill: ${v}; font-weight: 600; }`
+    + ` ${box}${sel} .dg-lbl text, ${box}${sel} .dg-lbl text > tspan:not(.dg-em):not(.dg-mu) { fill: ${ink || v}; font-weight: 600; }`
     + ` ${box}${sel} .dg-lbl text > tspan[x]:not(:first-child),`
     + ` ${box}${sel} .dg-lbl text > tspan[x]:not(:first-child) ~ tspan:not(.dg-em):not(.dg-mu) { fill: var(--ink); font-weight: 400; }`;
   const rules = [
     `.psi-diagram { overflow: visible; }`,
     `${box}${shape} { ${edge('color-mix(in oklab, var(--ink) 30%, var(--paper))')} }`,
-    ...Object.keys(CARD_TONE_DEFAULTS).map(t => paint(`.${t}`, tv(t), 78)),
+    ...Object.keys(CARD_TONE_DEFAULTS).map(t => paint(`.${t}`, tv(t), 78, `var(--${t}-text, ${tv(t)})`)),
     paint('.accent', 'var(--emph)', 72),
     // A bare toned box is a field of a flat bar - a record layout, a packet
     // header: the tone as the same tint, no outline and no edge, because
@@ -6741,7 +6741,7 @@ function figureCardCss() {
       + ` -webkit-print-color-adjust: exact; print-color-adjust: exact; }`
       + ` .psi-diagram .dg-box.bare.${t} .dg-lbl text, .psi-diagram .dg-box.bare.${t} .dg-lbl text > tspan:not(.dg-em):not(.dg-mu) { fill: var(--ink); }`
       + ` .psi-diagram .dg-box.bare.${t} .dg-lbl text > tspan[x]:not(:first-child),`
-      + ` .psi-diagram .dg-box.bare.${t} .dg-lbl text > tspan[x]:not(:first-child) ~ tspan:not(.dg-em):not(.dg-mu) { fill: ${v}; }`),
+      + ` .psi-diagram .dg-box.bare.${t} .dg-lbl text > tspan[x]:not(:first-child) ~ tspan:not(.dg-em):not(.dg-mu) { fill: ${t === 'accent' ? v : `var(--${t}-text, ${v})`}; }`),
     // A toned dot is a badge: solid in its colour, its label in the paper -
     // the same filled circle a `{.number}` card row opens each heading on,
     // so `dot n2 "2" above b {.tone-2}` and the list's second item read as
@@ -6964,6 +6964,15 @@ const PALETTE_KEYS = Object.keys(DG_BOX_FILLS);
 // that sets them in a deck with no box costs five declarations and draws
 // nothing.
 const PALETTE_ACTIVITY_KEYS = ['link', 'info', 'task', 'example', 'takeaway'];
+// A tone's text colour, where it differs from the tone. A house colour that
+// fills a card well can be too light to read as words on the paper - a cyan
+// or a green lands near 2.5:1 - and the fix a corporate manual prescribes is
+// a darker step of the same colour for text only. So `tone-2-text` reaches
+// what is *read* in the tone (a card's heading and sub-line, open-column
+// bullets, a row term, a figure label in the tone) and nothing that is
+// *seen* as the colour: fills, rules, edges, badges and dots stay the tone,
+// so a figure's badge and its list's badge are still one mark.
+const PALETTE_TEXT_KEYS = ['tone-1-text', 'tone-2-text', 'tone-3-text', 'tone-4-text'];
 
 /** The four box rules with each tone's base replaced by the deck's colour. */
 function paletteBoxCss(palette, scope) {
@@ -7027,7 +7036,7 @@ function cardToneCss(view) {
     ` { --card-bg: color-mix(in oklab, ${tv(tone)} 22%, var(--paper));`
     + ` background-color: var(--card-bg);`
     + ` --card-edge: color-mix(in oklab, ${tv(tone)} 78%, black);`
-    + ` --card-lead: ${tv(tone)};`
+    + ` --card-lead: ${tv(tone)}; --card-ink: var(--${tone}-text, ${tv(tone)});`
     + ` border-color: color-mix(in oklab, ${tv(tone)} 55%, var(--paper)); }`;
   for (const tone of Object.keys(CARD_TONE_DEFAULTS)) rules.push(items(`ct-${tone}`) + paint(tone));
   // tones: the cards of a row take the four tones in order, and a fifth card
@@ -7040,7 +7049,7 @@ function cardToneCss(view) {
     const v = tone === 'accent' ? 'var(--emph)' : tv(tone);
     rules.push(`.cards:not(.rows) > :is(ul, ol) > li:has(> .card-lead[data-tone="${tone}"])`
       + ` { --card-bg: color-mix(in oklab, ${v} 22%, var(--paper)); background-color: var(--card-bg);`
-      + ` --card-edge: color-mix(in oklab, ${v} 78%, black); --card-lead: ${v};`
+      + ` --card-edge: color-mix(in oklab, ${v} 78%, black); --card-lead: ${v}; --card-ink: ${tone === 'accent' ? v : `var(--${tone}-text, ${v})`};`
       + ` border-color: color-mix(in oklab, ${v} 55%, var(--paper)); }`);
   }
   // A row's own colour, from the marker after its term. The term is the
@@ -7049,10 +7058,11 @@ function cardToneCss(view) {
     const v = tone === 'accent' ? 'var(--emph)' : tv(tone);
     rules.push(`.cards.rows li:has(> .row-tone[data-tone="${tone}"]) > :is(strong, b):first-child`
       + ` { --card-bg: color-mix(in oklab, ${v} 22%, var(--paper)); background-color: var(--card-bg);`
-      + ` --card-edge: color-mix(in oklab, ${v} 78%, black); --card-lead: ${v}; color: var(--card-lead);`
+      + ` --card-edge: color-mix(in oklab, ${v} 78%, black); --card-lead: ${v};`
+      + ` --card-ink: ${tone === 'accent' ? v : `var(--${tone}-text, ${v})`}; color: var(--card-ink);`
       + ` border-color: color-mix(in oklab, ${v} 55%, var(--paper)); }`);
   }
-  rules.push(`.cards[class*=" ct-"] .card-lead, .cards.rows[class*=" ct-"] li > :is(strong, b):first-child, .card-lead[data-tone] { color: var(--card-lead); }`);
+  rules.push(`.cards[class*=" ct-"] .card-lead, .cards.rows[class*=" ct-"] li > :is(strong, b):first-child, .card-lead[data-tone] { color: var(--card-ink, var(--card-lead)); }`);
   // An open column: a clear card that takes a tone has no box to fill, so
   // the tint and the edge are taken back and the colour goes to the heading,
   // the sub-line and the bullets. The id-free :not(#_) is there for weight
@@ -7060,11 +7070,11 @@ function cardToneCss(view) {
   // included, without depending on the order they are written in.
   rules.push(`.cards.cg-clear:not(.rows) > :is(ul, ol) > li:not(#_), .cards.cg-clear:not(.rows) > :not(ul):not(ol):not(#_)`
     + ` { background-color: transparent; border-color: transparent; }`);
-  rules.push(`.card-sub { display: block; font-style: normal; color: var(--card-lead, var(--ink-soft)); }`);
+  rules.push(`.card-sub { display: block; font-style: normal; color: var(--card-ink, var(--card-lead, var(--ink-soft))); }`);
   rules.push(`.cards.cg-clear li ul li::before { width: 0.34em; height: 0.34em; top: 0.5lh; opacity: 1;`
-    + ` background: var(--card-lead, currentColor); }`);
+    + ` background: var(--card-ink, var(--card-lead, currentColor)); }`);
   rules.push(`.cards.cg-clear li ul { list-style-type: square; }`);
-  rules.push(`.cards.cg-clear li li::marker { color: var(--card-lead, currentColor); }`);
+  rules.push(`.cards.cg-clear li li::marker { color: var(--card-ink, var(--card-lead, currentColor)); }`);
   // In an open column the bullets are the content, not a quieter second level
   // under a box's heading: there is no box, so they take the body ink.
   rules.push(`.cards.cg-clear:not(.rows)[class*=" ct-"] li ul, .cards.cg-clear:not(.rows) li:has(> .card-lead[data-tone]) ul { color: var(--ink); }`);
@@ -7109,10 +7119,10 @@ function paletteSettings(frontmatter = {}) {
   }
   const out = {};
   for (const [k, v] of Object.entries(raw)) {
-    if (!PALETTE_KEYS.includes(k) && !PALETTE_ACTIVITY_KEYS.includes(k)) {
+    if (!PALETTE_KEYS.includes(k) && !PALETTE_ACTIVITY_KEYS.includes(k) && !PALETTE_TEXT_KEYS.includes(k)) {
       const err = new Error(
         `Frontmatter: palette has no key "${k}".\n` +
-        `  Keys: ${[...PALETTE_KEYS, ...PALETTE_ACTIVITY_KEYS].join(', ')}\n` +
+        `  Keys: ${[...PALETTE_KEYS, ...PALETTE_TEXT_KEYS, ...PALETTE_ACTIVITY_KEYS].join(', ')}\n` +
         "  These are the figure language's own tone names, so a deck writes\n" +
         '  `{.tone-1}` in a ::: draw block and means what it set here.');
       err.userFacing = true;
@@ -7148,6 +7158,7 @@ function paletteCss(palette, view) {
   const vars = [
     ...PALETTE_KEYS.filter(t => palette[t]).map(t => `--${t}: ${palette[t]};`),
     ...PALETTE_ACTIVITY_KEYS.filter(k => palette[k]).map(k => `--activity-${k}: ${palette[k]};`),
+    ...PALETTE_TEXT_KEYS.filter(k => palette[k]).map(k => `--${k}: ${palette[k]};`),
   ].join(' ');
   return [paletteBoxCss(palette, scope), paletteBarCss(palette, scope),
     vars ? `${scope || ':root'} { ${vars} }` : ''].filter(Boolean);

@@ -14,6 +14,7 @@ collapse: none
 auto-fit: true
 palette:
   tone-1: "#C45A0A"
+  tone-1-text: "#B05109"
   tone-2: "#0E6F87"
   tone-3: "#7A4B9C"
 ---
