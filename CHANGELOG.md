@@ -9,6 +9,14 @@ from building the same way is a major version.
 
 ### Added
 
+- **`style: {slide-bold: accent | ink}` decides the bolds inside `::: slide`.**
+  `style.bold` deliberately never reached a `::: slide` block, whose bolds are
+  typed for the look, and that look was the accent: a lead sentence came out
+  entirely orange with its stress in italics. `ink` sets it bold in the ink and
+  only the `*…*` inside it in the accent, upright - the accent marks one phrase
+  instead of the sentence. Live and in print; `accent` stays the default and a
+  deck that says nothing carries no new rule.
+
 - **`section: poster`, a divider that is the accent edge to edge.** The heading
   large, bold and in spaced capitals on the left, the line written under the
   `# Heading` as a spaced caption beneath it, and overlapping flat shapes -
