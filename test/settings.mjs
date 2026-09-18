@@ -3390,6 +3390,31 @@ console.log('\nlayout generations');
      'and the term is painted in it');
 }
 
+// ── open columns: a clear card takes a tone, a sub-line, a dashed rule ──
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-open-'));
+  const src = (tail) => '---\ntitle: T\n---\n\n## title: {#title}\n\n## free: C {.wide #c}\n\n'
+    + `::: cards 2 {${tail}}\n- **SSL** {.tone-2}\\\n  *veraltet*\n  - erste Version\n- **TLS** {.accent}\\\n  *aktuell*\n  - TLS 1.3\n:::\n`;
+  const run = (tail, file = 'audience.html') => {
+    fs.writeFileSync(path.join(dir, 'source.md'), src(tail));
+    const r = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+    return { code: r.status, out: (r.stdout || '') + (r.stderr || ''), html: r.status === 0 ? fs.readFileSync(path.join(dir, file), 'utf8') : '' };
+  };
+  const open = run('.clear .dashed .show');
+  ok(open.code === 0, 'a clear card row takes a tone now', open.out.split('\n')[0]);
+  ok(/<span class="card-sub">veraltet<\/span>/.test(open.html), 'the line under a heading written wholly in emphasis is its sub-line');
+  ok(/cards-2[^"]*cg-clear[^"]*cr-dashed/.test(open.html), 'and .dashed is a class on the row');
+  ok(/\.cards\.cg-clear:not\(\.rows\) > :is\(ul, ol\) > li:not\(#_\)[^{]*\{ background-color: transparent; border-color: transparent; \}/.test(open.html),
+     'an open column takes no tint and no border');
+  const lint = spawnSync(process.execPath, [path.join(ROOT, 'lint.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+  ok(!/cards-tone-no-tint/.test((lint.stdout || '') + (lint.stderr || '')), 'and the linter agrees');
+  fs.writeFileSync(path.join(dir, 'source.md'), '---\ntitle: T\n---\n\n## title: {#title}\n\n## free: C {.wide #c}\n\n::: rows {.dashed}\n- **A** a\n- **B** b\n:::\n');
+  const rows = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+  const rowsLint = spawnSync(process.execPath, [path.join(ROOT, 'lint.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+  ok(rows.status !== 0 && /cards-rule-rows/.test((rowsLint.stdout || '') + (rowsLint.stderr || '')),
+     '.dashed on ::: rows is refused by both files');
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.log(failures.map(f => '  ✗ ' + f).join('\n'));

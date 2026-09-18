@@ -134,9 +134,11 @@ export async function run({ report }) {
     'and the grounds are still the six they were');
   report.ok(/if \(o\.tone !== 'none'\) \{ cls\.push\(`ct-\$\{o\.tone\}`\)/.test(build),
     "a card row's tone class is emitted only when a tone is written");
-  report.ok(/\['accent', 'photo', 'clear'\]\.includes\(o\.ground\)/.test(build)
+  // Clear takes a tone since open columns: no tint, the colour goes to the
+  // heading, the sub-line and the bullets. Accent and photo still refuse.
+  report.ok(/\['accent', 'photo'\]\.includes\(o\.ground\)/.test(build)
       && /'cards-tone-no-tint'/.test(lint),
-    'a tone on a ground with no tint is refused by the build and by lint.js');
+    'a tone on a ground with no tint (accent, photo) is refused by the build and by lint.js');
 
   // 8 ── the default tones are resolved on the card, not on :root, so a
   // toned card follows the theme's and the deck's accent through A.

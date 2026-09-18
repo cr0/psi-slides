@@ -131,6 +131,12 @@ export const CARDS_SLOTS = {
   // row of three kinds of thing side by side wants. `none` is the default
   // and emits nothing.
   tone:   { default: 'none',  words: ['none', 'tone-1', 'tone-2', 'tone-3', 'tone-4', 'tones'] },
+  // What stands between two cards of a row. `none` is the gutter alone; a
+  // `dashed` rule is the comparison two open columns ask for - two sides of
+  // one question, set apart by a line rather than by two boxes. Cards only:
+  // a ::: rows block stacks, and between stacked rows the gutter is enough.
+  // `none` is shared with `tone` as the default of both.
+  rule:   { default: 'none',  words: ['none', 'dashed'] },
   // What a `photo` card's picture is veiled with - the same question
   // ::: backdrop answers with the same words, except `plain` for `clear`:
   // `clear` is already a *ground* in this table, and one table may not hold
