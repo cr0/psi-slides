@@ -3415,6 +3415,24 @@ console.log('\nlayout generations');
      '.dashed on ::: rows is refused by both files');
 }
 
+// ── {.number}: numbered badges on cards and rows, and the toned dot ──
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-badge-'));
+  fs.writeFileSync(path.join(dir, 'source.md'), '---\ntitle: T\nstyle:\n  elevation: offset\n---\n\n## title: {#title}\n\n## free: B {.wide #b}\n\n'
+    + '::: draw 60x12\nbox a "A" at 0,0 {.tone-2}\ndot n1 "1" above a gap 0.2 {.tone-2}\n:::\n\n'
+    + '::: cards 2 {.clear .number .show}\n- **A** {.tone-2}\\\n  - one\n- **B** {.accent}\\\n  - two\n:::\n\n'
+    + '::: rows {.number}\n- **X** {.tone-1} x\n- **Y** y\n:::\n');
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+  const html = r.status === 0 ? fs.readFileSync(path.join(dir, 'audience.html'), 'utf8') : '';
+  ok(r.status === 0, '{.number} builds on cards and rows', ((r.stdout || '') + (r.stderr || '')).split('\n')[0]);
+  ok(/class="cards cards-2[^"]*cm-number/.test(html) && /class="cards rows[^"]*cm-number/.test(html), 'and is a class on both');
+  ok(/\.cards\.cm-number\.rows li > :is\(strong, b\):first-child \{ counter-increment: psi-badge; \}/.test(html),
+     'a row counts on its term, because its item is display: contents');
+  ok(!/<p>\\<\/p>|>\\\s*<ul/.test(html.replace(/<script[\s\S]*?<\/script>/g, '')), 'a heading\'s hard break before a sub-list is not set as a backslash');
+  ok(/\.psi-diagram \.dg-dot\.tone-2:not\(\.bare\):not\(\.clear\) > circle \{ fill: var\(--tone-2/.test(html),
+     'and under offset a toned dot is the same solid badge');
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.log(failures.map(f => '  ✗ ' + f).join('\n'));

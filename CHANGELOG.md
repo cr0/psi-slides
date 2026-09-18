@@ -9,6 +9,16 @@ from building the same way is a major version.
 
 ### Added
 
+- **Numbered badges: `::: cards 3 {.number}` and `::: rows {.number}`.** Each
+  card heading or row term opens on a filled circle carrying its place in the
+  block, in the item's own colour (the accent where it has none) - the list
+  that stands under a figure so the room can say "number two" and find it.
+  Counted in CSS, so a reordered list renumbers itself. **The figure side**
+  is a dot: under `elevation: offset` a toned `dot n2 "2" above b {.tone-2}`
+  is drawn solid with its label in the paper, the same mark. A card heading
+  ended in `\` with a sub-list straight under it no longer sets the
+  backslash as a line of its own.
+
 - **Open columns: `::: cards 2 {.clear .dashed .show}` with a tone per card.**
   A comparison wants two sides of one question, not two boxes. `.clear` now
   takes a tone - it was refused, because clear has no tint - and puts it where
