@@ -2606,7 +2606,7 @@ function recallStyleTag() {
   return `\n<style>.recall-tag { font-size: 0.62em; letter-spacing: 0.12em; text-transform: uppercase;`
     + ` color: var(--ink-soft); margin: 0 0 0.6em; } .recall-ref { font-style: italic; color: var(--ink-soft); }</style>`;
 }
-function tableStyleTag() {
+function tableStyleTag(view = 'live') {
   if (!currentTables.size) return '';
   const rules = [
     // The house table: no grid, a rule under the header, hairlines between
@@ -2635,9 +2635,11 @@ function tableStyleTag() {
       rules.push(`.table-block.tb-${v} ${sel} { ${HL} }`);
     }
   }
+  const mix = ciMixCss(rules.join('\n'), view);
+  if (mix) rules.push(mix);
   return `\n<style>${rules.join(' ')}</style>`;
 }
-function activityStyleTag(st) {
+function activityStyleTag(st, view = 'live') {
   if (!currentActivities) return '';
   const kinds = Object.entries(ACTIVITY_KINDS);
   // Resolved on the box, not declared on :root. A custom property whose value
@@ -2646,8 +2648,8 @@ function activityStyleTag(st) {
   // box took the root's accent and ignored both, drawn in the theme's red-
   // brown under an orange house colour. `--activity-<kind>` stays a hook a
   // deck may set; the kind's own colour is only the fallback.
-  return edgeCss(`\n<style>
-${kinds.map(([k, v]) => `.activity-${k} { --activity: var(--activity-${k}, ${v.colour}); }`).join('\n')}
+  const css = edgeCss(`\n<style>
+${kinds.map(([k, v]) => `.activity-${k} { --activity: var(--activity-${k}, ${v.colour}); --activity-ink: var(--activity-${k}-text, var(--activity)); }`).join('\n')}
 /* The two terminal themes are a single phosphor tone; four hues on them are
    not four hues, so every kind takes the theme's own accent there and the
    mark tells them apart. */
@@ -2671,13 +2673,15 @@ body[data-theme^=terminal] .activity { --activity: var(--emph); }
 .activity .activity-glyph {
   width: 1.55em;
   height: 1.55em;
-  color: var(--activity);
+  color: var(--activity-ink, var(--activity));
   align-self: center;
 }
 .activity .activity-body > :first-child { margin-top: 0; }
 .activity .activity-body > :last-child { margin-bottom: 0; }
 .activity .activity-body strong { color: inherit; }
 </style>`, st);
+  const mix = ciMixCss(css, view);
+  return css + (mix ? `\n<style>${mix}</style>` : '');
 }
 
 // An icon beside the bold belongs to the heading, whichever side it is
@@ -6505,6 +6509,16 @@ const STYLE_SPEC = {
   // auto-fit camera all stop agreeing with each other, and the result is
   // not a look but a bug report.
   'heading-scale': { kind: 'num', min: 0.6, max: 1.8, dflt: 1 },
+  // Derived colours as fixed steps of a house's colours, for a corporate
+  // manual that says "the tone plus 85 % white" rather than leaving the
+  // mix to the tool. When set, a toned surface (`fill`), its rule (`line`)
+  // and the hard edge (`edge-dark`) are mixed in sRGB against pure white or
+  // black - so the hex equals the manual's table - instead of in oklab toward
+  // the paper. 0, the default, keeps the engine's own mixes. Light themes and
+  // print only (ciMixCss); a dark theme keeps the mixes tuned for it.
+  fill: { kind: 'num', min: 0, max: 100, dflt: 0 },
+  line: { kind: 'num', min: 0, max: 100, dflt: 0 },
+  'edge-dark': { kind: 'num', min: 0, max: 100, dflt: 0 },
   'body-scale':    { kind: 'num', min: 0.6, max: 1.8, dflt: 1 },
   // The display face's own size, and the one place taste gets a say over a
   // measurement. The roster's size-adjust numbers normalise ADVANCE WIDTH,
@@ -6880,6 +6894,58 @@ const ELEVATION_OFFSET = '0.22em';
 // carries several color-mix() calls and the colour inside one is itself a
 // var() with a fallback, so a lazy pattern reached from a tint's opening to
 // the edge's `black)` and ate the fill between them.
+// The CI steps: re-mix every toned surface, rule and edge in the rules given
+// as fixed sRGB steps against white or black, and return those rules again,
+// scoped to the light themes (live) or unscoped and later (print), so they win
+// over the originals without touching a byte of them. A deck with none of the
+// three keys gets an empty string. Recognised by what each mix is written as:
+// a fill is a tone at 20-22 % over the paper, a rule at 55 % over it, an edge
+// any strength toward black.
+let currentMix = null;
+function mixSettings(st) {
+  if (!st || !(st.fill || st.line || st['edge-dark'])) return null;
+  return { fill: st.fill, line: st.line, edge: st['edge-dark'] };
+}
+function ciMixCss(css, view) {
+  const m = currentMix;
+  if (!m || !css) return '';
+  const OPEN = 'color-mix(in oklab, ';
+  const remix = (text) => {
+    let out = '', i = 0;
+    for (let at = text.indexOf(OPEN); at !== -1; at = text.indexOf(OPEN, i)) {
+      let depth = 1, j = at + OPEN.length;
+      for (; j < text.length && depth; j++) {
+        if (text[j] === '(') depth++;
+        else if (text[j] === ')') depth--;
+      }
+      const inner = text.slice(at + OPEN.length, j - 1);
+      const g = inner.match(/^([\s\S]+) (\d+)%, (var\(--paper\)|black)$/);
+      let rep = text.slice(at, j);
+      if (g) {
+        const [, c, pct, toward] = g;
+        if (toward === 'black' && m.edge) rep = `color-mix(in srgb, ${c}, #000 ${m.edge}%)`;
+        else if (toward !== 'black' && (pct === '20' || pct === '22') && m.fill) rep = `color-mix(in srgb, ${c}, #fff ${m.fill}%)`;
+        else if (toward !== 'black' && pct === '55' && m.line) rep = `color-mix(in srgb, ${c}, #fff ${m.line}%)`;
+      }
+      out += text.slice(i, at) + rep;
+      i = j;
+    }
+    return out + text.slice(i);
+  };
+  const scope = view === 'print' ? '' : IDENTITY_LIGHT_SEL + ' ';
+  const plain = String(css).replace(/<\/?style>/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  const out = [];
+  for (const r of plain.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const sel = r[1].trim();
+    if (!sel || sel.startsWith('@')) continue;
+    const decls = remix(r[2]);
+    if (decls === r[2]) continue;
+    const scoped = splitSelectorList(sel).map(x => x.trim()).filter(x => !/^body\b/.test(x) || !scope)
+      .map(x => scope + x).join(', ');
+    if (scoped) out.push(`${scoped} {${decls}}`);
+  }
+  return out.join('\n');
+}
 function edgeCss(css, st) {
   if (!st || st.edge !== 'tone') return css;
   const OPEN = 'color-mix(in oklab, ';
@@ -6946,7 +7012,7 @@ function figureCardCss() {
     // so `dot n2 "2" above b {.tone-2}` and the list's second item read as
     // one mark. A dot has no heading to colour and no edge to stand on.
     ...[...Object.keys(CARD_TONE_DEFAULTS).map(t => [t, tv(t)]), ['accent', 'var(--emph)']].map(([t, v]) =>
-      `.psi-diagram .dg-dot.${t}:not(.bare):not(.clear) > circle { fill: ${v}; stroke: ${v}; }`
+      `.psi-diagram .dg-dot.${t}:not(.bare):not(.clear) > circle { fill: ${t === 'accent' ? v : `var(--${t}-text, ${v})`}; stroke: ${t === 'accent' ? v : `var(--${t}-text, ${v})`}; }`
       + ` .psi-diagram .dg-dot.${t}:not(.bare):not(.clear) .dg-lbl text { fill: var(--paper); font-weight: 700; }`),
     // .emph is the figure's "look here", and it has to survive the tint:
     // the heavier accent rule and an accent label, as without the card look.
@@ -7005,7 +7071,11 @@ function styleBlockCss(st, S) {
     rules.push(`${ELEVATION_GROUNDS} { box-shadow: ${ELEVATION_OFFSET} ${ELEVATION_OFFSET} 0 `
       + `var(--card-edge, var(--card-edge-ground, color-mix(in oklab, var(--ink) 30%, var(--paper)))); `
       + `-webkit-print-color-adjust: exact; print-color-adjust: exact; }`);
-    rules.push(...figureCardCss().map(r => edgeCss(r, st)));
+    const figRules = figureCardCss().map(r => edgeCss(r, st));
+    rules.push(...figRules);
+    const edgeRules = ELEVATION_EDGES.map(([sel, edge]) => edgeCss(`${sel} { --card-edge-ground: ${edge}; }`, st));
+    const figMix = ciMixCss([...edgeRules, ...figRules].join('\n'), S ? 'live' : 'print');
+    if (figMix) rules.push(figMix);
   }
   return rules.length ? `<style>${rules.join(' ')}</style>` : '';
 }
@@ -7175,6 +7245,8 @@ const PALETTE_ACTIVITY_KEYS = ['link', 'info', 'task', 'example', 'takeaway'];
 // *seen* as the colour: fills, rules, edges, badges and dots stay the tone,
 // so a figure's badge and its list's badge are still one mark.
 const PALETTE_TEXT_KEYS = ['tone-1-text', 'tone-2-text', 'tone-3-text', 'tone-4-text'];
+// The same for the ::: activity kinds: a box's mark and its coloured words.
+const PALETTE_ACTIVITY_TEXT_KEYS = ['link-text', 'info-text', 'task-text', 'example-text', 'takeaway-text'];
 
 /** The four box rules with each tone's base replaced by the deck's colour. */
 function paletteBoxCss(palette, scope) {
@@ -7293,7 +7365,7 @@ function cardToneCss(view) {
     + ` content: counter(psi-badge); display: inline-flex; align-items: center; justify-content: center;`
     + ` width: 1.45em; height: 1.45em; margin-right: 0.45em; border-radius: 50%; vertical-align: 0.08em;`
     + ` font-size: 0.8em; font-weight: 700; font-style: normal; line-height: 1;`
-    + ` background: var(--card-lead, var(--emph)); color: var(--paper);`
+    + ` background: var(--card-ink, var(--card-lead, var(--emph))); color: var(--paper);`
     + ` -webkit-print-color-adjust: exact; print-color-adjust: exact; }`);
   // The rule between two cards of a row, in the middle of the gutter.
   rules.push(`.cards.cr-dashed:not(.rows) > :is(ul, ol) > li + li { position: relative; }`);
@@ -7321,10 +7393,10 @@ function paletteSettings(frontmatter = {}) {
   }
   const out = {};
   for (const [k, v] of Object.entries(raw)) {
-    if (!PALETTE_KEYS.includes(k) && !PALETTE_ACTIVITY_KEYS.includes(k) && !PALETTE_TEXT_KEYS.includes(k)) {
+    if (!PALETTE_KEYS.includes(k) && !PALETTE_ACTIVITY_KEYS.includes(k) && !PALETTE_TEXT_KEYS.includes(k) && !PALETTE_ACTIVITY_TEXT_KEYS.includes(k)) {
       const err = new Error(
         `Frontmatter: palette has no key "${k}".\n` +
-        `  Keys: ${[...PALETTE_KEYS, ...PALETTE_TEXT_KEYS, ...PALETTE_ACTIVITY_KEYS].join(', ')}\n` +
+        `  Keys: ${[...PALETTE_KEYS, ...PALETTE_TEXT_KEYS, ...PALETTE_ACTIVITY_KEYS, ...PALETTE_ACTIVITY_TEXT_KEYS].join(', ')}\n` +
         "  These are the figure language's own tone names, so a deck writes\n" +
         '  `{.tone-1}` in a ::: draw block and means what it set here.');
       err.userFacing = true;
@@ -7361,6 +7433,7 @@ function paletteCss(palette, view) {
     ...PALETTE_KEYS.filter(t => palette[t]).map(t => `--${t}: ${palette[t]};`),
     ...PALETTE_ACTIVITY_KEYS.filter(k => palette[k]).map(k => `--activity-${k}: ${palette[k]};`),
     ...PALETTE_TEXT_KEYS.filter(k => palette[k]).map(k => `--${k}: ${palette[k]};`),
+    ...PALETTE_ACTIVITY_TEXT_KEYS.filter(k => palette[k]).map(k => `--activity-${k}: ${palette[k]};`),
   ].join(' ');
   return [paletteBoxCss(palette, scope), paletteBarCss(palette, scope),
     vars ? `${scope || ':root'} { ${vars} }` : ''].filter(Boolean);
@@ -7610,7 +7683,10 @@ function identityStyleTag(identity, st, view, palette) {
     const scope = view === 'print' ? 'body' : IDENTITY_LIGHT_SEL;
     rules.push(`${scope} { --ink: ${identity.ink}; --ink-soft: color-mix(in oklab, ${identity.ink} 68%, var(--paper)); }`);
   }
-  rules.push(...cardToneCss(view).map(r => edgeCss(r, st)));
+  const toneRules = cardToneCss(view).map(r => edgeCss(r, st));
+  rules.push(...toneRules);
+  const toneMix = ciMixCss(toneRules.join('\n'), view);
+  if (toneMix) rules.push(toneMix);
   rules.push(...paletteCss(palette, view));
   if (!rules.length) return '';
   return `\n<style>\n${rules.join('\n')}\n</style>`;
@@ -8802,6 +8878,7 @@ function renderDocument(lecture, opts = {}) {
   // says nothing by following the live key.
   const printNums = printSlideNums(frontmatter);
   const styleOpts = styleSettings(frontmatter);
+  currentMix = mixSettings(styleOpts);
   const identity = identitySettings(frontmatter);
   const palette = paletteSettings(frontmatter);
   return `<!DOCTYPE html>
@@ -8816,7 +8893,7 @@ ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'print')}
 ${styleBlockCss(styleOpts)}${identityStyleTag(identity, styleOpts, 'print', palette)}
-${iconStyleTag()}${activityStyleTag(styleOpts)}${tableStyleTag()}${recallStyleTag()}${codeTag(styleOpts, opts.codeSizing, 'print')}
+${iconStyleTag()}${activityStyleTag(styleOpts, 'print')}${tableStyleTag('print')}${recallStyleTag()}${codeTag(styleOpts, opts.codeSizing, 'print')}
 ${katexStyleTag(anonHtml + namedHtml)}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
@@ -10681,6 +10758,7 @@ function renderAudience(lecture, opts = {}) {
   const titleJson = jsonForScript(title);
   const defaults = viewDefaults(frontmatter);
   const styleOpts = styleSettings(frontmatter);
+  currentMix = mixSettings(styleOpts);
   const identity = identitySettings(frontmatter);
   const palette = paletteSettings(frontmatter);
 
@@ -19183,6 +19261,7 @@ function renderSpeaker(lecture, opts = {}) {
   const titleJson = jsonForScript(title);
   const defaults = viewDefaults(frontmatter);
   const styleOpts = styleSettings(frontmatter);
+  currentMix = mixSettings(styleOpts);
   const identity = identitySettings(frontmatter);
   const palette = paletteSettings(frontmatter);
 

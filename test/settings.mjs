@@ -3512,8 +3512,8 @@ console.log('\nlayout generations');
   ok(/--tone-3-text: #2C7349;/.test(text.html), 'the text step is a custom property beside the tone');
   ok(/--card-lead: var\(--tone-3[^;]*; --card-ink: var\(--tone-3-text, var\(--tone-3/.test(text.html),
      'a card reads its words from --card-ink and keeps --card-lead for what is seen as the colour');
-  ok(/\.cm-number[^{]*::before \{[^}]*background: var\(--card-lead, var\(--emph\)\)/.test(text.html),
-     'so a badge stays the tone, the same mark as the figure\'s');
+  ok(/\.cm-number[^{]*::before \{[^}]*background: var\(--card-ink, var\(--card-lead, var\(--emph\)\)\)/.test(text.html),
+     'a badge takes the text step, like the figure\'s dot, so the two stay one mark and its digit can be read');
   ok(/\.dg-box:not\(\.dg-bar\):not\(\.bare\):not\(\.clear\)\.tone-3 \.dg-lbl text[^{]*\{ fill: var\(--tone-3-text,/.test(text.html),
      'and a figure box\'s heading line reads the text step too');
   const bad = run('  tone-5-text: "#000000"\n');
@@ -3568,6 +3568,32 @@ console.log('\nlayout generations');
   ok(missing.code !== 0 && /has no chunk \{#nope\}/.test(missing.out) && /recall-missing/.test(missing.lint), 'a missing chunk fails the build and the linter');
   const nested = run('## free: Y {#y}\n\n::: recall ../one/source.md#again\n');
   ok(nested.code !== 0 && /itself a recall/.test(nested.out) && /recall-nested/.test(nested.lint), 'a recall of a recall is refused by both');
+}
+
+// ── CI steps: style.fill / line / edge-dark as sRGB mixes with white and black ──
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-ci-'));
+  const run = (st, pal = '') => {
+    fs.writeFileSync(path.join(dir, 'source.md'), `---\ntitle: T\nstyle:\n  elevation: offset\n${st}palette:\n  tone-3: "#3FA46A"\n${pal}---\n\n## title: {#title}\n\n`
+      + '## free: F {.wide #f}\n\n::: cards 2 {.number}\n- **A** {.tone-3}\\\n  a\n- **B**\\\n  b\n:::\n\n::: activity task\nDo it.\n:::\n');
+    const b = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+    const l = spawnSync(process.execPath, [path.join(ROOT, 'lint.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+    return { code: b.status, lint: (l.stdout || '') + (l.stderr || ''),
+             html: b.status === 0 ? fs.readFileSync(path.join(dir, 'audience.html'), 'utf8') : '',
+             print: b.status === 0 ? fs.readFileSync(path.join(dir, 'print.html'), 'utf8') : '' };
+  };
+  const none = run('');
+  const ci = run('  fill: 85\n  line: 60\n  edge-dark: 30\n', '  tone-3-text: "#296A49"\n  task-text: "#4A2458"\n');
+  ok(!/in srgb/.test(none.html), 'a deck without the steps mixes as it always did');
+  ok(/body\[data-theme\^=light\] [^{]*ct-|body\[data-theme\^=light\] \.cards/.test(ci.html)
+     && /color-mix\(in srgb, var\(--tone-3[^;]*#fff 85%\)/.test(ci.html), 'fill: 85 is the tone plus 85 % white in sRGB, on the light themes');
+  ok(/color-mix\(in srgb, [^;]*, #fff 60%\)/.test(ci.html) && /color-mix\(in srgb, [^;]*, #000 30%\)/.test(ci.html), 'and the rule and the edge are their steps too');
+  ok(/color-mix\(in srgb, [^;]*, #fff 85%\)/.test(ci.print) && !/body\[data-theme\^=light\] \.cards/.test(ci.print), 'print takes the same steps, unscoped');
+  ok(/background: var\(--card-ink, var\(--card-lead, var\(--emph\)\)\)/.test(ci.html), 'a badge takes the text step, so its digit can be read');
+  ok(/--activity-task-text: #4A2458;/.test(ci.html) && /color: var\(--activity-ink, var\(--activity\)\)/.test(ci.html), 'an activity box\'s mark takes its kind\'s text step');
+  ok(!/tone-text-contrast/.test(ci.lint), 'a text step that carries on its fill is quiet');
+  const weak = run('  fill: 40\n', '  tone-3-text: "#3FA46A"\n');
+  ok(/tone-text-contrast[^\n]*40 % fill/.test(weak.lint), 'and one that does not is measured on the fill the deck chose');
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
