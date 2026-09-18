@@ -344,6 +344,8 @@ const STYLE_ENUMS = {
   'print-bold': ['plain', 'bold', 'italic', 'accent', 'accent-bold', 'accent-italic'],
   // How the handout is paged: flow (default) or one chunk per page.
   'print-pages': ['flow', 'slide'],
+  // What the room sees of the neighbouring slides: dim (default) or hidden.
+  'neighbours': ['dim', 'hidden'],
   // The bolds inside ::: slide: the accent (default) or the ink, stress in the accent.
   'slide-bold': ['accent', 'ink'],
   // How an inline code span looks in running text. `plain` is the mono face

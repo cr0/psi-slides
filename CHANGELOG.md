@@ -9,6 +9,13 @@ from building the same way is a major version.
 
 ### Added
 
+- **`style: {neighbours: dim | hidden}`**, the third neighbour mode of PRD §2
+  rule 6, which had been specified and never built. `dim` stays the default and
+  the design: the lecture is one canvas the camera moves over, and the faint
+  neighbours keep the room's sense of where it is. `hidden` takes every slide
+  but the live one to 0 - for a lecturer who wants each slide alone - and the
+  overview board still shows everything. Live views only.
+
 - **`palette: {tone-N-text: …}` - a tone's colour for words.** A house colour
   that fills a card well can be too light to read as a heading on the paper -
   a cyan or a green lands near 2.5:1. `tone-2-text` is the darker step a
