@@ -9,6 +9,13 @@ from building the same way is a major version.
 
 ### Added
 
+- **A row takes its own colour the way a card does: `- **Kopf** {.tone-2} the
+  body`.** In `::: rows` the tail after a term was left in the text and the
+  colour dropped without a word, so a row block could not mirror the tones of
+  the figure above it - `{.tones}` counts 1, 2, 3 and a figure using tone-2,
+  3 and 4 did not match. The same five words as a card (`accent`, `tone-1`…
+  `tone-4`), refused by both files for anything else.
+
 - **`style: {slide-bold: accent | ink}` decides the bolds inside `::: slide`.**
   `style.bold` deliberately never reached a `::: slide` block, whose bolds are
   typed for the look, and that look was the accent: a lead sentence came out

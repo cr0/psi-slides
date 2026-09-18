@@ -2774,8 +2774,26 @@ function renderCardsBlock(b) {
       // A figure's markup passes through whole, as the block it is.
       if (inHtml) { out.push(raw); if (!raw.trim()) inHtml = false; continue; }
       if (/^\s*<(figure|div|svg)\b/.test(raw)) { inHtml = true; out.push(raw); continue; }
-      const m = raw.match(/^([-*+]\s+)(\*\*[^*]+\*\*)[ \t]*\\?[ \t]*(.*)$/);
-      if (m) { out.push({ head: m[1] + m[2], rest: m[3] ? [m[3]] : [] }); continue; }
+      // A row's own colour, written after its term the way a card's is after
+      // its heading: `- **Kopf** {.tone-2} the body`. It rides as an empty
+      // marker after the term rather than as markup on it, because the term
+      // stays Markdown - its icons are resolved where every bold's are - and
+      // every rule that styles a term keys on it being the item's first child.
+      const m = raw.match(/^([-*+]\s+)(\*\*[^*]+\*\*)(?:[ \t]+\{\.([^}\s]+)\})?[ \t]*\\?[ \t]*(.*)$/);
+      if (m) {
+        let mark = '';
+        if (m[3]) {
+          if (!CARD_TONE_WORDS.includes(m[3])) {
+            cardLeadProblems.push(`{.${m[3]}} after a row's term is not a colour a row takes.\n` +
+              `  Write one of: ${CARD_TONE_WORDS.map(w => '{.' + w + '}').join(', ')}.`);
+          } else {
+            mark = `<span class="row-tone" data-tone="${m[3]}" hidden></span>`;
+            currentCardTones = true;
+          }
+        }
+        out.push({ head: m[1] + m[2] + mark, rest: m[4] ? [m[4]] : [] });
+        continue;
+      }
       const last = out[out.length - 1];
       // An indented list item under a row is the detail level, and it
       // belongs to the fold rather than to the body beside the term.
@@ -6910,6 +6928,15 @@ function cardToneCss(view) {
     rules.push(`.cards:not(.rows) > :is(ul, ol) > li:has(> .card-lead[data-tone="${tone}"])`
       + ` { --card-bg: color-mix(in oklab, ${v} 22%, var(--paper)); background-color: var(--card-bg);`
       + ` --card-edge: color-mix(in oklab, ${v} 78%, black); --card-lead: ${v};`
+      + ` border-color: color-mix(in oklab, ${v} 55%, var(--paper)); }`);
+  }
+  // A row's own colour, from the marker after its term. The term is the
+  // row's ground, so the paint goes on it, and the edge rides with it.
+  for (const tone of CARD_TONE_WORDS) {
+    const v = tone === 'accent' ? 'var(--emph)' : tv(tone);
+    rules.push(`.cards.rows li:has(> .row-tone[data-tone="${tone}"]) > :is(strong, b):first-child`
+      + ` { --card-bg: color-mix(in oklab, ${v} 22%, var(--paper)); background-color: var(--card-bg);`
+      + ` --card-edge: color-mix(in oklab, ${v} 78%, black); --card-lead: ${v}; color: var(--card-lead);`
       + ` border-color: color-mix(in oklab, ${v} 55%, var(--paper)); }`);
   }
   rules.push(`.cards[class*=" ct-"] .card-lead, .cards.rows[class*=" ct-"] li > :is(strong, b):first-child, .card-lead[data-tone] { color: var(--card-lead); }`);

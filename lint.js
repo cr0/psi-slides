@@ -3300,6 +3300,14 @@ function lintFile(filePath) {
               `a card colour tints a card's ground, and ${cardsTop.cardsCheck.ground} has no tint to take; use it on panel, outline or paper`);
         }
       }
+      // A row's own colour after its term: `- **Kopf** {.tone-2} the body`.
+      // Mirrors the rows branch of renderCardsBlock.
+      const rowTail = line.match(/^\s*[-*+][ \t]+\*\*[^*]+\*\*[ \t]+\{\.([^}\s]+)\}/);
+      if (rowTail && cardsTop.cardsCheck.kind === 'rows' && !CARD_TONE_WORDS.includes(rowTail[1])) {
+        add(ln, 'error', 'cards-card-tone',
+            `{.${rowTail[1]}} after a row's term is not a colour a row takes – write one of: `
+            + CARD_TONE_WORDS.map(w => '{.' + w + '}').join(', '));
+      }
       if (/!\[[^\]]*\]\([^)\s]+[^)]*\)/.test(line)) cardsTop.hasImage = true;
       if (/^\s+(?:[-*+]|\d+[.)])\s+/.test(line)) cardsTop.hasNested = true;
     }
