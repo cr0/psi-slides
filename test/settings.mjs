@@ -3375,6 +3375,21 @@ console.log('\nlayout generations');
   ok(/unknown-style-setting/.test((bad.stdout || '') + (bad.stderr || '')), 'the linter names an unknown value');
 }
 
+// ── a row's own colour after its term, like a card's after its heading ──
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-rowtone-'));
+  fs.writeFileSync(path.join(dir, 'source.md'), '---\ntitle: T\n---\n\n## title: {#title}\n\n## free: R {.wide #r}\n\n'
+    + '::: rows\n- **Kopf** {.tone-2} nennt das Verfahren\n- **Rumpf** {.accent} trägt die Daten\n- **Ende** ohne Farbe\n:::\n');
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+  const html = r.status === 0 ? fs.readFileSync(path.join(dir, 'audience.html'), 'utf8') : '';
+  ok(/<strong>Kopf<\/strong><span class="row-tone" data-tone="tone-2" hidden><\/span>/.test(html),
+     'a row term carries its colour as a marker after it');
+  ok(!/\{\.tone-2\}/.test(html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/<script[\s\S]*?<\/script>/g, '')),
+     'and the tail is not left in the text');
+  ok(/\.cards\.rows li:has\(> \.row-tone\[data-tone="tone-2"\]\) > :is\(strong, b\):first-child \{ --card-bg:/.test(html),
+     'and the term is painted in it');
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.log(failures.map(f => '  ✗ ' + f).join('\n'));
