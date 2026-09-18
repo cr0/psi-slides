@@ -137,6 +137,12 @@ export const CARDS_SLOTS = {
   // a ::: rows block stacks, and between stacked rows the gutter is enough.
   // `none` is shared with `tone` as the default of both.
   rule:   { default: 'none',  words: ['none', 'dashed'] },
+  // A numbered badge before each card's heading or row's term: a filled
+  // circle in the item's colour carrying its place in the block, 1, 2, 3.
+  // What a list under a figure wants, so the room can say "number two" and
+  // find the element of the same number and colour. `none` is shared as the
+  // default, like `rule` and `tone`.
+  mark:   { default: 'none',  words: ['none', 'number'] },
   // What a `photo` card's picture is veiled with - the same question
   // ::: backdrop answers with the same words, except `plain` for `clear`:
   // `clear` is already a *ground* in this table, and one table may not hold

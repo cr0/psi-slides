@@ -2663,7 +2663,7 @@ const CARD_SUB_RE = /^([ \t]+)(?:\*([^*]+)\*|_([^_]+)_)([ \t]*\\?[ \t]*)$/;
 function markCardLeads(lines, onProblem = () => {}) {
   let open = false;   // still at the item's opening slot
   let afterLead = false;   // the line just after a heading, where a sub-line sits
-  return lines.map(raw => {
+  return lines.map((raw, idx) => {
     if (afterLead) {
       afterLead = false;
       const sub = CARD_SUB_RE.exec(raw);
@@ -2697,6 +2697,13 @@ function markCardLeads(lines, onProblem = () => {}) {
     if (lead) {
       open = false;
       afterLead = /\\[ \t]*$|[ \t]{2,}$/.test(lead[4]);
+      // A heading ended in a hard break with a nested list straight under it
+      // - the natural way to write an open column - broke to nothing, and
+      // Markdown set the backslash as a line of its own. The break is
+      // dropped when what follows is a sub-list, the one case where it has
+      // no line to break to.
+      const next = lines[idx + 1];
+      if (afterLead && next !== undefined && /^[ \t]+[-*+][ \t]/.test(next)) lead[4] = lead[4].replace(/\\[ \t]*$/, '');
       if (tone) currentCardTones = true;
       return head + `<strong class="card-lead"${tone ? ` data-tone="${tone}"` : ''}>${lead[1]}${lead[2].slice(2, -2)}${lead[3]}</strong>` + lead[4];
     }
@@ -2850,6 +2857,7 @@ function renderCardsBlock(b) {
   // word nobody wrote.
   if (o.tone !== 'none') { cls.push(`ct-${o.tone}`); currentCardTones = true; }
   if (o.rule !== 'none') { cls.push(`cr-${o.rule}`); currentCardTones = true; }
+  if (o.mark !== 'none') { cls.push(`cm-${o.mark}`); currentCardTones = true; }
   // A .photo ground, and a scrim over it, are words the drawing ignores
   // unless a card actually carries a picture - and a word that does nothing
   // is a refusal in this format, not a silent no-op. Both are checked against
@@ -6663,6 +6671,13 @@ function figureCardCss() {
     `${box}${shape} { ${edge('color-mix(in oklab, var(--ink) 30%, var(--paper))')} }`,
     ...Object.keys(CARD_TONE_DEFAULTS).map(t => paint(`.${t}`, tv(t), 78)),
     paint('.accent', 'var(--emph)', 72),
+    // A toned dot is a badge: solid in its colour, its label in the paper -
+    // the same filled circle a `{.number}` card row opens each heading on,
+    // so `dot n2 "2" above b {.tone-2}` and the list's second item read as
+    // one mark. A dot has no heading to colour and no edge to stand on.
+    ...[...Object.keys(CARD_TONE_DEFAULTS).map(t => [t, tv(t)]), ['accent', 'var(--emph)']].map(([t, v]) =>
+      `.psi-diagram .dg-dot.${t}:not(.bare):not(.clear) > circle { fill: ${v}; stroke: ${v}; }`
+      + ` .psi-diagram .dg-dot.${t}:not(.bare):not(.clear) .dg-lbl text { fill: var(--paper); font-weight: 700; }`),
     // .emph is the figure's "look here", and it has to survive the tint:
     // the heavier accent rule and an accent label, as without the card look.
     `${box}.emph${shape} { stroke: var(--emph); stroke-width: 2.6; }`,
@@ -6977,6 +6992,21 @@ function cardToneCss(view) {
   // In an open column the bullets are the content, not a quieter second level
   // under a box's heading: there is no box, so they take the body ink.
   rules.push(`.cards.cg-clear:not(.rows)[class*=" ct-"] li ul, .cards.cg-clear:not(.rows) li:has(> .card-lead[data-tone]) ul { color: var(--ink); }`);
+  // A numbered badge: the block counts its items, and each heading or term
+  // opens on a filled circle in its own colour - the card's or row's tone
+  // where it has one, the accent where it has none. Counted in CSS, so a
+  // badge needs no markup and a reordered list renumbers itself.
+  rules.push(`.cards.cm-number > :is(ul, ol) { counter-reset: psi-badge; }`);
+  // A row's item is display: contents and generates no box, and a counter
+  // does not step on an element with no box - every row read 0. So a row
+  // counts on its term, which is the box it has.
+  rules.push(`.cards.cm-number:not(.rows) > :is(ul, ol) > li, .cards.cm-number.rows li > :is(strong, b):first-child { counter-increment: psi-badge; }`);
+  rules.push(`.cards.cm-number:not(.rows) .card-lead::before, .cards.cm-number.rows li > :is(strong, b):first-child::before {`
+    + ` content: counter(psi-badge); display: inline-flex; align-items: center; justify-content: center;`
+    + ` width: 1.45em; height: 1.45em; margin-right: 0.45em; border-radius: 50%; vertical-align: 0.08em;`
+    + ` font-size: 0.8em; font-weight: 700; font-style: normal; line-height: 1;`
+    + ` background: var(--card-lead, var(--emph)); color: var(--paper);`
+    + ` -webkit-print-color-adjust: exact; print-color-adjust: exact; }`);
   // The rule between two cards of a row, in the middle of the gutter.
   rules.push(`.cards.cr-dashed:not(.rows) > :is(ul, ol) > li + li { position: relative; }`);
   rules.push(`.cards.cr-dashed:not(.rows) > :is(ul, ol) > li + li::after { content: ''; position: absolute;`
