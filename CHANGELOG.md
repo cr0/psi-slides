@@ -9,6 +9,13 @@ from building the same way is a major version.
 
 ### Added
 
+- **`--check-fit` reports figure labels that are too small to read**, live and
+  in `print.html`: every figure whose median label is under 70% of the body
+  text beside it. A figure scales as one picture, so a wide strip shrinks its
+  labels with it - measured on a house deck at 58% on the projection and 7 px
+  on paper. A note, not a failure; the fix it names is fewer canvas units
+  (`::: draw 60x10` rather than `150x24`) or a strip split into two rows.
+
 - **Flat field bars and a leader that turns once.** Under `elevation: offset`
   a toned `.bare` box is a field of a record or header bar: the tone as the
   card tint, no outline and no edge, the name in the ink and the lines under
