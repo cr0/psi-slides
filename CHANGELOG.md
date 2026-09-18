@@ -9,6 +9,16 @@ from building the same way is a major version.
 
 ### Added
 
+- **Flat field bars and a leader that turns once.** Under `elevation: offset`
+  a toned `.bare` box is a field of a record or header bar: the tone as the
+  card tint, no outline and no edge, the name in the ink and the lines under
+  it - a size, a range - in the tone. Adjacent fields with `gap 0` read as one
+  bar; `.mono` sets the names in the mono. **An `.elbow` edge between two
+  written anchors on crossing axes** - `edge f.bottom -- note.left` - now turns
+  once, down and then across, instead of bending twice; that is the leader a
+  field wants to its note. An existing elbow written that way (one in the
+  corpus) is drawn with one corner now.
+
 - **`::: table {.tone-N .row-N | .col-N | .cell-R-C}`, the house table.** No
   grid, the header in the ink over a rule, hairlines between rows, an optional
   tone on the header and exactly one highlight in the accent - so a slide never

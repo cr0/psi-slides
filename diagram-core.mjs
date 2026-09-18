@@ -2212,7 +2212,17 @@ export function dgEdgeRoute(e, classes, boxes, uw, uh) {
   // Halfway across the gap between the two faces, never halfway between the two
   // centres: measured from the faces, two edges out of one parent share a rail
   // and the drawing reads as one bracket.
-  const rail = elbow
+  // Two written anchors on crossing axes - `f.bottom` to `note.left` - ask for
+  // one corner, not two: down from the field, then across to the words. The
+  // two-corner rail between parallel faces would bend twice on the way to a
+  // note that sits beside the drop, which reads as a step rather than a leader.
+  const vert = (a) => a === 'top' || a === 'bottom';
+  const horiz = (a) => a === 'left' || a === 'right';
+  const corner = elbow && e.from.anchor && e.to.anchor
+    && ((vert(aFrom) && horiz(aTo)) || (horiz(aFrom) && vert(aTo)));
+  const rail = corner
+    ? (vert(aFrom) ? [[start[0], end[1]]] : [[end[0], start[1]]])
+    : elbow
     ? (down ? [[start[0], (start[1] + end[1]) / 2], [end[0], (start[1] + end[1]) / 2]]
       : [[(start[0] + end[0]) / 2, start[1]], [(start[0] + end[0]) / 2, end[1]]])
     : viaPx;
