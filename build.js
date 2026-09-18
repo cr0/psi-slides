@@ -6100,11 +6100,11 @@ const DERIVED_STRONG = '.chunk:not(.chunk-title, .chunk-section) '
 // the phrase already has all three and the em stays the italic it always
 // was. So a lecture that says nothing renders its stress marks, and the one
 // that asks for the old look gets exactly the old look.
-// `style: {slide-bold: ink}`. The strongs of a ::: slide block's own
-// paragraphs - not a card's lead or a row's term, which carry their tone, and
-// not an overlay or an aside. Specificity (0,4,3) or so, above both the
-// live `.chunk-body strong` and print's bare `strong`.
-const SLIDE_STRONG = '.slide-explicit p:not(:is(.cards, .overlay-card, aside) p) strong:not(.card-lead)';
+// `style: {slide-bold: ink}`. Every strong inside a ::: slide block - the
+// lead, a bold term in a list item, a table cell - except the two that carry
+// a colour of their own: a card's lead and a row's term. Specificity is above
+// both the live `.chunk-body strong` and print's bare `strong`.
+const SLIDE_STRONG = '.slide-explicit strong:not(.card-lead):not(.rows li > :first-child):not(.overlay-card strong)';
 function slideBoldCss(st) {
   if (!st || st['slide-bold'] !== 'ink') return [];
   return [
