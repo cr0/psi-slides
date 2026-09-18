@@ -340,6 +340,8 @@ const STYLE_ENUMS = {
   // weight, which is why `plain` is a legal answer.
   'bold':       ['plain', 'bold', 'italic', 'accent', 'accent-bold', 'accent-italic'],
   'print-bold': ['plain', 'bold', 'italic', 'accent', 'accent-bold', 'accent-italic'],
+  // The bolds inside ::: slide: the accent (default) or the ink, stress in the accent.
+  'slide-bold': ['accent', 'ink'],
   // How an inline code span looks in running text. `plain` is the mono face
   // at 0.92em and nothing else, which is the rendering up to 1.0.0; `spaced`
   // is the default, which closes the hole a mono word space leaves inside a

@@ -6060,6 +6060,18 @@ const DERIVED_STRONG = '.chunk:not(.chunk-title, .chunk-section) '
 // the phrase already has all three and the em stays the italic it always
 // was. So a lecture that says nothing renders its stress marks, and the one
 // that asks for the old look gets exactly the old look.
+// `style: {slide-bold: ink}`. The strongs of a ::: slide block's own
+// paragraphs - not a card's lead or a row's term, which carry their tone, and
+// not an overlay or an aside. Specificity (0,4,3) or so, above both the
+// live `.chunk-body strong` and print's bare `strong`.
+const SLIDE_STRONG = '.slide-explicit p:not(:is(.cards, .overlay-card, aside) p) strong:not(.card-lead)';
+function slideBoldCss(st) {
+  if (!st || st['slide-bold'] !== 'ink') return [];
+  return [
+    `${SLIDE_STRONG} { color: inherit; }`,
+    `${SLIDE_STRONG} em { font-style: normal; font-weight: inherit; color: var(--emph); }`,
+  ];
+}
 function boldLookCss(attr, dflt, W) {
   const out = [];
   for (const [name, decl] of Object.entries(BOLD_LOOKS)) {
@@ -6430,6 +6442,15 @@ const STYLE_SPEC = {
   // see BOLD_LOOKS. The old look of both is `accent-bold`.
   'bold':       { kind: 'enum', values: Object.keys(BOLD_LOOKS), dflt: 'plain' },
   'print-bold': { kind: 'enum', values: Object.keys(BOLD_LOOKS), dflt: 'bold' },
+  // The bolds inside a `::: slide` block, which `bold` and `print-bold`
+  // deliberately do not reach (DERIVED_STRONG): there the author typed the
+  // bold for the look, and the look has always been the accent. `ink` is the
+  // other answer a house style asks for - a lead sentence set bold in the
+  // ink, and only the stress inside it, `*…*`, in the accent, upright - so
+  // the accent marks one phrase instead of painting the whole sentence.
+  // Both views; emitted only when set (slideBoldCss), so `accent` builds
+  // byte for byte what it did.
+  'slide-bold': { kind: 'enum', values: ['accent', 'ink'], dflt: 'accent' },
   // How an inline code span looks in running text - `async def` inside a
   // sentence, not a listing. Two things about a monospaced face set inside a
   // proportional one are measurable rather than matters of taste, and the
@@ -6616,6 +6637,7 @@ function styleBlockCss(st, S) {
   if (st['body-scale'] !== 1) rootVars.push(`--body-scale: ${st['body-scale']};`);
   const rules = [];
   if (rootVars.length) rules.push(`:root { ${rootVars.join(' ')} }`);
+  rules.push(...slideBoldCss(st));
   // The projection's one generated eyebrow, EXERCISE, is a CSS `content:`
   // string and cannot read the strings table. Rather than change the base
   // rule in AUDIENCE_CSS – which would move a byte in every deck, localised
