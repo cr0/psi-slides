@@ -2598,6 +2598,14 @@ function posterStyleTag(frontmatter) {
  * exposed as `--card-edge`, which is the name `style: {elevation: offset}`
  * reads, so the two agree about what a box's edge is.
  */
+// The recall tag above a recalled slide, and the reference line the handout
+// carries in place of the recalled text. Emitted only into a deck that
+// recalls something.
+function recallStyleTag() {
+  if (!currentRecalls) return '';
+  return `\n<style>.recall-tag { font-size: 0.62em; letter-spacing: 0.12em; text-transform: uppercase;`
+    + ` color: var(--ink-soft); margin: 0 0 0.6em; } .recall-ref { font-style: italic; color: var(--ink-soft); }</style>`;
+}
 function tableStyleTag() {
   if (!currentTables.size) return '';
   const rules = [
@@ -4196,6 +4204,111 @@ function noteSegments(bodyLines, segments, noteAt) {
 
 }
 
+// ── ::: recall <path>#<chunk-id> ────────────────────────────────────
+// A slide from an earlier lecture, shown again unchanged, before a topic gets
+// complicated. It is read from the target's *current* source at every build,
+// so it cannot drift from the original; the later handout refers back to it
+// instead of repeating its text.
+//
+// It is done inside the parse, by splicing the target's slide lines in after
+// the `::: recall` line and marking them injected. Injected lines advance no
+// byte offset, so every range this parser records for the editor still
+// points into this lecture's own file, and a figure that came from the other
+// lecture is not offered to the editor at all - it belongs to that file.
+//
+// What is taken: the target's `::: slide` block if it has one; otherwise its
+// body as the collapse would show it - lists, directives and figures whole,
+// each prose paragraph cut to its first sentence - without its notes, its
+// expansions, footnotes and `::: script`. Asset references are re-pointed so
+// they resolve from here. A recall of a recall is refused: it would make a
+// lecture depend on a chain nobody sees.
+let currentRecalls = false;
+const RECALL_LINE = /^:::\s+recall\s+(\S+)\s*$/;
+function loadRecall(ref, fromDir, where) {
+  const fail = (msg) => { const err = new Error(`::: recall ${ref} (${where}): ${msg}`); err.userFacing = true; throw err; };
+  const hash = ref.lastIndexOf('#');
+  if (hash <= 0 || hash === ref.length - 1) fail('write the source and the chunk id: ::: recall ../lecture-1/source.md#chunk-id');
+  const file = ref.slice(0, hash), id = ref.slice(hash + 1);
+  const abs = path.resolve(fromDir || '.', file);
+  if (!fs.existsSync(abs)) fail(`there is no file ${file} (looked in ${abs}).`);
+  const raw = fs.readFileSync(abs, 'utf8').replace(/\r\n?/g, '\n');
+  const { data: fm, content } = matter(raw);
+  const lines = content.split('\n');
+  const idRe = new RegExp(`\\{[^}]*#${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])[^}]*\\}\\s*$`);
+  const at = lines.findIndex(l => /^##\s/.test(l) && idRe.test(l));
+  if (at < 0) fail(`${file} has no chunk {#${id}}.`);
+  const head = lines[at].match(/^##\s+([a-z]+):\s*(.*?)\s*(\{[^}]*\})\s*$/);
+  if (!head) fail(`the heading of #${id} in ${file} is not a chunk heading.`);
+  let end = lines.length;
+  let fence = false;
+  for (let i = at + 1; i < lines.length; i++) {
+    if (/^\s*(```|~~~)/.test(lines[i])) fence = !fence;
+    if (!fence && /^#{1,2}\s/.test(lines[i])) { end = i; break; }
+  }
+  const body = lines.slice(at + 1, end);
+  if (body.some(l => RECALL_LINE.test(l))) fail(`#${id} is itself a recall – recall the original slide instead.`);
+  // The block that opens at `start` and its matching close, counting the
+  // directives opened inside it.
+  const blockEnd = (start) => {
+    let depth = 0;
+    for (let i = start; i < body.length; i++) {
+      if (/^:::\s+\S/.test(body[i]) && !RECALL_LINE.test(body[i])) depth++;
+      else if (/^:::\s*$/.test(body[i]) && --depth === 0) return i;
+    }
+    return body.length;
+  };
+  let slide = [];
+  const s0 = body.findIndex(l => /^:::\s+slide\s*$/.test(l));
+  if (s0 >= 0) slide = body.slice(s0 + 1, blockEnd(s0));
+  else {
+    const DROP = /^:::\s+(expand|footnote|margin|script)\b/;
+    let para = [];
+    const flush = () => {
+      if (!para.length) return;
+      const text = para.join(' ');
+      const first = text.match(/^[\s\S]*?[.!?](?=\s+[A-ZÄÖÜ„"“(*]|\s*$)/);
+      slide.push(first ? first[0] : text, '');
+      para = [];
+    };
+    for (let i = 0; i < body.length; i++) {
+      const l = body[i];
+      if (DROP.test(l)) { flush(); i = blockEnd(i); continue; }
+      if (/^>\s*(note|annot):/.test(l)) { flush(); while (i + 1 < body.length && /^>/.test(body[i + 1])) i++; continue; }
+      const plain = l.trim() && !/^\s*([-*+]\s|\d+[.)]\s|\||:::|!\[|>|#|```|~~~|<)/.test(l) && !/^\s{2,}/.test(l);
+      if (plain) { para.push(l.trim()); continue; }
+      flush();
+      if (/^:::\s+\S/.test(l)) { const e = blockEnd(i); slide.push(...body.slice(i, e + 1)); i = e; continue; }
+      slide.push(l);
+    }
+    flush();
+  }
+  // Re-point every asset reference so it resolves from the recalling lecture.
+  const targetDir = path.dirname(abs);
+  const repoint = (r) => {
+    if (!r || /^(?:[a-z]+:|\/|#|data:)/i.test(r)) return r;
+    let target = null;
+    if (!/[\\/]/.test(r) && !/\.[a-z0-9]+$/i.test(r)) {
+      for (const ext of [...IMG_EXTS, ...VIDEO_EXTS]) {
+        const f = path.join(targetDir, 'assets', `${r}.${ext}`);
+        if (fs.existsSync(f)) { target = f; break; }
+      }
+      if (!target) return r;
+    } else target = path.resolve(targetDir, r);
+    return path.relative(fromDir || '.', target).split(path.sep).join('/');
+  };
+  let inDraw = false;
+  slide = slide.map(l => {
+    if (/^:::\s+draw\b/.test(l)) { inDraw = true; return l; }
+    if (inDraw && /^:::\s*$/.test(l)) { inDraw = false; return l; }
+    if (inDraw) return l.replace(/^(\s*image\s+\S+\s+)(\S+)/, (m, a, r) => a + repoint(r));
+    return l.replace(/(!\[[^\]]*\]\()([^)\s]+)/g, (m, a, r) => a + repoint(r))
+            .replace(/^(:::\s+backdrop\s+)(\S+)/, (m, a, r) => a + repoint(r));
+  });
+  const [heading, sub] = head[2].split('|').map(t => t.trim());
+  return { type: head[1], heading: heading || '', sub: sub || '', tail: head[3],
+           title: String(fm.title || ''), subtitle: String(fm.subtitle || ''), slide, file, id };
+}
+
 function parseLecture(src) {
   // Windows line endings. Every matcher below anchors on `$`, and a `\r`
   // before it made every heading and every directive miss - a CRLF source
@@ -4228,6 +4341,9 @@ function parseLecture(src) {
   // --watch.
   currentActivities = false;
   currentTables = new Set();
+  currentRecalls = false;
+  const recallStrings = lectureStrings(frontmatter);
+  const recallCache = new Map();
   // The lecture-wide diagram layer, parsed once and handed to every block.
   // Validated here rather than at the first diagram, because a lecture whose
   // frontmatter is wrong should say so even when it has no diagram yet.
@@ -4653,9 +4769,78 @@ function parseLecture(src) {
     fmOffset = at >= 0 ? at : 0;
   }
   let lineAt = 0;
-  for (const line of content.split('\n')) {
+  const srcLines = content.split('\n');
+  // Lines a ::: recall spliced in from another lecture sit at [k, injectedEnd).
+  let injectedEnd = -1;
+  const recallOf = (ref, where) => {
+    if (!recallCache.has(ref)) recallCache.set(ref, loadRecall(ref, currentSourceDir, where));
+    return recallCache.get(ref);
+  };
+  for (let k = 0; k < srcLines.length; k++) {
+    let line = srcLines[k];
+    const injected = k < injectedEnd;
     const lineStart = lineAt;
-    lineAt += line.length + 1;
+    if (!injected) lineAt += line.length + 1;
+    // A chunk that recalls another takes the recalled slide's heading where
+    // its own is empty, and its type where it says `recall:`. Rewritten on
+    // the line in hand only - the byte offsets above are already counted.
+    if (!injected && !diagramBlock && /^##\s/.test(line)) {
+      let ref = null;
+      for (let j = k + 1; j < srcLines.length && !/^#{1,2}\s/.test(srcLines[j]); j++) {
+        const m = srcLines[j].match(RECALL_LINE);
+        if (m) { ref = m[1]; break; }
+      }
+      const own = line.match(/^##\s+([a-z]+):\s*(.*?)\s*(\{[^}]*\})?\s*$/);
+      if (own && own[1] === 'recall' && !ref) {
+        const err = new Error(`${line.trim()}: a recall: chunk needs a ::: recall <source.md>#<chunk-id> line in its body.`);
+        err.userFacing = true;
+        throw err;
+      }
+      if (ref && own) {
+        const r = recallOf(ref, own[3] || line.trim());
+        const type = own[1] === 'recall' ? r.type : own[1];
+        const text = own[2].trim() ? own[2].trim() : [r.heading, r.sub].filter(Boolean).join(' | ');
+        // The recalled slide's width unless this chunk names its own.
+        const ownTail = own[3] || '{}';
+        const width = /\.(narrow|standard|wide|full)\b/.test(ownTail) ? '' : ((r.tail.match(/\.(narrow|standard|wide|full)\b/) || [])[0] || '');
+        const tail = ownTail.replace(/^\{/, '{' + (width ? width + ' ' : '')).replace(/\{\s+/, '{').replace(/\s+\}/, '}');
+        line = `## ${type}: ${text} ${tail}`;
+      }
+    }
+    const recallHere = !diagramBlock && line.match(RECALL_LINE);
+    if (recallHere) {
+      const where = currentChunk && currentChunk.id ? `chunk #${currentChunk.id}` : 'this lecture';
+      if (injected) {
+        const err = new Error(`::: recall inside a recalled slide (${where}) – recall the original slide instead.`);
+        err.userFacing = true;
+        throw err;
+      }
+      if (!currentChunk) {
+        const err = new Error(`::: recall ${recallHere[1]} outside a chunk – it goes in the body of a ## chunk.`);
+        err.userFacing = true;
+        throw err;
+      }
+      const r = recallOf(recallHere[1], where);
+      currentRecalls = true;
+      const esc = (t) => escapeHtml(t);
+      const refLine = String(recallStrings['recall-ref'] || STRINGS.en['recall-ref'])
+        .replace('{title}', esc(r.title || r.file))
+        .replace('{sub}', r.subtitle ? ` (${esc(r.subtitle)})` : '')
+        .replace('{heading}', esc(r.heading || r.id));
+      const inject = [
+        '::: slide',
+        `<p class="recall-tag">${esc(recallStrings.recall || STRINGS.en.recall)} · ${esc(r.title || r.file)}</p>`,
+        '',
+        ...r.slide,
+        ':::',
+        '',
+        `<p class="recall-ref">${refLine}</p>`,
+        '',
+      ];
+      srcLines.splice(k + 1, 0, ...inject);
+      injectedEnd = k + 1 + inject.length;
+      continue;
+    }
     // A diagram body is its own little language, so it is captured
     // verbatim – ahead of the fence tracker, the note matcher and the
     // directive table. Nothing inside it is markdown.
@@ -4673,7 +4858,9 @@ function parseLecture(src) {
           : currentExpansion ? currentExpansion.lines
           : currentChunk ? bodyLines : colBody;
         const dgBody = diagramBlock.lines.join('\n');
-        dgEmittedBlocks.push({
+        // A figure recalled from another lecture belongs to that file: it is
+        // not offered to the editor, whose patches go to this one.
+        if (!diagramBlock.injected) dgEmittedBlocks.push({
           range: [diagramBlock.bodyAt, diagramBlock.bodyAt + dgBody.length],
           body: dgBody,
           chunk: currentChunk ? currentChunk.id : null,
@@ -4750,7 +4937,7 @@ function parseLecture(src) {
         // a paragraph would.
         refuseDrawOpener(cardDraw);
         diagramBlock = { unit: cardDraw.unit, autoplay: cardDraw.autoplay, cycle: cardDraw.cycle,
-                         lines: [], bodyAt: fmOffset + lineAt };
+                         lines: [], bodyAt: fmOffset + lineAt, injected };
       } else if (!inFence && /^:::\s+\S/.test(line)) {
         // lint.js: directive-in-cards. The body is captured, not parsed, so a
         // directive in a card was printed on the slide as its own text and
@@ -4992,7 +5179,7 @@ function parseLecture(src) {
         if (colDraw) {
           refuseDrawOpener(colDraw);
           diagramBlock = { unit: colDraw.unit, autoplay: colDraw.autoplay, cycle: colDraw.cycle,
-                           lines: [], bodyAt: fmOffset + lineAt };
+                           lines: [], bodyAt: fmOffset + lineAt, injected };
           continue;
         }
         // A divider's content walks the same counter a chunk's does.
@@ -5489,7 +5676,7 @@ function parseLecture(src) {
           // that also runs in the editor, where there is no deck to play.
           refuseDrawOpener(diagramOpen);
           diagramBlock = { unit: diagramOpen.unit, autoplay: diagramOpen.autoplay, cycle: diagramOpen.cycle,
-                           lines: [], bodyAt: fmOffset + lineAt };
+                           lines: [], bodyAt: fmOffset + lineAt, injected };
           continue;
         }
         // Explicit-slide mode (§4.5). These two are the escape hatch from
@@ -5928,6 +6115,8 @@ const STRINGS = {
     'untitled-lecture': 'Untitled lecture',
     'annotation-label': 'annotation',
     'add-note': '+ note',
+    recall: 'Recap',
+    'recall-ref': 'Recap from “{title}”{sub}, slide “{heading}” – in full in that lecture’s handout.',
   },
   de: {
     contents: 'Inhalt',
@@ -5944,6 +6133,8 @@ const STRINGS = {
     'untitled-lecture': 'Vorlesung ohne Titel',
     'annotation-label': 'Anmerkung',
     'add-note': '+ Anmerkung',
+    recall: 'Wiederholung',
+    'recall-ref': 'Wiederholung aus „{title}“{sub}, Folie „{heading}“ – ausführlich im Handout dort.',
   },
 };
 
@@ -8625,7 +8816,7 @@ ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'print')}
 ${styleBlockCss(styleOpts)}${identityStyleTag(identity, styleOpts, 'print', palette)}
-${iconStyleTag()}${activityStyleTag(styleOpts)}${tableStyleTag()}${codeTag(styleOpts, opts.codeSizing, 'print')}
+${iconStyleTag()}${activityStyleTag(styleOpts)}${tableStyleTag()}${recallStyleTag()}${codeTag(styleOpts, opts.codeSizing, 'print')}
 ${katexStyleTag(anonHtml + namedHtml)}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
@@ -10505,7 +10696,7 @@ ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'live')}
 ${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live', palette)}
-${iconStyleTag()}${activityStyleTag(styleOpts)}${tableStyleTag()}${posterStyleTag(frontmatter)}${codeTag(styleOpts, opts.codeSizing, 'live')}
+${iconStyleTag()}${activityStyleTag(styleOpts)}${tableStyleTag()}${recallStyleTag()}${posterStyleTag(frontmatter)}${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
@@ -19008,7 +19199,7 @@ ${SPEAKER_CSS}
 </style>
 ${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live', palette)}
 ${fontStyleTag(opts.fontEmbed, 'live')}
-${iconStyleTag()}${activityStyleTag(styleOpts)}${tableStyleTag()}${posterStyleTag(frontmatter)}${codeTag(styleOpts, opts.codeSizing, 'live')}
+${iconStyleTag()}${activityStyleTag(styleOpts)}${tableStyleTag()}${recallStyleTag()}${posterStyleTag(frontmatter)}${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>

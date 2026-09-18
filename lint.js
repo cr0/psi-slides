@@ -38,6 +38,9 @@ import path from 'node:path';
 const VALID_TAGS = new Set([
   'title', 'closing', 'outline', 'principle', 'definition', 'example',
   'question', 'figure', 'exercise', 'free',
+  // A chunk that recalls a slide from another lecture takes that slide's
+  // type at build time (loadRecall in build.js); here it is only a name.
+  'recall',
 ]);
 
 // The chunk tail's vocabulary (widths, `.bare`, `.center`, the `.wrap-*` /
@@ -368,7 +371,7 @@ const STYLE_ENUMS = {
 const LABEL_KEYS = new Set([
   'contents', 'speaker-note', 'presentation-note', 'aside-note',
   'title-print', 'title-print-notes', 'title-lecture', 'title-speaker',
-  'untitled-lecture', 'annotation-label', 'add-note',
+  'untitled-lecture', 'annotation-label', 'add-note', 'recall', 'recall-ref',
 ]);
 const LABEL_TYPE_KEYS = new Set([
   'principle', 'definition', 'example', 'question', 'exercise', 'outline', 'figure',
@@ -4304,6 +4307,52 @@ function lintFile(filePath) {
       add(openLine, 'warn', 'unclosed-math',
           'display math opened with `$$` is never closed – everything after it renders as one formula');
     }
+  }
+
+  // ::: recall <source.md>#<id> - mirrors loadRecall in build.js: the file and
+  // the chunk have to exist, the recalled chunk may not itself recall, and a
+  // `## recall:` chunk needs the line. All three are build failures there.
+  {
+    const RECALL = /^:::\s+recall\s+(\S+)\s*$/;
+    const dir = path.dirname(filePath);
+    let chunkLine = -1, chunkIsRecall = false, chunkHasRecall = false;
+    const closeChunk = () => {
+      if (chunkIsRecall && !chunkHasRecall) {
+        add(chunkLine + 1, 'error', 'recall-missing',
+            'a recall: chunk needs a ::: recall <source.md>#<chunk-id> line in its body');
+      }
+    };
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (/^#{1,2}\s/.test(l)) {
+        closeChunk();
+        chunkLine = i; chunkHasRecall = false;
+        chunkIsRecall = /^##\s+recall:/.test(l);
+        continue;
+      }
+      const m = l.match(RECALL);
+      if (!m) continue;
+      chunkHasRecall = true;
+      const ref = m[1], hash = ref.lastIndexOf('#');
+      if (hash <= 0) {
+        add(i + 1, 'error', 'recall-missing', `::: recall ${ref} – write the source and the chunk id: ::: recall ../lecture-1/source.md#chunk-id`);
+        continue;
+      }
+      const abs = path.resolve(dir, ref.slice(0, hash));
+      const id = ref.slice(hash + 1);
+      if (!fs.existsSync(abs)) { add(i + 1, 'error', 'recall-missing', `::: recall – there is no file ${ref.slice(0, hash)}`); continue; }
+      const tl = fs.readFileSync(abs, 'utf8').replace(/\r\n?/g, '\n').split('\n');
+      const idRe = new RegExp(`\\{[^}]*#${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])[^}]*\\}\\s*$`);
+      const at = tl.findIndex(x => /^##\s/.test(x) && idRe.test(x));
+      if (at < 0) { add(i + 1, 'error', 'recall-missing', `::: recall – ${ref.slice(0, hash)} has no chunk {#${id}}`); continue; }
+      for (let j = at + 1; j < tl.length && !/^#{1,2}\s/.test(tl[j]); j++) {
+        if (RECALL.test(tl[j])) {
+          add(i + 1, 'error', 'recall-nested', `::: recall – #${id} is itself a recall; recall the original slide instead`);
+          break;
+        }
+      }
+    }
+    closeChunk();
   }
 
   // A table on the slide - inside ::: slide or ::: table - that is bigger than
