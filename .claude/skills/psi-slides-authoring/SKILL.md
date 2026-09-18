@@ -702,6 +702,22 @@ Covered above. In directive terms they behave like the other layout wrappers:
 they nest inside `::: cols` or `::: side`, they work inside an `expand` or
 `margin`, and a bare `:::` closes them.
 
+### `::: table {…}`
+
+A Markdown table in the house look: no grid, the header in the ink over a rule, hairlines between rows, a closing rule. Optional: a tone for the header (`.tone-1` … `.tone-4`, tinted ground and rules in the tone) and **exactly one** highlight in the accent – a body row `.row-N`, a column `.col-N` or a cell `.cell-R-C` (counted from 1; the header is not a row). The header stays ink so the accent means one thing on the slide.
+
+```md
+::: table {.tone-1 .row-2}
+| Protocol | Key exchange | Status |
+|---|---|---|
+| SSL 3.0 | RSA | forbidden |
+| TLS 1.2 | ECDHE | common |
+| TLS 1.3 | ECDHE | current |
+:::
+```
+
+Both files refuse a second highlight, a second tone, an index outside 1–12 and any other word (`bad-table`). A table inside `::: slide` or `::: table` with more than 5 body rows or 4 columns is warned about (`table-size`): split it, or give the handout the full table and the slide the part that matters. Row-by-row reveal is not available yet; a `---` cannot sit inside a table.
+
 ### Nesting
 
 The directives combine, but not freely: each one is either a *wrapper* whose

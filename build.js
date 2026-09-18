@@ -40,7 +40,7 @@ import { hexToOklch, contrast, inkFor, lightnessFor, cssOklch, oklchToLab, labLu
 // zero dependencies - see the header of tails.mjs and CLAUDE.md.
 import {
   CHUNK_SLOTS, CHUNK_STYLE_CLASSES,
-  CARDS_SLOTS, OVERLAY_SLOTS, BACKDROP_SLOTS, SIDE_SLOTS, DOCK_SLOTS,
+  CARDS_SLOTS, OVERLAY_SLOTS, BACKDROP_SLOTS, SIDE_SLOTS, DOCK_SLOTS, parseTableTail,
   splitTail, parseTail, slotTable, strayTailProblem,
   parseDrawOpener, formatDrawOpener, drawCompilerAttrs, parseRevealMark,
 } from './tails.mjs';
@@ -2499,6 +2499,11 @@ const activityGlyph = (kind) =>
 // conditional block in this file exists: a deck with none builds byte for
 // byte what it built before.
 let currentActivities = false;
+// The ::: table words a deck uses: 'base', 'tone:tone-2', 'mark:row-2'. The
+// stylesheet is emitted from this set, rule by rule, so a deck with no table
+// block builds byte for byte what it did and one with a single highlight
+// carries one highlight rule rather than every row and column there could be.
+let currentTables = new Set();
 
 // The poster divider's stylesheet, emitted only into a deck that asks for
 // `section: poster`, so every other deck builds byte for byte what it did.
@@ -2593,6 +2598,37 @@ function posterStyleTag(frontmatter) {
  * exposed as `--card-edge`, which is the name `style: {elevation: offset}`
  * reads, so the two agree about what a box's edge is.
  */
+function tableStyleTag() {
+  if (!currentTables.size) return '';
+  const rules = [
+    // The house table: no grid, a rule under the header, hairlines between
+    // rows. The header is ink and bold, not the accent - the accent is kept
+    // for the one highlight, so a slide never shows two oranges that mean
+    // different things.
+    `.table-block table { border-collapse: collapse; }`,
+    `.table-block :is(th, td) { border: none; border-bottom: 1px solid var(--rule); padding: 0.4em 0.7em; }`,
+    `.table-block th { color: var(--ink); font-weight: var(--bold-weight, 600); border-bottom: 2px solid var(--tb-tone, var(--ink)); background: var(--tb-head, transparent); }`,
+    `.table-block tbody tr:last-child > * { border-bottom: 2px solid var(--tb-tone, var(--ink)); }`,
+  ];
+  const defaults = { 'tone-1': 'var(--emph)', 'tone-2': 'var(--ink)', 'tone-3': 'var(--ink-soft)', 'tone-4': 'var(--emph)' };
+  const HL = 'background: color-mix(in oklab, var(--emph) 20%, var(--paper)); font-weight: var(--bold-weight, 600);'
+    + ' -webkit-print-color-adjust: exact; print-color-adjust: exact;';
+  for (const w of currentTables) {
+    const [k, v] = w.split(':');
+    if (k === 'tone') {
+      const c = `var(--${v}, ${defaults[v]})`;
+      rules.push(`.table-block.tb-${v} { --tb-tone: ${c}; --tb-head: color-mix(in oklab, ${c} 20%, var(--paper)); }`);
+      rules.push(`.table-block.tb-${v} th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }`);
+    } else if (k === 'mark') {
+      const [kind, a, b] = v.split('-');
+      const sel = kind === 'row' ? `tbody tr:nth-child(${a}) > *`
+        : kind === 'col' ? `tr > :nth-child(${a})`
+        : `tbody tr:nth-child(${a}) > :nth-child(${b})`;
+      rules.push(`.table-block.tb-${v} ${sel} { ${HL} }`);
+    }
+  }
+  return `\n<style>${rules.join(' ')}</style>`;
+}
 function activityStyleTag(st) {
   if (!currentActivities) return '';
   const kinds = Object.entries(ACTIVITY_KINDS);
@@ -4191,6 +4227,7 @@ function parseLecture(src) {
   // only a deck that does. Set as a box is opened below; cleared here for
   // --watch.
   currentActivities = false;
+  currentTables = new Set();
   // The lecture-wide diagram layer, parsed once and handed to every block.
   // Validated here rather than at the first diagram, because a lecture whose
   // frontmatter is wrong should say so even when it has no diagram yet.
@@ -5406,6 +5443,21 @@ function parseLecture(src) {
           currentActivities = true;
           target.push('', `<aside class="activity activity-${kind}" role="note">${activityGlyph(kind)}<div class="activity-body">`, '');
           layoutStack.push({ close: '</div></aside>', kind: 'activity', narrows: true });
+          continue;
+        }
+        // ::: table {…} - a Markdown table in the house look, with a tone
+        // for its header and one highlight in the accent. The table itself
+        // stays Markdown; the block only wraps it and names what to mark.
+        const tableOpen = line.match(/^:::\s+table(?:\s+(\{.*\}))?\s*$/);
+        if (tableOpen) {
+          const t = parseTableTail(tableOpen[1]);
+          if (t.problems.length) refuse(`::: table (${chunkRef()}): ${t.problems[0]}.`);
+          currentTables.add('base');
+          if (t.tone) currentTables.add(`tone:${t.tone}`);
+          if (t.mark) currentTables.add(`mark:${t.mark}`);
+          const cls = ['table-block', t.tone ? `tb-${t.tone}` : '', t.mark ? `tb-${t.mark}` : ''].filter(Boolean).join(' ');
+          target.push('', `<div class="${cls}">`, '');
+          layoutStack.push({ close: '</div>', kind: 'table' });
           continue;
         }
         if (/^:::\s+marginalia\s*$/.test(line)) {
@@ -8539,7 +8591,7 @@ ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'print')}
 ${styleBlockCss(styleOpts)}${identityStyleTag(identity, styleOpts, 'print', palette)}
-${iconStyleTag()}${activityStyleTag(styleOpts)}${codeTag(styleOpts, opts.codeSizing, 'print')}
+${iconStyleTag()}${activityStyleTag(styleOpts)}${tableStyleTag()}${codeTag(styleOpts, opts.codeSizing, 'print')}
 ${katexStyleTag(anonHtml + namedHtml)}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
@@ -10419,7 +10471,7 @@ ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'live')}
 ${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live', palette)}
-${iconStyleTag()}${activityStyleTag(styleOpts)}${posterStyleTag(frontmatter)}${codeTag(styleOpts, opts.codeSizing, 'live')}
+${iconStyleTag()}${activityStyleTag(styleOpts)}${tableStyleTag()}${posterStyleTag(frontmatter)}${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
@@ -18922,7 +18974,7 @@ ${SPEAKER_CSS}
 </style>
 ${styleBlockCss(styleOpts, S)}${identityStyleTag(identity, styleOpts, 'live', palette)}
 ${fontStyleTag(opts.fontEmbed, 'live')}
-${iconStyleTag()}${activityStyleTag(styleOpts)}${posterStyleTag(frontmatter)}${codeTag(styleOpts, opts.codeSizing, 'live')}
+${iconStyleTag()}${activityStyleTag(styleOpts)}${tableStyleTag()}${posterStyleTag(frontmatter)}${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
 </head>
