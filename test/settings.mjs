@@ -3450,6 +3450,33 @@ console.log('\nlayout generations');
   ok(!RULE.test(slide.html), 'and the live views are not touched');
 }
 
+// ── ::: table: the house table, one highlight, the size warning ──
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-table-'));
+  const run = (open, rows = 3) => {
+    const body = Array.from({ length: rows }, (_, i) => `| r${i + 1} | x | y |`).join('\n');
+    fs.writeFileSync(path.join(dir, 'source.md'), '---\ntitle: T\n---\n\n## title: {#title}\n\n## free: F {.wide #f}\n\n::: slide\n'
+      + `${open}\n| A | B | C |\n|---|---|---|\n${body}\n:::\n:::\n`);
+    const b = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+    const l = spawnSync(process.execPath, [path.join(ROOT, 'lint.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+    return { code: b.status, out: (b.stdout || '') + (b.stderr || ''), lint: (l.stdout || '') + (l.stderr || ''),
+             html: b.status === 0 ? fs.readFileSync(path.join(dir, 'audience.html'), 'utf8') : '',
+             print: b.status === 0 ? fs.readFileSync(path.join(dir, 'print.html'), 'utf8') : '' };
+  };
+  const t = run('::: table {.tone-1 .row-2}');
+  ok(t.code === 0 && /<div class="table-block tb-tone-1 tb-row-2">/.test(t.html), '::: table wraps the table and names its tone and highlight');
+  ok(/\.table-block th \{ color: var\(--ink\);/.test(t.html) && /\.table-block th \{ color: var\(--ink\);/.test(t.print),
+     'the header is in the ink, live and on paper, so the accent is left for the highlight');
+  ok(/\.table-block\.tb-row-2 tbody tr:nth-child\(2\) > \* \{ background: color-mix\(in oklab, var\(--emph\) 20%/.test(t.html),
+     'exactly the one highlight rule the deck uses');
+  ok(!/tb-col-|tb-cell-/.test(t.html.replace(/<div class="table-block[^"]*">/g, '')), 'and no other');
+  const two = run('::: table {.row-2 .col-1}');
+  ok(two.code !== 0 && /two highlights/.test(two.out) && /bad-table/.test(two.lint), 'a second highlight is refused by both files');
+  const big = run('::: table', 7);
+  ok(/table-size/.test(big.lint), 'a slide table of more than five rows is warned about');
+  ok(!/table-size/.test(t.lint), 'and a small one is not');
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.log(failures.map(f => '  ✗ ' + f).join('\n'));

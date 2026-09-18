@@ -489,7 +489,7 @@ import {
 import {
   CHUNK_SLOTS, CHUNK_STYLE_CLASSES, VALID_WIDTHS, VALID_CHUNK_CLASSES,
   CARDS_SLOTS, OVERLAY_SLOTS, BACKDROP_SLOTS, SIDE_SLOTS, DOCK_SLOTS,
-  splitTail, parseTail, strayTailProblem, parseDrawOpener, parseRevealMark,
+  splitTail, parseTail, strayTailProblem, parseDrawOpener, parseRevealMark, parseTableTail,
 } from './tails.mjs';
 import { hexToOklch, contrast, oklchToLab, labLuminance,
   WCAG_TEXT, WCAG_NON_TEXT } from './colour.mjs';
@@ -3821,6 +3821,14 @@ function lintFile(filePath) {
           '::: activity takes one kind and nothing else: ' + ACTIVITY_KINDS.join(', '));
     }
     const marginaliaOpen = /^:::\s+marginalia\s*$/.test(line);
+    // ::: table {…} - mirrors build.js, through the same parser.
+    const tableOpen = line.match(/^:::\s+table(?:\s+(\{.*\}))?\s*$/);
+    if (tableOpen) {
+      const t = parseTableTail(tableOpen[1]);
+      if (t.problems.length) add(ln, 'error', 'bad-table', `::: table: ${t.problems[0]}`);
+    } else if (/^:::\s+table\b/.test(line)) {
+      add(ln, 'error', 'bad-table', '::: table takes an optional {…} tail and nothing else: ::: table {.tone-1 .row-2}');
+    }
     const slideOpen = /^:::\s+slide\s*$/.test(line);
     const scriptOpen = /^:::\s+script\s*$/.test(line);
     // ::: embed <url> – a hosted player. Mirrors build.js; the value is
@@ -3841,7 +3849,7 @@ function lintFile(filePath) {
             `::: embed needs a YouTube or Vimeo link, or an https URL - got '${v}'`);
       }
     }
-    if (colsOpen || cardsOpen || rowsOpen || sideOpen || marginaliaOpen || slideOpen || scriptOpen || embedOpen || activityOpen) {
+    if (colsOpen || cardsOpen || rowsOpen || sideOpen || marginaliaOpen || slideOpen || scriptOpen || embedOpen || activityOpen || tableOpen) {
       // A divider takes a card row or a row block beside its backdrop and
       // its figure; every other directive there is a slide that has stopped
       // being a divider, and the build refuses it with the same words.
@@ -3855,6 +3863,7 @@ function lintFile(filePath) {
         : cardsOpen ? `cards ${cardsOpen[1]}`
         : sideOpen ? 'side'
         : marginaliaOpen ? 'marginalia'
+        : tableOpen ? 'table'
         : activityOpen ? 'activity'
         : embedOpen ? 'embed'
         : slideOpen ? 'slide' : 'script';
@@ -4268,6 +4277,33 @@ function lintFile(filePath) {
     if (open) {
       add(openLine, 'warn', 'unclosed-math',
           'display math opened with `$$` is never closed – everything after it renders as one formula');
+    }
+  }
+
+  // A table on the slide - inside ::: slide or ::: table - that is bigger than
+  // a room can read at a glance. Five body rows and four columns is what the
+  // house guidance names; a larger one belongs in the handout, where it is
+  // read rather than glanced at, or split. A warning: some tables are worth
+  // their size, and the author knows which.
+  {
+    const TABLE_MAX_ROWS = 5, TABLE_MAX_COLS = 4;
+    const stack = [];
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      const open = l.match(/^:::\s+(\w+)/);
+      if (open) { stack.push(open[1]); continue; }
+      if (/^:::\s*$/.test(l)) { stack.pop(); continue; }
+      const onSlide = stack.includes('slide') || stack.includes('table');
+      if (!onSlide || !/^\s*\|.*\|\s*$/.test(l) || !/^\s*\|?\s*:?-{3,}/.test(lines[i + 1] || '')) continue;
+      const cols = l.trim().replace(/^\||\|$/g, '').split('|').length;
+      let rows = 0, j = i + 2;
+      while (j < lines.length && /^\s*\|.*\|\s*$/.test(lines[j])) { rows++; j++; }
+      if (rows > TABLE_MAX_ROWS || cols > TABLE_MAX_COLS) {
+        add(i + 1, 'warn', 'table-size',
+            `a slide table of ${rows} rows × ${cols} columns – a room reads about ${TABLE_MAX_ROWS} × ${TABLE_MAX_COLS} at a glance; `
+            + 'split it, or put the full table in the handout and show the part that matters');
+      }
+      i = j - 1;
     }
   }
 

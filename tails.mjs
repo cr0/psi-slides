@@ -564,3 +564,41 @@ export function parseDrawOpener(line) {
   }
   return out;
 }
+
+// ── ::: table {…} ─────────────────────────────────────────────────────
+// A Markdown table in the house look: a header row in the ink over a rule,
+// hairlines between rows, an optional tone on the header, and exactly one
+// highlight - a row, a column or a cell - in the accent. The highlight is a
+// number, so it cannot be a fixed slot word: `row-2`, `col-3`, `cell-2-3`
+// (body rows count from 1, the header is not a row). One parser for the build
+// and lint.js, so the two refuse the same things with the same words.
+export const TABLE_TONES = ['tone-1', 'tone-2', 'tone-3', 'tone-4'];
+export const TABLE_MAX_INDEX = 12;
+export function parseTableTail(tail) {
+  const out = { tone: null, mark: null, problems: [] };
+  const body = String(tail || '').trim();
+  if (!body) return out;
+  const m = body.match(/^\{(.*)\}$/);
+  if (!m) { out.problems.push('the attributes go in braces: ::: table {.tone-1 .row-2}'); return out; }
+  for (const tok of m[1].trim().split(/\s+/).filter(Boolean)) {
+    const w = tok.replace(/^\./, '');
+    if (!tok.startsWith('.')) { out.problems.push(`"${tok}" is not a class - write .${tok}`); continue; }
+    if (TABLE_TONES.includes(w)) {
+      if (out.tone) out.problems.push(`two tones, .${out.tone} and .${w} - a table header takes one`);
+      else out.tone = w;
+      continue;
+    }
+    const h = w.match(/^(row|col)-(\d+)$/) || w.match(/^(cell)-(\d+)-(\d+)$/);
+    if (h) {
+      const nums = h.slice(2).filter(Boolean).map(Number);
+      if (nums.some(n => n < 1 || n > TABLE_MAX_INDEX)) {
+        out.problems.push(`.${w} - rows and columns count from 1 to ${TABLE_MAX_INDEX}`);
+      } else if (out.mark) {
+        out.problems.push(`two highlights, .${out.mark} and .${w} - a table highlights exactly one thing`);
+      } else out.mark = w;
+      continue;
+    }
+    out.problems.push(`.${w} is not a table word - write a tone (.tone-1 … .tone-4) and one highlight (.row-N, .col-N or .cell-R-C)`);
+  }
+  return out;
+}

@@ -9,6 +9,14 @@ from building the same way is a major version.
 
 ### Added
 
+- **`::: table {.tone-N .row-N | .col-N | .cell-R-C}`, the house table.** No
+  grid, the header in the ink over a rule, hairlines between rows, an optional
+  tone on the header and exactly one highlight in the accent - so a slide never
+  shows a header and a highlight in the same orange meaning two things. One
+  parser in `tails.mjs` for both files (`bad-table`); the stylesheet carries
+  only the highlight rules a deck uses. **`table-size`** warns on a table
+  inside `::: slide` or `::: table` above 5 rows × 4 columns.
+
 - **Numbered badges: `::: cards 3 {.number}` and `::: rows {.number}`.** Each
   card heading or row term opens on a filled circle carrying its place in the
   block, in the item's own colour (the accent where it has none) - the list
