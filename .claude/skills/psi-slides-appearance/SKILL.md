@@ -368,6 +368,10 @@ What it does **not** reach yet: the slide's shadows and scrims, which are hard-c
 
 `PALETTE_TEXT_KEYS` (`tone-1-text` … `tone-4-text`) are emitted by `paletteCss` as `--tone-N-text` in the palette's own scope (light themes, and unscoped in print). `cardToneCss` sets two properties per toned card or row: `--card-lead` (the tone: badges, fills, edges) and `--card-ink` (`var(--tone-N-text, tone)`: the heading, the sub-line, open-column bullets, row terms). `figureCardCss` reads the text step for a box's heading line and a flat field's lines under the name, and not for dots, fills or strokes. The split is the point: **what is seen as the colour stays the colour, what is read may be darker**, so a figure's badge and its list's badge remain one mark while both headings reach 4.5:1. `lint.js` measures the words in each tone against the light paper (`tone-text-contrast`, separate from the column rule `tone-contrast`).
 
+## The slides around the live one (`style.neighbours`)
+
+PRD §2 rule 6 names three neighbour modes and the engine built one, `dim` (`opacity: calc(1 - var(--dim) * 0.96)`, about 17% at `--dim: 0.86`). `neighbours: hidden` (`styleBlockCss`, live only) adds `body:not(.overview-mode) .chunk:not(.active) { opacity: 0 }`; the existing 500 ms transition fades the old slide out as the camera leaves it. The third mode, `fade-after-settle`, still is not built: it needs the runtime to know when the camera has landed. What `hidden` gives up is the design's own argument - the peek is the room's map of the column, and a move reads as travel rather than a cut - so `dim` stays the default.
+
 ## How the handout is paged (`style.print-pages`)
 
 `flow` (default) runs chunk after chunk. `slide` (`styleBlockCss`, print only - the renderer that passes no strings table) adds `.column + .column, article.chunk + article.chunk { break-before: page }`: every chunk opens a page and every part opens one with its heading on its first chunk, so the handout reads like a small book. Only the start of a chunk is fixed; a long chunk still flows onto the next page, because forcing it whole would clip it.

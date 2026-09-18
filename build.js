@@ -6549,6 +6549,14 @@ const STYLE_SPEC = {
   // with its heading on top of its first chunk. A chunk longer than a page
   // still flows onto the next; only the start is fixed. Print only.
   'print-pages': { kind: 'enum', values: ['flow', 'slide'], dflt: 'flow' },
+  // What the room sees of the slides around the live one (PRD §2, placement
+  // rule 6). `dim` is the default and the design: the lecture is one canvas
+  // and the camera moves over it, so the neighbours stay faintly visible -
+  // the room keeps a sense of where it is, and a move reads as travel along
+  // the column rather than as a cut. `hidden` is the rule's third mode, for a
+  // lecturer who wants each slide alone: neighbours go to 0 whenever they are
+  // not live. The overview board still shows everything. Live views only.
+  neighbours: { kind: 'enum', values: ['dim', 'hidden'], dflt: 'dim' },
   // The bolds inside a `::: slide` block, which `bold` and `print-bold`
   // deliberately do not reach (DERIVED_STRONG): there the author typed the
   // bold for the look, and the look has always been the accent. `ink` is the
@@ -6769,6 +6777,9 @@ function styleBlockCss(st, S) {
     rules.push(`.column + .column, article.chunk + article.chunk { break-before: page; page-break-before: always; }`);
   }
   rules.push(...slideBoldCss(st));
+  if (S && st.neighbours === 'hidden') {
+    rules.push(`body:not(.overview-mode) .chunk:not(.active) { opacity: 0; }`);
+  }
   // The projection's one generated eyebrow, EXERCISE, is a CSS `content:`
   // string and cannot read the strings table. Rather than change the base
   // rule in AUDIENCE_CSS – which would move a byte in every deck, localised

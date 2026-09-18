@@ -3520,6 +3520,23 @@ console.log('\nlayout generations');
   ok(bad.code !== 0 && /unknown-palette-tone/.test(bad.lint), 'a text key for a tone that does not exist is refused by both files');
 }
 
+// ── style.neighbours: the slides around the live one, dimmed (default) or hidden ──
+{
+  const NB = (v) => `---\ntitle: T\n${v ? `style:\n  neighbours: ${v}\n` : ''}---\n\n## title: {#title}\n\n## free: A {#a}\n\nX.\n\n## free: B {#b}\n\nY.\n`;
+  const nbBuild = (v) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-nb-'));
+    fs.writeFileSync(path.join(dir, 'source.md'), NB(v));
+    const r = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+    if (r.status !== 0) throw new Error(`neighbours build failed:\n${r.stdout}${r.stderr}`);
+    return { html: fs.readFileSync(path.join(dir, 'audience.html'), 'utf8'), print: fs.readFileSync(path.join(dir, 'print.html'), 'utf8') };
+  };
+  const RULE = /body:not\(\.overview-mode\) \.chunk:not\(\.active\) \{ opacity: 0; \}/;
+  const dim = nbBuild(''), hidden = nbBuild('hidden');
+  ok(!RULE.test(dim.html), 'neighbours stay dimmed by default');
+  ok(RULE.test(hidden.html), 'neighbours: hidden takes them to 0, except on the overview board');
+  ok(!RULE.test(hidden.print), 'and print, which has no neighbours, is not touched');
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.log(failures.map(f => '  ✗ ' + f).join('\n'));

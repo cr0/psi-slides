@@ -292,6 +292,7 @@ Everything below is off unless a deck writes it. Details live in the skills (`.c
 **Dividers and print**
 
 - `section: poster` – the accent edge to edge, the heading large in spaced capitals, the line under `# Heading` as a caption, pastel shapes arranged per part. `section-ink: auto | light | dark` overrules the measured ink for its two lines; `light` on a pale accent is reported, not hidden.
+- `style: {neighbours: hidden}` – only the live slide is visible; the default `dim` keeps the neighbours faintly in view as the canvas design intends.
 - `style: {print-pages: slide}` – the handout reads like a small book: every chunk and every part opens a page. Default `flow`.
 
 ## Documentation
