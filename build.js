@@ -6730,6 +6730,18 @@ function figureCardCss() {
     `${box}${shape} { ${edge('color-mix(in oklab, var(--ink) 30%, var(--paper))')} }`,
     ...Object.keys(CARD_TONE_DEFAULTS).map(t => paint(`.${t}`, tv(t), 78)),
     paint('.accent', 'var(--emph)', 72),
+    // A bare toned box is a field of a flat bar - a record layout, a packet
+    // header: the tone as the same tint, no outline and no edge, because
+    // adjacent fields are one bar and an edge under each would cut it into
+    // cards. The name reads first, in the ink; the lines under it - a size,
+    // a range - take the tone, the inverse of a card, where the heading is
+    // the coloured part.
+    ...[...Object.keys(CARD_TONE_DEFAULTS).map(t => [t, tv(t)]), ['accent', 'var(--emph)']].map(([t, v]) =>
+      `.psi-diagram .dg-box.bare.${t} > :is(rect, .dg-shape):not(#_) { fill: color-mix(in oklab, ${v} 22%, var(--paper)); stroke: none;`
+      + ` -webkit-print-color-adjust: exact; print-color-adjust: exact; }`
+      + ` .psi-diagram .dg-box.bare.${t} .dg-lbl text, .psi-diagram .dg-box.bare.${t} .dg-lbl text > tspan:not(.dg-em):not(.dg-mu) { fill: var(--ink); }`
+      + ` .psi-diagram .dg-box.bare.${t} .dg-lbl text > tspan[x]:not(:first-child),`
+      + ` .psi-diagram .dg-box.bare.${t} .dg-lbl text > tspan[x]:not(:first-child) ~ tspan:not(.dg-em):not(.dg-mu) { fill: ${v}; }`),
     // A toned dot is a badge: solid in its colour, its label in the paper -
     // the same filled circle a `{.number}` card row opens each heading on,
     // so `dot n2 "2" above b {.tone-2}` and the list's second item read as

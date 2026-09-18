@@ -3477,6 +3477,22 @@ console.log('\nlayout generations');
   ok(!/table-size/.test(t.lint), 'and a small one is not');
 }
 
+// ── the flat field bar and the one-corner leader ──
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-field-'));
+  fs.writeFileSync(path.join(dir, 'source.md'), '---\ntitle: T\nstyle:\n  elevation: offset\n---\n\n## title: {#title}\n\n## free: F {.wide #f}\n\n'
+    + '::: draw 60x16\ndefault box h 2.4 {.bare .mono}\nbox a "Type\\n1 Byte" at 0,0 w 2 {.tone-1}\nbox b "Data\\nvariable" right of a gap 0 w 4 {.tone-2}\n'
+    + 'text note "a note" below b gap 1.1 {.left}\nedge b.bottom -- note.left {.elbow .muted}\nedge a.bottom -- note.top {.elbow .muted}\n:::\n');
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });
+  const html = r.status === 0 ? fs.readFileSync(path.join(dir, 'audience.html'), 'utf8') : '';
+  const paths = [...html.matchAll(/class="dg-el dg-edge elbow[^"]*"><path [^>]*d="([^"]+)"/g)].map(m => m[1]);
+  const corners = (d) => (d.match(/L/g) || []).length;
+  ok(paths.length === 2 && corners(paths[0]) === 2, 'an elbow between crossing anchors turns once: down, then across', paths[0]);
+  ok(paths.length === 2 && corners(paths[1]) === 3, 'between parallel faces it keeps the two-corner rail', paths[1]);
+  ok(/\.psi-diagram \.dg-box\.bare\.tone-1 > :is\(rect, \.dg-shape\):not\(#_\) \{ fill: color-mix\(in oklab, var\(--tone-1[^;]*22%, var\(--paper\)\); stroke: none;/.test(html),
+     'a toned bare box is a flat field: the tint, no outline');
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.log(failures.map(f => '  ✗ ' + f).join('\n'));

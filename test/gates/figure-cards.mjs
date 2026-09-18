@@ -60,8 +60,14 @@ export async function run({ report }) {
       `.${t}: fill ${fill[1]}%, rule ${rule[1]}% and edge ${edge[1]}% are the card's`);
   }
 
-  report.ok(css.every(r => !/\.dg-box/.test(r) || /\.dg-box:not\(\.dg-bar\):not\(\.bare\):not\(\.clear\)/.test(r)),
-    "every box rule leaves a chart's column, a lane and a see-through frame alone");
+  // A card-look box rule excludes columns, lanes and see-through frames. The
+  // one deliberate exception is the flat field: `.bare` with a tone is a field
+  // of a record bar and takes the tint without outline or edge - and even that
+  // rule names a tone, so a lane (bare, untoned) is still never reached.
+  report.ok(css.every(r => !/\.dg-box/.test(r)
+      || /\.dg-box:not\(\.dg-bar\):not\(\.bare\):not\(\.clear\)/.test(r)
+      || (/\.dg-box\.bare\.(tone-[1-4]|accent)\b/.test(r) && !/drop-shadow/.test(r))),
+    "every box rule leaves a chart's column, a lane and a see-through frame alone; a toned bare box is a flat field with no edge");
   report.ok(new RegExp(`drop-shadow\\(${offset[1]}px ${offset[1]}px 0 `).test(all)
     && /print-color-adjust: exact/.test(all),
     'the edge is a drop-shadow without blur, and it survives printing without background graphics');

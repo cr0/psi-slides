@@ -271,6 +271,12 @@ Consequences worth not breaking:
 
 `lint.js` **imports** the diagram vocabulary from `diagram-core.mjs` rather than mirroring it – every table that used to have to change in two files in one commit. Tables only, never a function: a function would pull the whole compiler in behind it and the linter would stop being runnable without the Markdown/Shiki stack. It also **captures the diagram body verbatim, ahead of the heading matchers but behind the fence tracker**: a diagram comment starts with `#`, and read as markdown that is a column heading – while a `::: draw` inside a code fence is a syntax example and must not be compiled. Getting that order wrong made the linter fail any lecture that documented the directive, which is the tutorial the release job publishes. Its `oversized-asset` gate and `collectImageRefs` (for `--optimize-images`) both scan diagram `image` lines too, or the pre-commit gate would let through exactly what `assertInlinable` refuses.
 
+## Record bars and leaders to a note
+
+A packet header or record layout is a row of **flat fields**: `default box h 2.4 {.bare .mono}`, then `box t "Type\n1 Byte" at 0,0 w 1.6 {.tone-1}` and each next field `right of <prev> gap 0`. Under `elevation: offset` a toned `.bare` box takes the card tint with no outline and no edge; the first label line (the name) is ink, the lines under it take the tone. Several adjacent fields in one tone read as a group.
+
+The note under a field is a `text`, joined by an edge with **written anchors on crossing axes**: `edge m.bottom -- note.right {.elbow .muted}`. `dgEdgeRoute` routes that with one corner (down from the field, across to the words); two parallel faces keep the two-corner rail. The `text … -- ref` leader is a straight stub by design and does not bend – use the edge when the note sits beside the drop.
+
 ## What `lint.js` refuses in a `::: draw` block
 
 These four run in the zero-dep linter, so they fire on every commit without the
