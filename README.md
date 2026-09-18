@@ -254,6 +254,7 @@ Everything below is off unless a deck writes it. Details live in the skills (`.c
 
 - `identity:` – a house accent, ink, logo and footer. `accent`, `accent-dark`, `ink`, `logo`, `logo-place: footer | corner | none`, `logo-print: cover | every | none`, `footer-left`, `footer-right`. The build measures which ink carries on the accent and says so.
 - `palette:` – `tone-1` … `tone-4` for figures and cards, plus `link`, `info`, `task`, `example`, `takeaway` for activity boxes. Hex values, quoted. Lint: `tone-contrast` for tones too light as chart columns.
+- `tone-1-text` … `tone-4-text` in `palette:` – a darker step of a tone for **words** in it: card headings and sub-lines, open-column bullets, row terms, figure labels in the tone. Fills, rules, edges, badges and dots keep the tone. Example: `palette: {tone-3: "#3FA46A", tone-3-text: "#2C7349"}`. Lint: `tone-text-contrast` when the words in a tone fall under 4.5:1.
 - `icons: fontawesome-free` – `:fa-name:`, `:far-name:`, `:fab-name:` inline, coloured like the text they sit in.
 
 **Boxes, cards, rows**

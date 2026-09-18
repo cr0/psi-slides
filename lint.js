@@ -250,6 +250,8 @@ const PALETTE_KEYS = Object.keys(DG_BAR_FILLS).filter(k => k.startsWith('tone-')
 // Mirrors PALETTE_ACTIVITY_KEYS in build.js: the ::: activity kinds a palette
 // may re-point. Colours only; no column is drawn in them, so no tone-contrast.
 const PALETTE_ACTIVITY_KEYS = ['link', 'info', 'task', 'example', 'takeaway'];
+// Mirrors PALETTE_TEXT_KEYS in build.js: a tone's colour for words only.
+const PALETTE_TEXT_KEYS = ['tone-1-text', 'tone-2-text', 'tone-3-text', 'tone-4-text'];
 // Mirrors CARD_TONE_WORDS in build.js: what `- **Heading** {.word}\` takes.
 const CARD_TONE_WORDS = ['accent', 'tone-1', 'tone-2', 'tone-3', 'tone-4'];
 // The tones a deck's `palette:` block names, read by indentation or flow form
@@ -2754,11 +2756,17 @@ function lintFile(filePath) {
     const lines = header.split('\n');
     let inBlock = false;
     const paper = oklchToLab(DG_THEMES['light-orange'].paper);
+    // A tone is read as words too - a card's heading, a sub-line, a row term,
+    // a figure label - and words need 4.5:1, not the 3:1 a column needs. Its
+    // text colour is `tone-N-text` where one is set, the tone where not; a
+    // separate rule from `tone-contrast`, so a deck that accepts light
+    // columns does not silence its unreadable headings with the same line.
+    const textTones = new Map();
     const rule = (i, key, value) => {
       const v = value.replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '');
-      if (!PALETTE_KEYS.includes(key) && !PALETTE_ACTIVITY_KEYS.includes(key)) {
+      if (!PALETTE_KEYS.includes(key) && !PALETTE_ACTIVITY_KEYS.includes(key) && !PALETTE_TEXT_KEYS.includes(key)) {
         addFm(i + 2, 'error', 'unknown-palette-tone',
-          `'palette.${key}' is not a key this block has – keys: ${[...PALETTE_KEYS, ...PALETTE_ACTIVITY_KEYS].join(', ')}`);
+          `'palette.${key}' is not a key this block has – keys: ${[...PALETTE_KEYS, ...PALETTE_TEXT_KEYS, ...PALETTE_ACTIVITY_KEYS].join(', ')}`);
         return;
       }
       if (!v) return;
@@ -2769,6 +2777,7 @@ function lintFile(filePath) {
           + `"#2b4". Quote it: an unquoted # starts a YAML comment`);
         return;
       }
+      if (PALETTE_TEXT_KEYS.includes(key) || PALETTE_KEYS.includes(key)) textTones.set(key, { line: i + 2, oklch, v });
       if (!DG_BAR_FILLS[key]) return;
       const pct = DG_BAR_FILLS[key][1];
       // Mixed in oklab, which is what color-mix(in oklab, …) does; mixing a
@@ -2800,6 +2809,21 @@ function lintFile(filePath) {
       const m = raw.match(/^[ \t]+([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)$/);
       if (m) rule(i, m[1], m[2]);
     });
+    for (const tone of PALETTE_KEYS) {
+      const base = textTones.get(tone);
+      if (!base) continue;
+      const text = textTones.get(`${tone}-text`);
+      const use = text || base;
+      const c = oklchToLab(use.oklch);
+      const a = labLuminance(c), b = labLuminance(paper);
+      const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      if (ratio < WCAG_TEXT) {
+        addFm(use.line, 'warn', 'tone-text-contrast',
+          `text in ${tone} – a card heading, a row term, a figure label – is ${use.v} at ${ratio.toFixed(2)}:1 `
+          + `against the paper, under the ${WCAG_TEXT} words need`
+          + (text ? `; darken palette.${tone}-text` : `; set palette.${tone}-text to a darker step of the same colour, the fills keep ${tone}`));
+      }
+    }
   }
 
   // The nested `fonts:` block, and only its `display:` key – DISPLAY_FONTS

@@ -17,7 +17,9 @@ style:
 palette:
   tone-1: "#2E6DB4"
   tone-2: "#1F9BB0"
+  tone-2-text: "#187686"
   tone-3: "#3C9A6A"
+  tone-3-text: "#307B55"
   tone-4: "#7A4B9C"
 ---
 
