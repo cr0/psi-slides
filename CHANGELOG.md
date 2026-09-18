@@ -9,6 +9,21 @@ from building the same way is a major version.
 
 ### Added
 
+- **`style: {fill: N, line: N, edge-dark: N}` - derived colours as CI steps.**
+  A house manual that says "the tone plus 85 % white" gets exactly that: a
+  toned surface (cards, row terms, activity boxes, figure boxes, a table's
+  highlight and header), its rule and the hard edge are mixed in sRGB against
+  pure white or black instead of in oklab toward the paper, so the hex equals
+  the manual's table. Emitted as scoped overrides (`ciMixCss`) on the light
+  themes and in print; a dark theme keeps the mixes tuned for it, and 0 - the
+  default - changes nothing. **Marks follow the text step:** `{.number}`
+  badges and figure dots take `tone-N-text` where one is set, and activity
+  boxes take new `palette:` keys `link-text`, `info-text`, `task-text`,
+  `example-text`, `takeaway-text` for their mark - white on a light cyan is
+  about 2:1, too little for a digit. `tone-text-contrast` measures, where the
+  deck sets `fill`, the words on that fill too, and the badge digit and the
+  edge against the paper.
+
 - **`::: recall <source.md>#<chunk-id>` shows a slide from another lecture
   again, unchanged.** Read from the target's current source at every build, so
   it cannot drift; `## recall:` takes the recalled type and heading, a
@@ -33,8 +48,7 @@ from building the same way is a major version.
   corporate manual prescribes for text, and it reaches only what is read in
   the tone: card headings and sub-lines, open-column bullets, row terms, the
   heading line of a figure box and the size line of a flat field. Fills,
-  rules, edges, `{.number}` badges and dots keep the tone, so a figure's badge
-  and its list's badge stay one mark. Optional; the default is the tone
+  rules and edges keep the tone. Optional; the default is the tone
   itself. **`tone-text-contrast`** warns when the words in a tone - its text
   step where set - fall under 4.5:1; a rule of its own, so a deck that accepts
   light chart columns does not silence unreadable headings with it.

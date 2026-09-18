@@ -254,8 +254,10 @@ Everything below is off unless a deck writes it. Details live in the skills (`.c
 
 - `identity:` – a house accent, ink, logo and footer. `accent`, `accent-dark`, `ink`, `logo`, `logo-place: footer | corner | none`, `logo-print: cover | every | none`, `footer-left`, `footer-right`. The build measures which ink carries on the accent and says so.
 - `palette:` – `tone-1` … `tone-4` for figures and cards, plus `link`, `info`, `task`, `example`, `takeaway` for activity boxes. Hex values, quoted. Lint: `tone-contrast` for tones too light as chart columns.
-- `tone-1-text` … `tone-4-text` in `palette:` – a darker step of a tone for **words** in it: card headings and sub-lines, open-column bullets, row terms, figure labels in the tone. Fills, rules, edges, badges and dots keep the tone. Example: `palette: {tone-3: "#3FA46A", tone-3-text: "#2C7349"}`. Lint: `tone-text-contrast` when the words in a tone fall under 4.5:1.
+- `tone-1-text` … `tone-4-text` in `palette:` – a darker step of a tone for **words** in it: card headings and sub-lines, open-column bullets, row terms, figure labels in the tone. Fills, rules and edges keep the tone; `{.number}` badges and figure dots take the text step too, so their digit can be read and the two stay one mark. `palette: {task-text: …}` and the other activity kinds do the same for a box's mark. Example: `palette: {tone-3: "#3FA46A", tone-3-text: "#2C7349"}`. Lint: `tone-text-contrast` when the words in a tone fall under 4.5:1.
 - `icons: fontawesome-free` – `:fa-name:`, `:far-name:`, `:fab-name:` inline, coloured like the text they sit in.
+
+- `style: {fill: 85, line: 60, edge-dark: 30}` – derived colours as fixed CI steps: a toned surface is the tone plus 85 % white, its rule plus 60 % white, the hard edge plus 30 % black, mixed in sRGB so the hex matches a design manual's table. Light themes and print; 0 (default) keeps the engine's own mixes. Lint `tone-text-contrast` then also measures words on that fill, the badge digit and the edge.
 
 **Boxes, cards, rows**
 

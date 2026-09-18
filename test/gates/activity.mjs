@@ -42,7 +42,7 @@ export async function run({ report }) {
   }
 
   // Conditional, so a deck without a box builds byte for byte what it did.
-  report.ok(/function activityStyleTag\((st)?\) \{\n  if \(!currentActivities\) return '';/.test(build),
+  report.ok(/function activityStyleTag\((st(, view = 'live')?)?\) \{\n  if \(!currentActivities\) return '';/.test(build),
     'the box stylesheet is emitted only into a deck that writes a box');
   report.ok(/currentActivities = false;/.test(build.slice(build.indexOf('function parseLecture('), build.indexOf('function parseLecture(') + 2500)),
     'and the flag is cleared at the head of the parse, for --watch');
@@ -50,7 +50,7 @@ export async function run({ report }) {
   // Resolved on the box. Declared on :root, var(--emph) was substituted
   // before the theme or an identity had set the body's accent, and the info
   // box ignored both.
-  report.ok(!/:root \{ \$\{kinds\.map/.test(build) && /\.activity-\$\{k\} \{ --activity: var\(--activity-\$\{k\}, \$\{v\.colour\}\); \}/.test(build),
+  report.ok(!/:root \{ \$\{kinds\.map/.test(build) && /\.activity-\$\{k\} \{ --activity: var\(--activity-\$\{k\}, \$\{v\.colour\}\);[^`]*\}/.test(build),
     "a box's colour is resolved on the box, so the takeaway box follows the theme's and the deck's accent");
 
   // The edge prints.

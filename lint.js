@@ -219,6 +219,11 @@ const STYLE_NUM_SPEC = {
   // Multiplies the display face's measured size-adjust. See the note at its
   // STYLE_SPEC entry for why the roster normalises width and this key exists.
   'display-scale': [0.6, 1.8],
+  // CI steps: tone + N % white for a fill and a rule, tone + N % black for the
+  // hard edge, mixed in sRGB. 0 is the default and keeps the engine's mixes.
+  'fill': [0, 100],
+  'line': [0, 100],
+  'edge-dark': [0, 100],
 };
 // Mirrors IDENTITY_SPEC in build.js: the keys of the nested `identity:`
 // block. Every one of them is a colour, so the vocabulary is a list of names
@@ -255,6 +260,8 @@ const PALETTE_KEYS = Object.keys(DG_BAR_FILLS).filter(k => k.startsWith('tone-')
 const PALETTE_ACTIVITY_KEYS = ['link', 'info', 'task', 'example', 'takeaway'];
 // Mirrors PALETTE_TEXT_KEYS in build.js: a tone's colour for words only.
 const PALETTE_TEXT_KEYS = ['tone-1-text', 'tone-2-text', 'tone-3-text', 'tone-4-text'];
+// Mirrors PALETTE_ACTIVITY_TEXT_KEYS in build.js.
+const PALETTE_ACTIVITY_TEXT_KEYS = ['link-text', 'info-text', 'task-text', 'example-text', 'takeaway-text'];
 // Mirrors CARD_TONE_WORDS in build.js: what `- **Heading** {.word}\` takes.
 const CARD_TONE_WORDS = ['accent', 'tone-1', 'tone-2', 'tone-3', 'tone-4'];
 // The tones a deck's `palette:` block names, read by indentation or flow form
@@ -498,7 +505,7 @@ import {
   CARDS_SLOTS, OVERLAY_SLOTS, BACKDROP_SLOTS, SIDE_SLOTS, DOCK_SLOTS,
   splitTail, parseTail, strayTailProblem, parseDrawOpener, parseRevealMark, parseTableTail,
 } from './tails.mjs';
-import { hexToOklch, contrast, oklchToLab, labLuminance,
+import { hexToOklch, parseHex, contrast, oklchToLab, labLuminance,
   WCAG_TEXT, WCAG_NON_TEXT } from './colour.mjs';
 
 const REVEAL_PCT_WARN = 0.5;
@@ -2769,9 +2776,9 @@ function lintFile(filePath) {
     const textTones = new Map();
     const rule = (i, key, value) => {
       const v = value.replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '');
-      if (!PALETTE_KEYS.includes(key) && !PALETTE_ACTIVITY_KEYS.includes(key) && !PALETTE_TEXT_KEYS.includes(key)) {
+      if (!PALETTE_KEYS.includes(key) && !PALETTE_ACTIVITY_KEYS.includes(key) && !PALETTE_TEXT_KEYS.includes(key) && !PALETTE_ACTIVITY_TEXT_KEYS.includes(key)) {
         addFm(i + 2, 'error', 'unknown-palette-tone',
-          `'palette.${key}' is not a key this block has – keys: ${[...PALETTE_KEYS, ...PALETTE_TEXT_KEYS, ...PALETTE_ACTIVITY_KEYS].join(', ')}`);
+          `'palette.${key}' is not a key this block has – keys: ${[...PALETTE_KEYS, ...PALETTE_TEXT_KEYS, ...PALETTE_ACTIVITY_KEYS, ...PALETTE_ACTIVITY_TEXT_KEYS].join(', ')}`);
         return;
       }
       if (!v) return;
@@ -2814,19 +2821,57 @@ function lintFile(filePath) {
       const m = raw.match(/^[ \t]+([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)$/);
       if (m) rule(i, m[1], m[2]);
     });
+    // The steps the build will mix with, read off the style block: a fill and
+    // a rule are the tone plus N % white, an edge the tone plus N % black, in
+    // sRGB. Without them the fill is the engine's own 22 % in oklab.
+    const stepOf = (key) => {
+      const m = header.match(new RegExp(`^[ \\t]+${key}:[ \\t]*(\\d+)`, 'm'));
+      return m ? Number(m[1]) : 0;
+    };
+    const fillStep = stepOf('fill'), edgeStep = stepOf('edge-dark');
+    const srgbLum = ([r, g, b]) => {
+      const lin = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+      return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    };
+    const ratioOf = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    const paperLum = labLuminance(paper);
     for (const tone of PALETTE_KEYS) {
       const base = textTones.get(tone);
       if (!base) continue;
       const text = textTones.get(`${tone}-text`);
       const use = text || base;
-      const c = oklchToLab(use.oklch);
-      const a = labLuminance(c), b = labLuminance(paper);
-      const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-      if (ratio < WCAG_TEXT) {
+      const textLum = labLuminance(oklchToLab(use.oklch));
+      const baseRgb = parseHex(base.v);
+      const fillLum = fillStep
+        ? srgbLum(baseRgb.map(c => c * (1 - fillStep / 100) + 255 * fillStep / 100))
+        : labLuminance([0, 1, 2].map(n => oklchToLab(base.oklch)[n] * 0.22 + paper[n] * 0.78));
+      const onPaper = ratioOf(textLum, paperLum), onFill = ratioOf(textLum, fillLum);
+      // Words on their own fill are held to 4.5 only where the deck set the
+      // fill (`style.fill`): there the author chose the numbers to meet it.
+      // The engine's own 22 % tint puts a bold heading at about 4:1, which a
+      // heading of that size and weight carries (WCAG's large-text 3:1), and a
+      // warning on every toned card of every deck would be noise.
+      const worst = fillStep ? Math.min(onPaper, onFill) : onPaper;
+      if (worst < WCAG_TEXT) {
         addFm(use.line, 'warn', 'tone-text-contrast',
-          `text in ${tone} – a card heading, a row term, a figure label – is ${use.v} at ${ratio.toFixed(2)}:1 `
-          + `against the paper, under the ${WCAG_TEXT} words need`
+          `text in ${tone} – a card heading, a row term, a figure label – is ${use.v} at ${onPaper.toFixed(2)}:1 on the paper`
+          + (fillStep ? ` and ${onFill.toFixed(2)}:1 on its ${fillStep} % fill` : '') + `, under the ${WCAG_TEXT} words need`
           + (text ? `; darken palette.${tone}-text` : `; set palette.${tone}-text to a darker step of the same colour, the fills keep ${tone}`));
+      }
+      // A {.number} badge and a figure dot are the text step with the digit in
+      // the paper colour.
+      const badge = onPaper;
+      if (badge < WCAG_TEXT && text) {
+        addFm(use.line, 'warn', 'tone-text-contrast',
+          `the digit on a ${tone} badge – the paper colour on ${use.v} – is ${badge.toFixed(2)}:1, under ${WCAG_TEXT}`);
+      }
+      if (edgeStep) {
+        const edgeLum = srgbLum(baseRgb.map(c => c * (1 - edgeStep / 100)));
+        const e = ratioOf(edgeLum, paperLum);
+        if (e < WCAG_NON_TEXT) {
+          addFm(base.line, 'warn', 'tone-text-contrast',
+            `the hard edge of ${tone} (plus ${edgeStep} % black) is ${e.toFixed(2)}:1 against the paper, under the ${WCAG_NON_TEXT} a shape needs`);
+        }
       }
     }
   }
