@@ -8,6 +8,18 @@ psi-slides is a build script. `node build.js source.md` writes four HTML files n
 
 psi-slides has already carried a full semester of university teaching. Read [When *not* to use this](#when-not-to-use-this) before you invest in it.
 
+## A confession from this fork
+
+psi-slides has a short list of things it does not do, and it means them. The [PRD](PRD.md) says *no gratuitous ornament … no drop shadows beyond hairlines*. The [figure guide](figure-design.md) says *no shadows, no free colours*. Both come with reasons, and the reasons are good.
+
+This fork broke both rules. On purpose, knowingly, with a corporate design manual open on the other monitor.
+
+Cards here come in four colours. Boxes cast a hard 45-degree shadow in a darker shade of themselves, the kind a slide master from 2009 would recognise and nod at. Figures got the same treatment, because once the cards had shadows the boxes looked lonely. There is also a section divider covered in pastel circles. We know.
+
+In our defence: all of it is off until a deck asks for it (`style: {elevation: offset}`, `palette:`, `section: poster`). A lecture that says nothing still builds byte for byte what it always did, so the principles stay the default, where they belong. The shadows print. The colours pass the contrast checks, mostly, and the build says so when they don't. And the whole thing exists because a lecturer who teaches in a room full of one orange wanted slides that look like they belong there.
+
+If you came for psi-slides as designed, quiet and typographic with one accent, use upstream: [UBA-PSI/psi-slides](https://github.com/UBA-PSI/psi-slides). If you came for the colouring book, welcome. Please don't tell the PRD.
+
 ## → [Try it in your browser: uba-psi.github.io/psi-slides](https://uba-psi.github.io/psi-slides/)
 
 Five lectures are published there, each in all four views. Walk one with the space bar, press `S` for the cockpit and `O` for the overview board, and read the handout the same source produced &ndash; before installing anything.
@@ -233,6 +245,53 @@ What is different here is the combination: one text rendered at two densities, a
 - **`cwebp` or `magick`** on `PATH`, but only if you use `--optimize-images`. macOS `sips` cannot write WebP, so there is no zero-install fallback for that one command.
 - Image assets are inlined automatically when they total under 10 MB. A single asset over 2 MB fails the build rather than silently shipping an external path – `--optimize-images` converts the offenders to WebP, and `--no-inline-images` is the escape hatch.
 - Math is rendered at build time, so the KaTeX fonts have to travel inside the HTML or the output stops opening from `file://`. Only the font families a lecture's formulas actually use are inlined – the tutorial's five come to 166 KB of the 254 KB the full set costs – and a lecture without math inlines none of it. The build prints what it did.
+
+## What this fork adds
+
+Everything below is off unless a deck writes it. Details live in the skills (`.claude/skills/psi-slides-*`) and in [CHANGELOG.md](CHANGELOG.md); every example here builds.
+
+**Identity and colour**
+
+- `identity:` – a house accent, ink, logo and footer. `accent`, `accent-dark`, `ink`, `logo`, `logo-place: footer | corner | none`, `logo-print: cover | every | none`, `footer-left`, `footer-right`. The build measures which ink carries on the accent and says so.
+- `palette:` – `tone-1` … `tone-4` for figures and cards, plus `link`, `info`, `task`, `example`, `takeaway` for activity boxes. Hex values, quoted. Lint: `tone-contrast` for tones too light as chart columns.
+- `icons: fontawesome-free` – `:fa-name:`, `:far-name:`, `:fab-name:` inline, coloured like the text they sit in.
+
+**Boxes, cards, rows**
+
+- `style: {elevation: offset}` – a hard 45° edge under cards, boxes and figure boxes, printed. Also `flat` (default), `soft`, `lifted`.
+- `style: {edge: tone}` – that edge in the box's own colour instead of a darker shade (`shade`, default).
+- `::: activity link | info | task | example | takeaway` – a box with a drawn mark in its kind's colour. One sentence; `takeaway` at most once per slide.
+- A card's own colour: `- **HTML** {.tone-2}\` (also `{.accent}`); a whole row `::: cards 3 {.tone-2}` or `{.tones}` in turn.
+- A row's own colour: `- **Term** {.tone-2} the body` in `::: rows`. Lint: `cards-card-tone` for another word.
+- Open columns: `::: cards 2 {.clear .dashed .show}` – no fill, heading, sub-line and square bullets in the card's tone, a dashed rule between the columns (`rule` slot: `none` | `dashed`, refused on rows: `cards-rule-rows`). A sub-line is the line under a heading written wholly in `*…*`:
+  ```md
+  ::: cards 2 {.clear .dashed .show}
+  - **Old protocol** {.tone-2}\
+    *deprecated*
+    - designed in 1995
+  - **New protocol** {.accent}\
+    *current*
+    - designed in 2018
+  :::
+  ```
+- Numbered badges: `::: cards 3 {.number}` or `::: rows {.number}` – a filled circle 1, 2, 3 in each item's colour before its heading (`mark` slot: `none` | `number`). The figure side is a toned `dot n2 "2" above b {.tone-2}`, drawn solid under `offset`. Let card N arrive with figure step N by writing `--- from N` before it.
+
+**Text**
+
+- `style: {slide-bold: ink}` – every bold inside `::: slide` in the ink, and only the `*…*` stress inside it in the accent (card headings and row terms keep their tone). Default `accent`.
+- `::: table {.tone-1 .row-2}` around a Markdown table – header in the ink over a rule, hairlines, an optional header tone and exactly one highlight: `.row-N`, `.col-N` or `.cell-R-C`. Lint: `bad-table` for two highlights or an unknown word, `table-size` for a slide table above 5 rows × 4 columns.
+
+**Figures**
+
+- Under `offset`, a `::: draw` box looks like a card: the tone as a tint, the first label line as its heading, the hard edge.
+- Flat field bars: `default box h 2.4 {.bare .mono}` and toned boxes `right of … gap 0` – tint without outline or edge, the name in ink and the lines under it in the tone.
+- A leader that turns once: `edge m.bottom -- note.left {.elbow .muted}` between anchors on crossing axes.
+- `--check-fit` reports figures whose labels are under 70% of the body text, live and in `print.html`. Fix: fewer canvas units (`::: draw 60x10`, not `150x24`).
+
+**Dividers and print**
+
+- `section: poster` – the accent edge to edge, the heading large in spaced capitals, the line under `# Heading` as a caption, pastel shapes arranged per part. `section-ink: auto | light | dark` overrules the measured ink for its two lines; `light` on a pale accent is reported, not hidden.
+- `style: {print-pages: slide}` – the handout reads like a small book: every chunk and every part opens a page. Default `flow`.
 
 ## Documentation
 
