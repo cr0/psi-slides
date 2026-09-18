@@ -1677,6 +1677,8 @@ console.log('\nlayout generations');
   ok(/--poster-chars: 11/.test(pstWord), 'counted from the longest word of the heading');
   ok(/\.chunk\[data-section=poster\] \.section-heading \{[^}]*hyphens: none;[^}]*word-break: normal;[^}]*overflow-wrap: normal;/.test(pstWord),
      'and nothing in the rule may break a word');
+  ok(/\.chunk\[data-section=poster\] \.section-body :is\(p, li\) \{ text-wrap: nowrap; white-space: nowrap; \}/.test(pstWord),
+     'and the caption stays on one line, whatever the prose rule sets on a p');
   ok(/font-size: min\(calc\(2\.8em \* var\(--zoom\)\), calc\(36vw \/ \(var\(--poster-chars[^)]*\) \* 0\.82\)\)\)/.test(pstWord),
      'the size is the smaller of the poster size and what the longest word allows');
   const pLint = spawnSync(process.execPath, [path.join(ROOT, 'lint.js'), path.join(dir, 'source.md')], { cwd: ROOT, encoding: 'utf8' });

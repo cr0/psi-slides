@@ -2582,6 +2582,11 @@ function posterStyleTag(frontmatter) {
   white-space: nowrap;
 }
 .chunk[data-section=poster] .section-body p { margin: 0; }
+/* The caption is one line. white-space: nowrap on the block was not enough:
+   the prose rule sets text-wrap: pretty on every p, and text-wrap is the
+   longhand that decides wrapping, so the p wrapped anyway - WERTE • SCHUTZZIELE
+   / • AUTHENTIZITÄT with room to spare. Said on the p itself. */
+.chunk[data-section=poster] .section-body :is(p, li) { text-wrap: nowrap; white-space: nowrap; }
 </style>`;
 }
 
