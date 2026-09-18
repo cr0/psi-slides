@@ -3295,9 +3295,9 @@ function lintFile(filePath) {
           add(ln, 'error', 'cards-card-tone',
               `{.${tail[2]}} after a card heading is not a colour a card takes – write one of: `
               + CARD_TONE_WORDS.map(w => '{.' + w + '}').join(', '));
-        } else if (['accent', 'photo', 'clear'].includes(cardsTop.cardsCheck.ground)) {
+        } else if (['accent', 'photo'].includes(cardsTop.cardsCheck.ground)) {
           add(ln, 'error', 'cards-tone-no-tint',
-              `a card colour tints a card's ground, and ${cardsTop.cardsCheck.ground} has no tint to take; use it on panel, outline or paper`);
+              `a card colour tints a card's ground, and ${cardsTop.cardsCheck.ground} has no tint to take; use it on panel, outline, paper or clear`);
         }
       }
       // A row's own colour after its term: `- **Kopf** {.tone-2} the body`.
@@ -3747,11 +3747,17 @@ function lintFile(filePath) {
       };
       // Mirrors build.js: a tone tints a ground, and accent, photo and clear
       // have no tint to take.
+      // Mirrors build.js: a rule stands between cards side by side, and
+      // ::: rows stacks them.
+      if (!cardsTail.problems.length && kind === 'rows' && cardsTail.slots.rule && cardsTail.slots.rule.value !== 'none') {
+        add(ln, 'error', 'cards-rule-rows',
+            `::: rows {.${cardsTail.slots.rule.value}} – a rule stands between cards side by side, and rows stack; write ::: cards N for columns`);
+      }
       if (!cardsTail.problems.length && cardsTail.slots.tone.value !== 'none'
-          && ['accent', 'photo', 'clear'].includes(cardsTail.slots.ground.value)) {
+          && ['accent', 'photo'].includes(cardsTail.slots.ground.value)) {
         add(ln, 'error', 'cards-tone-no-tint',
             `::: ${kind} {.${cardsTail.slots.tone.value} .${cardsTail.slots.ground.value}} – a tone tints a card's ground, `
-            + `and ${cardsTail.slots.ground.value} has no tint to take; use it on panel, outline or paper`);
+            + `and ${cardsTail.slots.ground.value} has no tint to take; use it on panel, outline, paper or clear`);
       }
       // Mirrors build.js: `.baseline` lines a term up with the body beside
       // it, and a card has no body beside it. Reported here rather than at

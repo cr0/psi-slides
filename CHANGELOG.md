@@ -9,6 +9,16 @@ from building the same way is a major version.
 
 ### Added
 
+- **Open columns: `::: cards 2 {.clear .dashed .show}` with a tone per card.**
+  A comparison wants two sides of one question, not two boxes. `.clear` now
+  takes a tone - it was refused, because clear has no tint - and puts it where
+  an open column has something to colour: the heading, a sub-line and the
+  bullet markers, with no fill, no border and no edge. **A sub-line** is the
+  line under a card's heading written wholly in emphasis (`*veraltet und
+  unsicher*`), set upright in the card's colour, on any ground. **`.dashed`**
+  is a new `rule` slot: a dashed rule in the middle of the gutter between the
+  cards of a row, printed too; refused on `::: rows`, which stacks.
+
 - **A row takes its own colour the way a card does: `- **Kopf** {.tone-2} the
   body`.** In `::: rows` the tail after a term was left in the text and the
   colour dropped without a word, so a row block could not mirror the tones of

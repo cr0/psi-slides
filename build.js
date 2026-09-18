@@ -2656,9 +2656,22 @@ const CARD_IMG_ONLY_RE = /^!\[[^\]]*\]\([^)]*\)$/;
 // words the figure language and the row already use for colour.
 const CARD_TONE_WORDS = ['accent', 'tone-1', 'tone-2', 'tone-3', 'tone-4'];
 const CARD_TONE_TAIL_RE = /^(.*?)[ \t]+\{\.([^}\s]+)\}(\s*\\[ \t]*|[ \t]{2,})$/;
+// A card's sub-line: the line right under its heading, written wholly in
+// emphasis - `*veraltet und unsicher*`. Set upright in the card's colour, the
+// way a comparison column carries a heading and a line that qualifies it.
+const CARD_SUB_RE = /^([ \t]+)(?:\*([^*]+)\*|_([^_]+)_)([ \t]*\\?[ \t]*)$/;
 function markCardLeads(lines, onProblem = () => {}) {
   let open = false;   // still at the item's opening slot
+  let afterLead = false;   // the line just after a heading, where a sub-line sits
   return lines.map(raw => {
+    if (afterLead) {
+      afterLead = false;
+      const sub = CARD_SUB_RE.exec(raw);
+      if (sub) {
+        currentCardTones = true;
+        return `${sub[1]}<span class="card-sub">${sub[2] || sub[3]}</span>${sub[4]}`;
+      }
+    }
     let head, rest;
     const item = /^([-*+][ \t]+)(.*)$/.exec(raw);
     if (item) { open = true; [, head, rest] = item; }
@@ -2683,6 +2696,7 @@ function markCardLeads(lines, onProblem = () => {}) {
     const lead = CARD_LEAD_RE.exec(rest);
     if (lead) {
       open = false;
+      afterLead = /\\[ \t]*$|[ \t]{2,}$/.test(lead[4]);
       if (tone) currentCardTones = true;
       return head + `<strong class="card-lead"${tone ? ` data-tone="${tone}"` : ''}>${lead[1]}${lead[2].slice(2, -2)}${lead[3]}</strong>` + lead[4];
     }
@@ -2835,6 +2849,7 @@ function renderCardsBlock(b) {
   // otherwise gain a `ct-none` and every tracked view would move a byte for a
   // word nobody wrote.
   if (o.tone !== 'none') { cls.push(`ct-${o.tone}`); currentCardTones = true; }
+  if (o.rule !== 'none') { cls.push(`cr-${o.rule}`); currentCardTones = true; }
   // A .photo ground, and a scrim over it, are words the drawing ignores
   // unless a card actually carries a picture - and a word that does nothing
   // is a refusal in this format, not a silent no-op. Both are checked against
@@ -2869,10 +2884,17 @@ function renderCardsBlock(b) {
   // and no border - on any of the three the word would draw nothing.
   if (cardLeadProblems.length) bad(cardLeadProblems[0]);
   const cardTone = b.lines.some(l => { const t = CARD_TONE_TAIL_RE.exec(l); return t && /\*\*|__/.test(t[1]); });
-  if ((o.tone !== 'none' || cardTone) && ['accent', 'photo', 'clear'].includes(o.ground)) {
+  // Clear is the exception that takes a tone without a tint: an open column
+  // has no box to fill, so its colour goes to what it does have - the
+  // heading, a sub-line and the bullets (cardToneCss).
+  if ((o.tone !== 'none' || cardTone) && ['accent', 'photo'].includes(o.ground)) {
     bad(`${o.tone !== 'none' ? '.' + o.tone : 'a card colour'} tints a card's ground, and .${o.ground} has no tint to take:\n` +
-        '  the accent is already a colour, a photo is a picture, and clear draws no box.\n' +
-        '  Use it on panel (the default), outline or paper.');
+        '  the accent is already a colour and a photo is a picture.\n' +
+        '  Use it on panel (the default), outline, paper or clear.');
+  }
+  if (o.written.rule && b.rows) {
+    bad('.dashed draws a rule between cards side by side, and ::: rows stacks them.\n' +
+        '  Drop it, or write ::: cards N for columns.');
   }
   if (o.written.ground && o.ground === 'photo' && !hasPicture) {
     bad('.photo makes a card\'s first image its ground, and no card here carries one.\n' +
@@ -6940,6 +6962,26 @@ function cardToneCss(view) {
       + ` border-color: color-mix(in oklab, ${v} 55%, var(--paper)); }`);
   }
   rules.push(`.cards[class*=" ct-"] .card-lead, .cards.rows[class*=" ct-"] li > :is(strong, b):first-child, .card-lead[data-tone] { color: var(--card-lead); }`);
+  // An open column: a clear card that takes a tone has no box to fill, so
+  // the tint and the edge are taken back and the colour goes to the heading,
+  // the sub-line and the bullets. The id-free :not(#_) is there for weight
+  // alone: it has to beat every tone rule above, the per-card :has() one
+  // included, without depending on the order they are written in.
+  rules.push(`.cards.cg-clear:not(.rows) > :is(ul, ol) > li:not(#_), .cards.cg-clear:not(.rows) > :not(ul):not(ol):not(#_)`
+    + ` { background-color: transparent; border-color: transparent; }`);
+  rules.push(`.card-sub { display: block; font-style: normal; color: var(--card-lead, var(--ink-soft)); }`);
+  rules.push(`.cards.cg-clear li ul li::before { width: 0.34em; height: 0.34em; top: 0.5lh; opacity: 1;`
+    + ` background: var(--card-lead, currentColor); }`);
+  rules.push(`.cards.cg-clear li ul { list-style-type: square; }`);
+  rules.push(`.cards.cg-clear li li::marker { color: var(--card-lead, currentColor); }`);
+  // In an open column the bullets are the content, not a quieter second level
+  // under a box's heading: there is no box, so they take the body ink.
+  rules.push(`.cards.cg-clear:not(.rows)[class*=" ct-"] li ul, .cards.cg-clear:not(.rows) li:has(> .card-lead[data-tone]) ul { color: var(--ink); }`);
+  // The rule between two cards of a row, in the middle of the gutter.
+  rules.push(`.cards.cr-dashed:not(.rows) > :is(ul, ol) > li + li { position: relative; }`);
+  rules.push(`.cards.cr-dashed:not(.rows) > :is(ul, ol) > li + li::after { content: ''; position: absolute;`
+    + ` top: 0; bottom: 0; left: calc(-0.5 * var(--cards-gap, 2.1em)); border-left: 2px dashed`
+    + ` color-mix(in oklab, var(--ink) 45%, var(--paper)); -webkit-print-color-adjust: exact; print-color-adjust: exact; }`);
   if (view === 'print') {
     // Print draws a card with a rule and no fill; a toned card is the one
     // that asks for its colour on paper, and keeps it without background
