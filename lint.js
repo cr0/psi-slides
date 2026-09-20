@@ -82,7 +82,7 @@ const KNOWN_FRONTMATTER_KEYS = new Set([
   'cover', 'cover-image', 'cover-ratio', 'cover-align', 'cover-ground',
   'closing-image', 'closing-credits',
   // dividers, identity, type and language
-  'section', 'section-mark', 'lecture', 'course', 'lang', 'labels', 'style',
+  'section', 'section-mark', 'section-caption', 'lecture', 'course', 'lang', 'labels', 'style',
   'fonts', 'font', 'ligatures', 'draw-defaults',
   // viewer defaults
   'theme', 'collapse', 'auto-fit', 'slide-numbers', 'print-slide-numbers',

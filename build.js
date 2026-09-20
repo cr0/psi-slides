@@ -1956,6 +1956,13 @@ function resolveAssetUrl(ref) {
 // `plain` is what the tool always drew, minus the paragraph sign - see
 // SECTION_MARK below.
 const SECTION_VARIANTS = ['plain', 'tinted', 'rule', 'card', 'number', 'outline'];
+// Where an outline divider puts the words the author wrote under `# Heading`.
+// `below` is the placement every variant has always had: after the block, so
+// after the heading - which on the five type treatments is right under the
+// thing the caption belongs to. On `outline` the block IS the list, so
+// "after it" means under the LAST item, and a keyword line for part 2 came
+// out standing under part 3's heading.
+const SECTION_CAPTIONS = ['below', 'item'];
 // `outline` is the one divider that is not a treatment of the heading but a
 // different slide: it lists every part of the lecture and says which one
 // starts here. That is the running agenda a long lecture keeps wanting, and
@@ -6337,11 +6344,29 @@ function sectionSettings(frontmatter = {}) {
   // `section-mark: none` is the way to say "no mark at all"; anything else
   // is used verbatim. Absent means none, because the sign that used to be
   // here was one nobody asked for.
+  // `section-caption: item` puts an outline divider's caption under the live
+  // item instead of under the list. A key and not a change of default,
+  // because the two things authors write under a `# Heading` are not one
+  // thing. A keyword line belongs to the PART, and under the last item it
+  // reads as the last part's. A sentence introducing the part belongs to the
+  // SLIDE, wants the width of the measure, and would look wrong set inside a
+  // list item. Only the author knows which one they wrote - the same reason
+  // `headings: center` is a key rather than a per-tag default.
+  const capRaw = frontmatter['section-caption'] == null ? 'below' : String(frontmatter['section-caption']).trim();
+  if (!SECTION_CAPTIONS.includes(capRaw)) {
+    const err = new Error(
+      `Frontmatter: "section-caption: ${capRaw}" is not a placement this tool draws.\n` +
+      `  Valid values: ${SECTION_CAPTIONS.join(', ')}\n` +
+      `    below  under the whole block - the heading, or the outline list (the default)\n` +
+      `    item   on an outline divider, under the live item, in its text column`);
+    err.userFacing = true;
+    throw err;
+  }
   const markRaw = frontmatter['section-mark'];
   const mark = markRaw == null || String(markRaw).trim().toLowerCase() === 'none'
     ? null
     : String(markRaw).trim();
-  return { variant: raw, mark };
+  return { variant: raw, mark, caption: capRaw };
 }
 
 function coverSettings(frontmatter = {}) {
@@ -8293,13 +8318,39 @@ function chunkNumbers(columns) {
 //
 // Unlike a divider it prints. A divider is an auto-inserted camera stop; this
 // is a slide the author wrote, and print shows every slide the author wrote.
-function renderOutlineList(parts, now) {
+// Prose and nothing else may be lifted into a list item. A quotation, a
+// figure, a photograph, a table or a list of its own is divider CONTENT - it
+// is what `# Heading` takes a body for, it wants the width of the measure,
+// and it stays under the list where it has always been. A keyword line is
+// the other thing authors write there: it belongs to the part rather than to
+// the slide, and it is the only one small enough to sit inside an <li>
+// without the list stopping being a list. Tested on the rendered HTML rather
+// than on the Markdown, so one check covers every way to write a blockquote
+// or embed a picture, including the ones a future extension adds.
+const OUTLINE_CAPTION_SHAPE = /^(?:<p>[\s\S]*?<\/p>\s*)+$/;
+// Paragraphs are not enough on their own: a lone `![alt](pic.png)` renders as
+// <p><img ...></p>, which is the right shape and the wrong thing - a
+// photograph lifted into a list item is exactly the content this is supposed
+// to leave alone. A media or block element anywhere inside disqualifies it,
+// whatever wraps it. Named tags rather than "any tag", because a caption may
+// carry <em>, <strong>, <code>, <a> and <br> and those are words.
+const OUTLINE_CAPTION_BLOCK = /<(img|figure|svg|video|audio|iframe|picture|table|blockquote|pre|ul|ol|h[1-6]|hr)\b/i;
+const outlineCaptionOk = (html) =>
+  OUTLINE_CAPTION_SHAPE.test(html) && !OUTLINE_CAPTION_BLOCK.test(html);
+function renderOutlineList(parts, now, caption = '') {
   if (!parts.length) return '';
   const items = parts.map(p => {
     const state = !now ? 'all' : (p.no < now ? 'done' : (p.no === now ? 'now' : 'next'));
+    // The caption rides inside the live item's own <li>. The li is
+    // `display: contents`, so this div is a grid item exactly like the
+    // number and the text beside it, and the stylesheet puts it in the text
+    // column on the row below - which is the point: aligned with the words
+    // it belongs to, not with the number, and inside the item a screen
+    // reader announces as current.
+    const cap = (caption && p.no === now) ? `<div class="so-cap">${caption}</div>` : '';
     return `<li data-state="${state}"${p.no === now ? ' aria-current="step"' : ''}>` +
       `<span class="so-num">${p.no}</span>` +
-      `<span class="so-text">${escapeHtml(p.heading)}</span></li>`;
+      `<span class="so-text">${escapeHtml(p.heading)}</span>${cap}</li>`;
   }).join('');
   return `<ol class="section-outline">${items}</ol>`;
 }
@@ -8313,8 +8364,16 @@ function renderColumnSectionChunk(col, ci, frontmatter = {}, num = 0, parts = []
   // list's current item, which is the whole reason the variant exists: a
   // heading plus a list of headings says the same thing twice, and the
   // second copy is the one the room reads.
+  // Rendered before the list, because with `section-caption: item` the list
+  // is where it goes. `num` guards it: a divider always has a live part, but
+  // renderOutlineList is shared with the `## outline:` chunk, which has none
+  // and is not a divider - there the words are the chunk's own body and stay
+  // exactly where the author put them.
+  const ownHtml = (col.body || '').trim() ? unwrapLoneFigure(marked.parse(col.body)) : '';
+  const inItem = sec.variant === 'outline' && sec.caption === 'item' && num
+    && ownHtml && outlineCaptionOk(ownHtml.trim());
   const body = sec.variant === 'outline' && parts.length
-    ? renderOutlineList(parts, num)
+    ? renderOutlineList(parts, num, inItem ? ownHtml.trim() : '')
     : `<h1 class="section-heading">${escapeHtml(col.heading)}</h1>`;
   // The divider's own content, if the author wrote any under the heading.
   // It is what makes a part open on a picture, a quotation or a figure with
@@ -8322,8 +8381,7 @@ function renderColumnSectionChunk(col, ci, frontmatter = {}, num = 0, parts = []
   // picture, ordinary markdown is the words, a ::: draw is the figure.
   const where = `the divider for "${col.heading}"`;
   const art = renderBackdrop(col.backdrop, where);
-  const own = (col.body || '').trim()
-    ? `<div class="section-body">${unwrapLoneFigure(marked.parse(col.body))}</div>` : '';
+  const own = (ownHtml && !inItem) ? `<div class="section-body">${ownHtml}</div>` : '';
   const scrimAttr = art.scrim && art.scrim !== 'veil' ? ` data-backdrop="${art.scrim}"` : '';
   const bdAttr = (art.html ? ' data-has-backdrop=""' : '') + (overlaysHavePanel(col.overlays) ? ' data-has-panel=""' : '');
   // The divider stands before the first chunk of its column, so its
@@ -11844,6 +11902,33 @@ body[data-collapse=topic-bold] .cards:not(.rows) { grid-template-columns: repeat
   font-weight: 600;
   letter-spacing: -0.014em;
 }
+/* The live part's caption, with the live part. It is a grid item like the
+   number and the text, because its <li> is display: contents - so
+   grid-column: 2 is what aligns it with the WORDS and not with the numeral,
+   on the row under them, and no wrapper or indent is needed to say so. Placing it here rather than after the whole list is the whole change:
+   under the last item, a keyword line for part 2 reads as part 3's.
+   Sized in the live row's own em (1.6), so 0.44 lands at about 0.70em of the
+   list's base - under the done and next rows, which are 1em. The caption is
+   the quietest thing on the slide on purpose: it is a reminder of what this
+   part covers, not a second heading, and the item above it has to stay the
+   thing the room reads first. */
+.section-outline .so-cap {
+  grid-column: 2;
+  font-size: 0.44em;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--ink-soft);
+  /* Asymmetric, and that is the whole job of these two numbers: the caption
+     has to read as part of the item ABOVE it and not as something floating
+     between two items. row-gap is one number for the whole list, so the
+     grouping has to be bought here - tight to the live row, a clear step
+     down to the next one. */
+  margin-top: 0.1em;
+  margin-bottom: 0.5em;
+  max-width: 34em;
+}
+.section-outline .so-cap p { margin: 0; }
+.section-outline .so-cap p + p { margin-top: 0.5em; }
 
 /* margin notes: inline below body, dimmed, small */
 .margin-note {
