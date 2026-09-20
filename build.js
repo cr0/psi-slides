@@ -6365,6 +6365,16 @@ const DERIVED_STRONG = '.chunk:not(.chunk-title, .chunk-section) '
 // a colour of their own: a card's lead and a row's term. Specificity is above
 // both the live `.chunk-body strong` and print's bare `strong`.
 const SLIDE_STRONG = '.slide-explicit strong:not(.card-lead):not(.rows li > :first-child):not(.overlay-card strong)';
+// `style: {question-body: ink}`. One rule, emitted only when the key is set,
+// so a deck that says nothing builds byte for byte what it did. Equal
+// specificity to the base rule in AUDIENCE_CSS and later in the document, so
+// source order decides - the same footing the identity sheet's other
+// overrides stand on. Live only: PRINT_CSS gives .chunk-question an italic
+// heading and never dimmed its body, so there is nothing to override there.
+function questionBodyCss(st, view) {
+  if (view === 'print' || !st || st['question-body'] !== 'ink') return [];
+  return ['.chunk[data-tag=question] .chunk-body { color: var(--ink); }'];
+}
 function slideBoldCss(st) {
   if (!st || st['slide-bold'] !== 'ink') return [];
   return [
@@ -6524,6 +6534,21 @@ const STYLE_SPEC = {
   fill: { kind: 'num', min: 0, max: 100, dflt: 0 },
   line: { kind: 'num', min: 0, max: 100, dflt: 0 },
   'edge-dark': { kind: 'num', min: 0, max: 100, dflt: 0 },
+  // How far the quiet text goes toward the paper, as a percentage of
+  // `identity.ink`. Only where a deck sets that ink - the themes' own
+  // `--ink-soft` is a tuned value and not a mix, so there is nothing here to
+  // take a share of - and 68, the default, is the number the build always
+  // used, so an unset key builds byte for byte.
+  //
+  // It exists because 68 % of a MID-GREY ink is not quiet, it is unreadable,
+  // and the failure is invisible from the key that causes it: `identity.ink:
+  // "#4d4d4d"` carries 7.96:1 itself and hands every caption, marginal note,
+  // card sub-line, recall reference, section outline and `.muted` figure
+  // label 3.73:1 - under the 4.5 a sentence needs, on every slide at once.
+  // The house that hits this usually cannot darken its ink, because the ink
+  // is the brand; 80 brings the same ink's quiet text to 4.93:1 and changes
+  // nothing else. identityNotes() measures it and says so.
+  'ink-soft': { kind: 'num', min: 0, max: 100, dflt: 68 },
   'body-scale':    { kind: 'num', min: 0.6, max: 1.8, dflt: 1 },
   // The display face's own size, and the one place taste gets a say over a
   // measurement. The roster's size-adjust numbers normalise ADVANCE WIDTH,
@@ -6776,6 +6801,22 @@ const STYLE_SPEC = {
   // Both views; emitted only when set (slideBoldCss), so `accent` builds
   // byte for byte what it did.
   'slide-bold': { kind: 'enum', values: ['accent', 'ink'], dflt: 'accent' },
+  // A question chunk's body in the full ink instead of the quiet grey.
+  //
+  // The quiet body is right for what the tag was drawn for - a rhetorical
+  // question with a line of context under it, where the heading is the slide
+  // and the body is an aside. It is wrong for the other thing the tag gets
+  // used for, a vote: there the A/B/C options in the body ARE the content,
+  // and they were set quieter than ordinary body text on the same slide.
+  // Contrast is the half of it that can be measured (a mid-grey ink puts them
+  // near 3.4:1), but the ranking is wrong even in a deck that passes - the
+  // back row is being asked to read the one thing the slide has dimmed.
+  //
+  // A key rather than a change of default, because both readings of the tag
+  // are legitimate and only the author knows which slide is which - the same
+  // argument `headings: center` settled for the axis. Live only: print never
+  // dimmed this body.
+  'question-body': { kind: 'enum', values: ['soft', 'ink'], dflt: 'soft' },
   // How an inline code span looks in running text - `async def` inside a
   // sentence, not a listing. Two things about a monospaced face set inside a
   // proportional one are measurable rather than matters of taste, and the
@@ -7686,8 +7727,10 @@ function identityStyleTag(identity, st, view, palette) {
     // captions and the soft greys stay in the family instead of reverting to
     // the theme's cool near-black.
     const scope = view === 'print' ? 'body' : IDENTITY_LIGHT_SEL;
-    rules.push(`${scope} { --ink: ${identity.ink}; --ink-soft: color-mix(in oklab, ${identity.ink} 68%, var(--paper)); }`);
+    const softPct = (st && st['ink-soft'] != null) ? st['ink-soft'] : 68;
+    rules.push(`${scope} { --ink: ${identity.ink}; --ink-soft: color-mix(in oklab, ${identity.ink} ${softPct}%, var(--paper)); }`);
   }
+  rules.push(...questionBodyCss(st, view));
   const toneRules = cardToneCss(view).map(r => edgeCss(r, st));
   rules.push(...toneRules);
   const toneMix = ciMixCss(toneRules.join('\n'), view);
@@ -7975,9 +8018,41 @@ function framePrintCss(identity) {
  * room gets: which way the ink went on the accent grounds, and whether the
  * dark accent had to be lifted.
  */
-function identityNotes(identity) {
+function identityNotes(identity, st) {
   const groups = [...(identityColours(identity, 'live') || []), ...(identityColours(identity, 'print') || [])];
   const out = [];
+  // The quiet text, measured, because nothing else in the build looks at it
+  // and the key that decides it says nothing about what it costs. The accent
+  // is checked against the paper a few lines down; `identity.ink` never was,
+  // and it is the more dangerous of the two - an ink that carries perfectly
+  // well itself hands 68 % of itself to every caption, marginal note, card
+  // sub-line, recall reference, section outline and `.muted` figure label at
+  // once, so one key below about #333 dims a whole deck in a way no single
+  // slide makes obvious.
+  //
+  // Against oklch(0.985 0.007 h), the light themes' paper. The hue is the
+  // accent's and is left at 0 here: at that chroma it moves the ratio by
+  // under half a percent, which is far inside the rounding this note prints.
+  if (identity && identity.ink) {
+    const softPct = (st && st['ink-soft'] != null) ? st['ink-soft'] : 68;
+    const ink = hexToOklch(identity.ink);
+    const paper = [0.985, 0.007, 0];
+    // color-mix(in oklab, ink P%, paper): interpolate in Lab, not in oklch,
+    // or a mix between two hues takes the long way round the wheel.
+    const [la, lb] = [oklchToLab(ink), oklchToLab(paper)];
+    const t = softPct / 100;
+    const m = [0, 1, 2].map(i => la[i] * t + lb[i] * (1 - t));
+    const soft = [m[0], Math.hypot(m[1], m[2]), (Math.atan2(m[2], m[1]) * 180 / Math.PI + 360) % 360];
+    const ratio = contrast(soft, paper);
+    if (ratio < WCAG_TEXT) {
+      out.push(`[identity] the quiet text - captions, marginalia, card sub-lines, recall `
+        + `references, .muted figure labels - carries ${ratio.toFixed(2)}:1 against the paper, `
+        + `under the ${WCAG_TEXT} a sentence needs. ${identity.ink} itself carries `
+        + `${contrast(ink, paper).toFixed(2)}:1; it is the ${softPct} % step toward the paper `
+        + `that loses it. Darken identity.ink, or raise style: {ink-soft} - `
+        + `${softPct < 100 ? `${Math.min(100, Math.ceil(softPct / 5) * 5 + 10)} is the next step worth trying` : 'the step is already at 100'}.`);
+    }
+  }
   for (const g of groups) {
     if (g.lifted) {
       out.push(`[identity] ${g.hex} could not carry on the dark ground, so ${g.where} take(s) `
@@ -22329,7 +22404,7 @@ function buildOnce(absIn, only, opts = {}) {
   // first - so `--print-only` refuses it too. The notes are printed once,
   // here, and not per view: they are about the deck, not about an output.
   const identity = identitySettings(lecture.frontmatter);
-  for (const note of identityNotes(identity)) console.log(note);
+  for (const note of identityNotes(identity, styleOpts)) console.log(note);
   for (const note of sectionInkNotes(lecture.frontmatter, identity)) console.log(note);
   const palette = paletteSettings(lecture.frontmatter);
   for (const note of paletteNotes(palette)) console.log(note);

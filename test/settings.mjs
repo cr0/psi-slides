@@ -3672,6 +3672,63 @@ console.log('\nlayout generations');
      'and the build has indeed drawn it as text');
 }
 
+// ── the quiet text, and the one slide where quiet is wrong ──
+// `--ink-soft` is 68 % of `identity.ink` toward the paper, and nothing in
+// the build looked at what that costs. The accent is measured against the
+// paper; the ink never was, and it is the more dangerous of the two - an ink
+// that carries 8:1 itself hands every caption, marginal note, card sub-line,
+// recall reference and `.muted` figure label 3.7:1, on every slide at once,
+// from one key that says nothing about it. A question chunk is where it was
+// finally noticed, because there the dimmed body is the A/B/C options the
+// back row is being asked to read.
+{
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-soft-'));
+  const run = (fm, body = '## question: Which one {#q}\n\nA · one · B · two\n') => {
+    fs.writeFileSync(path.join(d, 'source.md'),
+      `---\ntitle: T\n${fm}---\n\n## title: {#title}\n\n${body}`);
+    const r = spawnSync(process.execPath,
+      [path.join(ROOT, 'build.js'), path.join(d, 'source.md'), '--audience-only'],
+      { cwd: ROOT, encoding: 'utf8' });
+    return { out: (r.stdout || '') + (r.stderr || ''), code: r.status,
+             html: fs.readFileSync(path.join(d, 'audience.html'), 'utf8') };
+  };
+  const INK = 'identity: {accent: "#B33A1A", ink: "#4d4d4d"}\n';
+
+  // A mid-grey ink is the case: it passes on its own and fails at 68 %.
+  const pale = run(INK);
+  ok(/\[identity\] the quiet text[^\n]*3\.\d\d:1 against the paper/.test(pale.out),
+     'a mid-grey identity ink is told what its quiet text measures');
+  ok(/#4d4d4d itself carries 8\.\d\d:1/.test(pale.out),
+     'and that the ink is not the thing that failed, the step toward the paper is');
+  ok(pale.code === 0, 'as a note, like every other identity note');
+
+  // The lever the note names has to be the lever that works, or the note is
+  // a dead end for a house whose ink is the brand and cannot be darkened.
+  const raised = run(INK + 'style: {ink-soft: 80}\n');
+  ok(/color-mix\(in oklab, #4d4d4d 80%/.test(raised.html),
+     'style: {ink-soft: N} sets the share the build mixes at');
+  ok(!/the quiet text/.test(raised.out), 'and the note it was raised for goes quiet');
+  ok(/color-mix\(in oklab, #4d4d4d 68%/.test(run(INK).html),
+     'while an unset key still mixes at the 68 the build always used');
+
+  // A black ink is the common case and must not acquire a note.
+  ok(!/the quiet text/.test(run('identity: {accent: "#B33A1A", ink: "#1a1a1a"}\n').out),
+     'a dark ink says nothing: 68 % of it is still 6.7:1');
+
+  // The question body. Emitted only when asked for, or every deck with a
+  // question chunk would move.
+  ok(!/data-tag=question\] \.chunk-body \{ color: var\(--ink\)/.test(run('').html),
+     'a deck that does not write question-body carries no rule for it');
+  const loud = run('style: {question-body: ink}\n');
+  ok(/data-tag=question\] \.chunk-body \{ color: var\(--ink\)/.test(loud.html),
+     'question-body: ink gives the body the full ink');
+  // Equal specificity to the base rule, so this is decided by source order
+  // alone - which makes "later in the document" the whole assertion.
+  ok(loud.html.indexOf('.chunk[data-tag=question] .chunk-body { color: var(--ink); }')
+     > loud.html.indexOf('.chunk[data-tag=question] .chunk-body { font-size'),
+     'after the rule it overrides, which is the only reason it wins');
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.log(failures.map(f => '  ✗ ' + f).join('\n'));

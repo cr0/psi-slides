@@ -256,6 +256,7 @@ Everything below is off unless a deck writes it. Details live in the skills (`.c
 - `palette:` – `tone-1` … `tone-4` for figures and cards, plus `link`, `info`, `task`, `example`, `takeaway` for activity boxes. Hex values, quoted. Lint: `tone-contrast` for tones too light as chart columns.
 - `tone-1-text` … `tone-4-text` in `palette:` – a darker step of a tone for **words** in it: card headings and sub-lines, open-column bullets, row terms, figure labels in the tone. Fills, rules and edges keep the tone; `{.number}` badges and figure dots take the text step too, so their digit can be read and the two stay one mark. `palette: {task-text: …}` and the other activity kinds do the same for a box's mark. Example: `palette: {tone-3: "#3FA46A", tone-3-text: "#2C7349"}`. Lint: `tone-text-contrast` when the words in a tone fall under 4.5:1.
 - `icons: fontawesome-free` – `:fa-name:`, `:far-name:`, `:fab-name:` inline, coloured like the text they sit in.
+- `style: {ink-soft: N}` – how far the **quiet text** (captions, marginalia, card sub-lines, recall references, `.muted` figure labels) goes from `identity.ink` toward the paper. Default 68. It exists because 68 % of a mid-grey ink is not quiet but unreadable, and the failure is invisible from the key that causes it: `ink: "#4d4d4d"` carries 8:1 itself and hands every one of those 3.7:1, on every slide at once. The build measures it and names the step that fixes it; 80 brings the same ink to 4.9:1.
 
 - `style: {fill: 85, line: 60, edge-dark: 30}` – derived colours as fixed CI steps: a toned surface is the tone plus 85 % white, its rule plus 60 % white, the hard edge plus 30 % black, mixed in sRGB so the hex matches a design manual's table. Light themes and print; 0 (default) keeps the engine's own mixes. Lint `tone-text-contrast` then also measures words on that fill, the badge digit and the edge.
 
@@ -281,6 +282,7 @@ Everything below is off unless a deck writes it. Details live in the skills (`.c
 
 **Text**
 
+- `style: {question-body: ink}` – a `## question:` body in the full ink instead of the quiet grey. The quiet body is right for a rhetorical question with an aside under it, and wrong for a vote, where the A/B/C options in the body are the content the back row has to read. Live only; the default `soft` is unchanged.
 - `style: {slide-bold: ink}` – every bold inside `::: slide` in the ink, and only the `*…*` stress inside it in the accent (card headings and row terms keep their tone). Default `accent`.
 - `::: table {.tone-1 .row-2}` around a Markdown table – header in the ink over a rule, hairlines, an optional header tone and exactly one highlight: `.row-N`, `.col-N` or `.cell-R-C`. Lint: `bad-table` for two highlights or an unknown word, `table-size` for a slide table above 5 rows × 4 columns.
 

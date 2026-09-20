@@ -9,6 +9,31 @@ from building the same way is a major version.
 
 ### Added
 
+- **`style: {ink-soft: N}` and `style: {question-body: ink}` - the quiet text,
+  and the one slide where quiet is the wrong answer.** `--ink-soft` is 68 % of
+  `identity.ink` toward the paper and nothing in the build ever looked at what
+  that costs: the accent is measured against the paper, the ink never was, and
+  the ink is the more dangerous of the two. An `identity.ink: "#4d4d4d"`
+  carries 7.96:1 on its own and hands every caption, marginal note, card
+  sub-line, recall reference, section outline and `.muted` figure label
+  3.73:1 - under the 4.5 a sentence needs, on every slide at once, from one
+  key that says nothing about it. `identityNotes()` now measures it and names
+  the step that fixes it, and `ink-soft` is that step, because the house that
+  hits this usually cannot darken its ink: the ink is the brand. 80 brings the
+  same ink's quiet text to 4.93:1 and moves nothing else. 68, the default, is
+  what the build always used.
+
+  `question-body` is the place it was finally noticed. A question chunk's body
+  is set in `--ink-soft`, which is right for what the tag was drawn for - a
+  rhetorical question with a line of context under it - and wrong for the
+  other thing it gets used for, a vote, where the A/B/C options in the body
+  ARE the content. Contrast is only half of that: the ranking is wrong even in
+  a deck that passes, because the back row is being asked to read the one
+  thing the slide has dimmed. A key and not a change of default, since both
+  readings are legitimate and only the author knows which slide is which -
+  the argument `headings: center` already settled for the axis. Live only;
+  print never dimmed this body.
+
 - **A figure warning is repeated after the build says it wrote the views**,
   and a `::: draw` label carrying an icon token is named by the linter. Three
   clipped edge captions shipped on a lecture's opening figures although the

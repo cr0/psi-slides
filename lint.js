@@ -224,6 +224,11 @@ const STYLE_NUM_SPEC = {
   'fill': [0, 100],
   'line': [0, 100],
   'edge-dark': [0, 100],
+  // How far the quiet text goes toward the paper, as a share of
+  // `identity.ink`. 68 is the default and what the build always used. See
+  // the STYLE_SPEC entry: 68 % of a mid-grey ink puts every caption and
+  // marginal note under 4.5:1 at once, and the build measures it.
+  'ink-soft': [0, 100],
 };
 // Mirrors IDENTITY_SPEC in build.js: the keys of the nested `identity:`
 // block. Every one of them is a colour, so the vocabulary is a list of names
@@ -358,6 +363,7 @@ const STYLE_ENUMS = {
   'neighbours': ['dim', 'hidden'],
   // The bolds inside ::: slide: the accent (default) or the ink, stress in the accent.
   'slide-bold': ['accent', 'ink'],
+  'question-body': ['soft', 'ink'],
   // How an inline code span looks in running text. `plain` is the mono face
   // at 0.92em and nothing else, which is the rendering up to 1.0.0; `spaced`
   // is the default, which closes the hole a mono word space leaves inside a
