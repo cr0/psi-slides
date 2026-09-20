@@ -6065,9 +6065,20 @@ export function createDiagramCompiler(env = {}) {
         + `, so ${Math.round(worst.lost)} px of the words are painted over by`
         + ` ${worst.hits.length > 1 ? 'the elements at either end' : worst.hits[0]}`
         + ` – a shape is drawn after the edge it sits on, so the room reads a clipped word.`
-        + ` Give them more room (a wider gap), shorten the label or break it with a \\n, or,`
-        + ` where the two elements are short enough for it to clear them, lift it off the line`
-        + ` with side top / side bottom.`);
+        + ` Give them more room (a wider gap), shorten the label or break it with a \\n`
+        // The fourth remedy, offered only where it is still available. An
+        // edge that already carries a `side` has been lifted off the line
+        // and is clipped anyway, because the offset clears the *stroke* and
+        // not the boxes: the words sit above the line and the boxes stand up
+        // past it. Naming a side the author already wrote reads as the
+        // warning not having looked, which is the fastest way to teach
+        // someone to skip a whole class of message.
+        + (e.side
+          ? `. It already sits side ${e.side}, and that clears the stroke, not the boxes:`
+          + ` the elements at either end stand past the line, so only a wider gap or`
+          + ` shorter words help here.`
+          : `, or, where the two elements are short enough for it to clear them, lift it`
+          + ` off the line with side top / side bottom.`));
     }
   }
 

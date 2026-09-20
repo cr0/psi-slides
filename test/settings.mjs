@@ -3598,6 +3598,72 @@ console.log('\nlayout generations');
   ok(/tone-text-contrast[^\n]*40 % fill/.test(weak.lint), 'and one that does not is measured on the fill the deck chose');
 }
 
+// ── a figure warning has to survive the rest of the build's output ──
+// Three clipped edge labels shipped on a lecture's opening figures having
+// been named, in pixels, by the build that drew them. The sentences were
+// right and nobody read them: they print while the figures compile, several
+// screens above the line that says the build wrote something, and on a
+// twenty-slide lecture with assets, fonts, identity and palette notes after
+// them they are simply gone from the screen. lint.js cannot take this over -
+// it never lays a diagram out, so it has no geometry to measure - which
+// leaves the end of the build as the only place the fact can be put back.
+{
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-dgw-'));
+  const drawRun = (src) => {
+    fs.writeFileSync(path.join(d, 'source.md'), src);
+    const r = spawnSync(process.execPath,
+      [path.join(ROOT, 'build.js'), path.join(d, 'source.md'), '--audience-only'],
+      { cwd: ROOT, encoding: 'utf8' });
+    return { code: r.status, err: r.stderr || '', out: r.stdout || '' };
+  };
+  const head = '---\ntitle: T\nicons: fontawesome-free\n---\n\n## title: {#title}\n\n'
+    + '## figure: F {#f}\n\n::: draw 96x26\ndefault box w 2.6 h 1.4\n\n';
+
+  // A label with no room between the two boxes is painted over by both, and
+  // the build has said so for a long time. The point of the assertion is the
+  // count line after it.
+  const clipped = drawRun(head
+    + 'box a "One" at 0,0\nbox b "Two" right of a gap 4.0\n\n'
+    + 'edge a -> b "a caption with far too many words for this gap" side top\n:::\n');
+  ok(/px of the words are painted over/.test(clipped.err),
+     'an edge label with no room between its ends is still reported');
+  ok(/\[diagram\] 1 figure warning\(s\) above/.test(clipped.err),
+     'and the build repeats the count after the line that says it wrote the views');
+  ok(clipped.code === 0,
+     'without failing the build: what is drawn is the author\'s call, not the compiler\'s');
+
+  // The remedy list used to end by suggesting `side top` to an edge that was
+  // already written `side top`. A reader who follows a warning's advice and
+  // finds it was already taken learns to skip that warning, which is worse
+  // than the warning not existing.
+  ok(/already sits side top/.test(clipped.err)
+     && !/lift it off the line/.test(clipped.err),
+     'and does not offer a side to an edge that already has one');
+  const plain = drawRun(head
+    + 'box a "One" at 0,0\nbox b "Two" right of a gap 4.0\n\n'
+    + 'edge a -> b "a caption with far too many words for this gap"\n:::\n');
+  ok(/lift it off the line with side top/.test(plain.err),
+     'while an edge with no side is still told about one');
+
+  // A drawing the build is happy with says nothing at the end either.
+  const quiet = drawRun(head + 'box a "One" at 0,0\nbox b "Two" right of a gap 4.0\n:::\n');
+  ok(!/figure warning/.test(quiet.err), 'a clean figure adds no closing line');
+
+  // The icon token the compiler has no pass for. The build draws the colons
+  // and says nothing - correctly, it is a label like any other - so the
+  // linter is the only thing between the author and eight literal characters
+  // on a projector, and the prose scan never sees a draw body.
+  const icon = head + 'box a ":fa-key: One" at 0,0\nbox b "Two" right of a gap 4.0\n:::\n';
+  fs.writeFileSync(path.join(d, 'source.md'), icon);
+  const lr = spawnSync(process.execPath, [path.join(ROOT, 'lint.js'), path.join(d, 'source.md')],
+    { cwd: ROOT, encoding: 'utf8' });
+  ok(/icon-in-draw/.test((lr.stdout || '') + (lr.stderr || '')),
+     'lint names an icon token inside a draw label, which the prose scan cannot reach');
+  ok(/:fa-key: One/.test(drawRun(icon).out) === false
+     && /:fa-key:/.test(fs.readFileSync(path.join(d, 'audience.html'), 'utf8')),
+     'and the build has indeed drawn it as text');
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.log(failures.map(f => '  ✗ ' + f).join('\n'));

@@ -1250,6 +1250,29 @@ function lintDiagram(block, addOuter, fmLines, lectureTags, paletteTones = new S
     // refused source the build accepts, which is the one direction a linter
     // must never be wrong in.
     const noQuoted = trimmed.replace(/"(?:\\.|[^"\\])*"/g, ' ');
+    // An icon token inside a draw label. The compiler has no icon pass at
+    // all – a label is measured as glyphs and emitted as a <text> – so
+    // `:fa-key:` reaches the room as eight literal characters. This is the
+    // case `icon-without-set` above cannot see: that one fires when the
+    // lecture has no `icons:` key, and a house deck always has one, so a mark
+    // written inside a figure was the one place an icon silently became
+    // punctuation. The label, not the whole line: `edge a -> b` has colons of
+    // its own nowhere, but a tag or a comment might, and only a quoted string
+    // is ever drawn.
+    for (const q of trimmed.match(/"(?:\\.|[^"\\])*"/g) || []) {
+      const hit = q.match(/:(fa|far|fab)-[a-z0-9]+(?:-[a-z0-9]+)*:/);
+      if (!hit) continue;
+      // A warning and not an error, for the reason test/gates/refusals.mjs
+      // states: the build compiles this line happily, and a linter that
+      // refuses what the build accepts leaves the author nothing to appeal
+      // to. `icon-without-set`, the same defect one layer up, is a warning
+      // for the same reason.
+      add(ln, 'warn', 'icon-in-draw',
+          `'${hit[0]}' inside a ::: draw label – a diagram label is drawn as plain glyphs, `
+          + `so the room gets those characters as text however the lecture's \`icons:\` key is `
+          + `set. Put the mark in the prose beside the figure, or draw it as an element of `
+          + `its own`);
+    }
     const words = noQuoted.replace(/\{[^}]*\}/g, ' ').trim().split(/\s+/).filter(Boolean);
     const head = words[0];
     const attrs = attrsOf(noQuoted, ln, head !== 'default' && head !== 'step');

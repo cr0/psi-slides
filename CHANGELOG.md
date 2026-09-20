@@ -9,6 +9,32 @@ from building the same way is a major version.
 
 ### Added
 
+- **A figure warning is repeated after the build says it wrote the views**,
+  and a `::: draw` label carrying an icon token is named by the linter. Three
+  clipped edge captions shipped on a lecture's opening figures although the
+  build had measured every one of them and printed the pixels: the sentences
+  go out while the figures compile, several screens above the `Wrote …` line,
+  and a twenty-slide lecture puts asset, font, identity and palette notes on
+  top of them. The findings themselves were already right, so nothing new
+  measures anything - the build now closes with `[diagram] N figure
+  warning(s) above`, and the clip warning stops suggesting `side top` to an
+  edge that is already written `side top` (an offset clears the stroke, not
+  the boxes standing past it, so the advice was both wrong and already
+  taken - the fastest way to teach a reader to skip a class of message).
+  They still do not fail the build: what is drawn is the author's call.
+  `lint.js` cannot take this over, because it never lays a diagram out.
+
+  The third of the set is a real gap rather than a lost sentence.
+  `diagram-core.mjs` has **no icon pass at all** - a label is measured as
+  glyphs and emitted as a `<text>` - so `box a ":fa-key: Key"` reaches the
+  room as eight literal characters, and it does so *with* `icons:` set, which
+  is every house deck. `icon-without-set` could not see it either: a draw body
+  is captured verbatim ahead of the prose scan, because a diagram comment
+  starts with `#`. `lint.js` now scans the quoted labels of a draw body and
+  warns `icon-in-draw` - a warning and not an error, because the build
+  compiles the line happily and `refusals.mjs` holds the two to the same
+  refusals.
+
 - **`style: {fill: N, line: N, edge-dark: N}` - derived colours as CI steps.**
   A house manual that says "the tone plus 85 % white" gets exactly that: a
   toned surface (cards, row terms, activity boxes, figure boxes, a table's

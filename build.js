@@ -24052,6 +24052,20 @@ async function main() {
   const { written, shape, stats, sourceModifiedMs } = buildOnce(absIn, only, opts);
   reportWebpInline();
   console.log(`Wrote ${written.join(', ')} (${shape})`);
+  // Said again, last, because a figure warning is the one kind this build
+  // prints that describes what the *room* will see rather than what the file
+  // contains - and it is printed first, before several screens of asset,
+  // font and palette notes, so on a long lecture it has scrolled away by the
+  // time the build says it wrote something. Three label-clip warnings on a
+  // deck's opening figures survived build, lint and --check-fit that way:
+  // the sentence naming the exact pixels was there and nobody was looking at
+  // that part of the screen any more. lint.js cannot take this over - it
+  // never lays a diagram out, so it has no geometry to measure - which makes
+  // the end of the build the only place the fact can be repeated.
+  if (dgWarned.size) {
+    console.warn(`[diagram] ${dgWarned.size} figure warning(s) above: what is drawn is `
+      + `not what the source says. Scroll up – each one names the element and the pixels.`);
+  }
   emitEvent({
     type: 'build-success', reason: 'manual',
     views: written.map(p => path.basename(p, '.html')),

@@ -76,6 +76,35 @@ export async function run({ report }) {
     report.ok(l === want, `lint.js ${want ? 'reads' : 'does not read'} ${JSON.stringify(text)} as an icon`);
   }
 
+  // The third reader of the same syntax. A `::: draw` body never reaches the
+  // prose scan above - lint.js captures it verbatim, ahead of everything
+  // else, because a diagram comment starts with '#' - so a mark written in a
+  // figure label was read by nobody, and the compiler has no icon pass to
+  // read it with: it measures a label as glyphs and emits a <text>. A deck
+  // that sets `icons:` (every house deck does) therefore shipped `:fa-key:`
+  // to the projector as eight literal characters, silently, which is the one
+  // failure mode this whole gate exists for.
+  const drawSrc = lint.match(/const hit = q\.match\((\/[^;]*\/)\);/);
+  if (report.ok(!!drawSrc, "lint.js's draw-label mirror is still a literal")) {
+    const drawRe = new RegExp(drawSrc[1].slice(1, drawSrc[1].lastIndexOf('/')));
+    for (const [text, want] of FIXTURES) {
+      const m = text.match(drawRe);
+      report.ok((!!m && m[0] === text) === want,
+        `the draw-label scan ${want ? 'reads' : 'does not read'} ${JSON.stringify(text)} as an icon`);
+    }
+    report.ok(/'icon-in-draw'/.test(lint), 'and reports it as icon-in-draw');
+    // A warning, not an error: refusals.mjs holds build and linter to the
+    // same refusals, and the build compiles this line without complaint.
+    report.ok(/add\(ln, 'warn', 'icon-in-draw'/.test(lint),
+      'as a warning, because the build accepts the line');
+  }
+  // The claim the warning makes about the compiler, checked rather than
+  // trusted: if diagram-core ever grows an icon pass, this gate fails and the
+  // warning comes out with it.
+  const core = fs.readFileSync(path.join(ROOT, 'diagram-core.mjs'), 'utf8');
+  report.ok(!/fa-\|far-\|fab-/.test(core) && !/ICON_RE/.test(core),
+    'diagram-core.mjs has no icon pass, so the warning is telling the truth');
+
   // The three prefixes, and that they are the three the set ships.
   const table = build.match(/const ICON_PREFIXES = \{([^}]*)\}/);
   if (report.ok(!!table, 'ICON_PREFIXES is still an object literal')) {
