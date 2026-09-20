@@ -20,8 +20,20 @@ from building the same way is a major version.
   key that says nothing about it. `identityNotes()` now measures it and names
   the step that fixes it, and `ink-soft` is that step, because the house that
   hits this usually cannot darken its ink: the ink is the brand. 80 brings the
-  same ink's quiet text to 4.93:1 and moves nothing else. 68, the default, is
-  what the build always used.
+  quiet text over the line and moves nothing else. 68, the default, is what
+  the build always used.
+
+  The note measures against the LIVE light paper, `#f8f8f8` - AUDIENCE_CSS's
+  own `:root --paper` - and **solves** the step that clears 4.5:1 instead of
+  rounding one up. Both were wrong in the first cut: it measured against
+  oklch(0.985 …), the lighter print ground, and reported 3.76:1 where Chrome
+  measured 3.44:1 on the same deck, so the step it suggested was too small
+  and the house that took it had to measure and go round again. A suggestion
+  that is nearly right costs more than no suggestion. Checked against
+  Chrome's getImageData on a built deck: the note now reproduces the browser
+  to two decimals. `[identity]`, `the quiet text` and `carries <n>:1` are a
+  parsed contract, pinned in test/settings.mjs, because a course wrapper
+  greps them.
 
   `question-body` is the place it was finally noticed. A question chunk's body
   is set in `--ink-soft`, which is right for what the tag was drawn for - a

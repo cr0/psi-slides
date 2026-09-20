@@ -3698,9 +3698,28 @@ console.log('\nlayout generations');
   const pale = run(INK);
   ok(/\[identity\] the quiet text[^\n]*3\.\d\d:1 against the paper/.test(pale.out),
      'a mid-grey identity ink is told what its quiet text measures');
-  ok(/#4d4d4d itself carries 8\.\d\d:1/.test(pale.out),
+  ok(/#4d4d4d itself carries 7\.98:1/.test(pale.out),
      'and that the ink is not the thing that failed, the step toward the paper is');
   ok(pale.code === 0, 'as a note, like every other identity note');
+  // Pinned as a contract, not as a spelling preference: a course wrapper
+  // greps these three tokens to fail its own check-all step. The rest of the
+  // sentence, the suggested step included, is free.
+  ok(/\[identity\][^\n]*the quiet text[^\n]*carries \d+\.\d\d:1/.test(pale.out),
+     'in the exact tokens a course wrapper greps for');
+
+  // Measured against the LIVE light paper, #f8f8f8 - AUDIENCE_CSS's own
+  // :root --paper - and not the lighter print paper. It shipped once against
+  // oklch(0.985 …) and reported 3.76:1 where Chrome measured 3.44:1 on the
+  // same deck, which made the step it suggested too small: a house took the
+  // number, rebuilt, measured 4.47:1 and had to go round again. A suggestion
+  // that is nearly right costs more than no suggestion.
+  ok(/carries 3\.74:1/.test(pale.out),
+     'against #f8f8f8, the paper the room sees, not the lighter print paper');
+  // And the step is solved, not rounded up to something plausible.
+  const step = pale.out.match(/ink-soft: (\d+)\} clears it at (\d+\.\d\d):1/);
+  ok(!!step && Number(step[2]) >= 4.5, 'and the step it names does clear 4.5:1', step && step[0]);
+  ok(!!step && Number(step[1]) === 77,
+     'at the first whole percent that clears, so the text stays as quiet as it can');
 
   // The lever the note names has to be the lever that works, or the note is
   // a dead end for a house whose ink is the brand and cannot be darkened.

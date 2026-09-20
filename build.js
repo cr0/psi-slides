@@ -7604,6 +7604,11 @@ const IDENTITY_GROUNDS = [
 // Read by IDENTITY_GROUNDS above and written into PRINT_CSS below, so the
 // measurement and the stylesheet cannot name two different papers.
 const PRINT_PAPER_HEX = '#fafaf7';
+// The live light themes' paper, as AUDIENCE_CSS declares it on :root -
+// oklch(0.98 0.00 0), which is #f8f8f8. Named here because identityNotes()
+// measures the quiet text against it and a number that drifts from the
+// stylesheet would report a ratio the room never sees.
+const IDENTITY_SOFT_PAPER = [0.98, 0, 0];
 const PRINT_INK_HEX = '#1f1f24';
 
 function identityColours(identity, view) {
@@ -8030,27 +8035,56 @@ function identityNotes(identity, st) {
   // once, so one key below about #333 dims a whole deck in a way no single
   // slide makes obvious.
   //
-  // Against oklch(0.985 0.007 h), the light themes' paper. The hue is the
-  // accent's and is left at 0 here: at that chroma it moves the ratio by
-  // under half a percent, which is far inside the rounding this note prints.
+  // Against IDENTITY_SOFT_PAPER, which is AUDIENCE_CSS's own `--paper`,
+  // oklch(0.98 0.00 0) = #f8f8f8. Not the print paper (#fafaf7, lighter) and
+  // not the 0.985 this first shipped with: the live light themes are the
+  // harsher of the two grounds and the one the room actually sees, and half
+  // a step of lightness is worth half a point of ratio here - 0.985 reported
+  // 3.76:1 where Chrome measured 3.44:1 on the same deck, which was enough
+  // to make the suggested step too small and cost a house a second pass.
+  // `neutrals: tinted/warm/cool` swap in oklch(0.98 0.007 h), the same L with
+  // a chroma that moves the ratio by under half a percent.
   if (identity && identity.ink) {
     const softPct = (st && st['ink-soft'] != null) ? st['ink-soft'] : 68;
     const ink = hexToOklch(identity.ink);
-    const paper = [0.985, 0.007, 0];
+    const paper = IDENTITY_SOFT_PAPER;
     // color-mix(in oklab, ink P%, paper): interpolate in Lab, not in oklch,
-    // or a mix between two hues takes the long way round the wheel.
+    // or a mix between two hues takes the long way round the wheel. Checked
+    // against Chrome's own getImageData on a built deck: this reproduces the
+    // browser to two decimals at 68, 80 and 82 %.
     const [la, lb] = [oklchToLab(ink), oklchToLab(paper)];
-    const t = softPct / 100;
-    const m = [0, 1, 2].map(i => la[i] * t + lb[i] * (1 - t));
-    const soft = [m[0], Math.hypot(m[1], m[2]), (Math.atan2(m[2], m[1]) * 180 / Math.PI + 360) % 360];
-    const ratio = contrast(soft, paper);
+    const softAt = (pct) => {
+      const t = pct / 100;
+      const m = [0, 1, 2].map(i => la[i] * t + lb[i] * (1 - t));
+      return [m[0], Math.hypot(m[1], m[2]), (Math.atan2(m[2], m[1]) * 180 / Math.PI + 360) % 360];
+    };
+    const ratio = contrast(softAt(softPct), paper);
     if (ratio < WCAG_TEXT) {
+      // The step that actually clears it, solved rather than guessed. A
+      // rounded-up guess is worse than no number: it reads as an answer, and
+      // a house that takes it and measures again has paid for two passes to
+      // land where one would have done. Integer percent, because that is what
+      // the key takes, and the first one that clears is the quiet-est that
+      // does - which is the point of a key called ink-soft.
+      let fix = null;
+      for (let pct = Math.ceil(softPct) + 1; pct <= 100; pct++) {
+        if (contrast(softAt(pct), paper) >= WCAG_TEXT) { fix = pct; break; }
+      }
+      // PARSED CONTRACT, like the closing figure-warning count: a course
+      // wrapper greps this line to fail its own check-all step. `[identity]`,
+      // `the quiet text` and `carries <n>:1` are fixed; everything else in
+      // the sentence, including the suggested step, is free to change.
+      // test/settings.mjs pins them, which is what makes this comment
+      // enforceable rather than a wish.
       out.push(`[identity] the quiet text - captions, marginalia, card sub-lines, recall `
         + `references, .muted figure labels - carries ${ratio.toFixed(2)}:1 against the paper, `
         + `under the ${WCAG_TEXT} a sentence needs. ${identity.ink} itself carries `
         + `${contrast(ink, paper).toFixed(2)}:1; it is the ${softPct} % step toward the paper `
-        + `that loses it. Darken identity.ink, or raise style: {ink-soft} - `
-        + `${softPct < 100 ? `${Math.min(100, Math.ceil(softPct / 5) * 5 + 10)} is the next step worth trying` : 'the step is already at 100'}.`);
+        + `that loses it. `
+        + (fix != null
+          ? `style: {ink-soft: ${fix}} clears it at ${contrast(softAt(fix), paper).toFixed(2)}:1.`
+          : `Even 100 % leaves it under - this ink cannot carry quiet text at all, so darken `
+            + `identity.ink.`));
     }
   }
   for (const g of groups) {
