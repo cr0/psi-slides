@@ -24062,6 +24062,15 @@ async function main() {
   // that part of the screen any more. lint.js cannot take this over - it
   // never lays a diagram out, so it has no geometry to measure - which makes
   // the end of the build the only place the fact can be repeated.
+  //
+  // The prefix `[diagram] <n> figure warning(s)` is a PARSED CONTRACT, not
+  // just prose: a course wrapper greps this line to fail its own render step
+  // when n > 0, which is where the decision to enforce these lives - the
+  // engine deliberately still exits 0, because what is drawn is the author's
+  // call and a compiler has no standing to refuse a drawing it understood.
+  // The sentence after the colon is free to change; those five tokens are
+  // not, without telling whoever is grepping them. test/settings.mjs pins
+  // them, which is the only reason this comment is enforceable.
   if (dgWarned.size) {
     console.warn(`[diagram] ${dgWarned.size} figure warning(s) above: what is drawn is `
       + `not what the source says. Scroll up – each one names the element and the pixels.`);

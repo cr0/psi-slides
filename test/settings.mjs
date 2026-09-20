@@ -3627,8 +3627,16 @@ console.log('\nlayout generations');
     + 'edge a -> b "a caption with far too many words for this gap" side top\n:::\n');
   ok(/px of the words are painted over/.test(clipped.err),
      'an edge label with no room between its ends is still reported');
-  ok(/\[diagram\] 1 figure warning\(s\) above/.test(clipped.err),
+  // Pinned as a contract, not as a spelling preference: a course wrapper
+  // greps `[diagram] <n> figure warning(s)` to fail its own render step,
+  // because the engine keeps exiting 0 by the lecturer's decision. Changing
+  // these five tokens breaks a parser in another repository, so this
+  // assertion is the place that says so out loud. The sentence after the
+  // colon is free.
+  ok(/\[diagram\] 1 figure warning\(s\)/.test(clipped.err),
      'and the build repeats the count after the line that says it wrote the views');
+  ok(/\[diagram\] 1 figure warning\(s\) above/.test(clipped.err),
+     'in the exact five tokens a course wrapper greps for');
   ok(clipped.code === 0,
      'without failing the build: what is drawn is the author\'s call, not the compiler\'s');
 
