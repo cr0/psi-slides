@@ -8337,6 +8337,36 @@ const OUTLINE_CAPTION_SHAPE = /^(?:<p>[\s\S]*?<\/p>\s*)+$/;
 const OUTLINE_CAPTION_BLOCK = /<(img|figure|svg|video|audio|iframe|picture|table|blockquote|pre|ul|ol|h[1-6]|hr)\b/i;
 const outlineCaptionOk = (html) =>
   OUTLINE_CAPTION_SHAPE.test(html) && !OUTLINE_CAPTION_BLOCK.test(html);
+// The live part's caption, with the live part (`section-caption: item`).
+// It is a grid item like the number and the text, because its <li> is
+// `display: contents` - so `grid-column: 2` is what aligns it with the WORDS
+// and not with the numeral, on the row under them, with no wrapper and no
+// indent. Sized in the live row's own em (1.6), so 0.44 lands at about
+// 0.70em of the list's base, under the done and next rows: a reminder of
+// what this part covers, not a second heading. The margins are asymmetric,
+// and that is their whole job - row-gap is one number for the whole list, so
+// the grouping with the item ABOVE has to be bought on the caption itself.
+//
+// Its own style tag, emitted only when a deck sets the key, so a deck that
+// does not builds byte for byte what it did - the rule every other opt-in
+// look here follows.
+const OUTLINE_CAPTION_CSS = `.section-outline .so-cap {
+  grid-column: 2;
+  font-size: 0.44em;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--ink-soft);
+  margin-top: 0.1em;
+  margin-bottom: 0.5em;
+  max-width: 34em;
+}
+.section-outline .so-cap p { margin: 0; }
+.section-outline .so-cap p + p { margin-top: 0.5em; }`;
+function outlineCaptionTag(frontmatter) {
+  const sec = sectionSettings(frontmatter);
+  if (sec.variant !== 'outline' || sec.caption !== 'item') return '';
+  return `\n<style>\n${OUTLINE_CAPTION_CSS}\n</style>`;
+}
 function renderOutlineList(parts, now, caption = '') {
   if (!parts.length) return '';
   const items = parts.map(p => {
@@ -8722,7 +8752,7 @@ ${AUDIENCE_CSS}
 ${DIAGRAM_CSS}
 </style>
 ${fontStyleTag(opts.fontEmbed, 'live')}
-${styleBlockCss(styleOpts, S)}
+${styleBlockCss(styleOpts, S)}${outlineCaptionTag(frontmatter)}
 ${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
 ${reloadScript(opts.watchPort, opts.watchNonce)}
@@ -11902,33 +11932,6 @@ body[data-collapse=topic-bold] .cards:not(.rows) { grid-template-columns: repeat
   font-weight: 600;
   letter-spacing: -0.014em;
 }
-/* The live part's caption, with the live part. It is a grid item like the
-   number and the text, because its <li> is display: contents - so
-   grid-column: 2 is what aligns it with the WORDS and not with the numeral,
-   on the row under them, and no wrapper or indent is needed to say so. Placing it here rather than after the whole list is the whole change:
-   under the last item, a keyword line for part 2 reads as part 3's.
-   Sized in the live row's own em (1.6), so 0.44 lands at about 0.70em of the
-   list's base - under the done and next rows, which are 1em. The caption is
-   the quietest thing on the slide on purpose: it is a reminder of what this
-   part covers, not a second heading, and the item above it has to stay the
-   thing the room reads first. */
-.section-outline .so-cap {
-  grid-column: 2;
-  font-size: 0.44em;
-  font-weight: 400;
-  letter-spacing: 0;
-  color: var(--ink-soft);
-  /* Asymmetric, and that is the whole job of these two numbers: the caption
-     has to read as part of the item ABOVE it and not as something floating
-     between two items. row-gap is one number for the whole list, so the
-     grouping has to be bought here - tight to the live row, a clear step
-     down to the next one. */
-  margin-top: 0.1em;
-  margin-bottom: 0.5em;
-  max-width: 34em;
-}
-.section-outline .so-cap p { margin: 0; }
-.section-outline .so-cap p + p { margin-top: 0.5em; }
 
 /* margin notes: inline below body, dimmed, small */
 .margin-note {
@@ -17217,7 +17220,7 @@ ${AUDIENCE_CSS}
 ${DIAGRAM_CSS}
 ${SPEAKER_CSS}
 </style>
-${styleBlockCss(styleOpts, S)}
+${styleBlockCss(styleOpts, S)}${outlineCaptionTag(frontmatter)}
 ${fontStyleTag(opts.fontEmbed, 'live')}
 ${codeTag(styleOpts, opts.codeSizing, 'live')}
 ${katexStyleTag(columnsHtml, { fontToggle: true })}
