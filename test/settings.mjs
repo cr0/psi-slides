@@ -3778,7 +3778,12 @@ console.log('\nlayout generations');
   ok(!/<div class="so-cap">/.test(below.html) && /class="section-body"/.test(below.html),
      'section-caption defaults to below, under the whole list as before');
 
+  // And the stylesheet with it: a deck that does not set the key carries none
+  // of the rules, so it builds byte for byte what it did. The first cut put
+  // them in AUDIENCE_CSS, which moved every deck in the repository.
+  ok(!/\.so-cap \{/.test(below.html), 'a deck without the key carries no caption stylesheet');
   const item = run('section-caption: item\n', [CAP, '', '']);
+  ok(/\.so-cap \{/.test(item.html), 'and a deck with it carries one');
   ok(/<div class="so-cap">/.test(item.html), 'section-caption: item lifts the caption into the list');
   // The assertion that is the whole point: INSIDE the live <li>, not after
   // the list. Matched on the one item that carries aria-current, so a
