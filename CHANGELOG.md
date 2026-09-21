@@ -235,6 +235,32 @@ from building the same way is a major version.
   The `.tone-4` + `.accent` clash warning still fires under `offset`, where the
   fill is a tint and the accent label is readable; it is a warning, and the
   pairing is still one colour too many.
+- **`section-caption: item` puts an outline divider's caption under the live
+  item.** A `# Heading` may carry a body, and it lands under the block the
+  divider draws. On the other treatments that block is the heading, so
+  the caption sits directly under the thing it belongs to. On `outline` the
+  block is the *list*, so "under it" means under the LAST item - and a
+  keyword line written for part 2 came out standing under part 3's heading,
+  reading as part 3's or as the whole list's. Spatial contiguity is the
+  principle it breaks, and the fix is to put the words where they belong:
+  inside the live `<li>`, in the text column (the item is `display: contents`,
+  so `grid-column: 2` aligns the caption with the words rather than with the
+  numeral), quieter than every other row, and tight to the item above it.
+
+  Prose only. A quotation, a photograph, a figure, a table or a list of its
+  own is divider *content* - it is what a `# Heading` takes a body for, it
+  wants the width of the measure, and it stays under the list exactly as
+  before. The test is on the rendered HTML, so it covers every way to write
+  one; a lone `![alt](pic.png)` renders as `<p><img></p>`, the right shape
+  and the wrong thing, and is excluded by name.
+
+  A key and not a new default, because the two things authors write under a
+  `# Heading` are not one thing: a keyword line belongs to the part, a
+  sentence introducing the part belongs to the slide and would look wrong set
+  inside a list item. Only the author knows which they wrote - the same
+  argument `headings: center` settled for the axis. `below` is the default
+  and unchanged, the `## outline:` chunk is unaffected, and the document is
+  untouched: there the words have always been the column's lede.
 
 ### Changed
 

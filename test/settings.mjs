@@ -3748,6 +3748,79 @@ console.log('\nlayout generations');
      'after the rule it overrides, which is the only reason it wins');
 }
 
+// ── section-caption: where an outline divider puts its words ──
+// A `# Heading` may carry a body, and on the other treatments it lands
+// under the heading, which is under the thing it belongs to. On `outline`
+// the heading IS the list, so "under the block" is under the LAST item, and
+// a keyword line written for part 2 came out standing under part 3.
+{
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-sc-'));
+  const run = (fm, bodies) => {
+    const parts = bodies.map((b, i) =>
+      `# Part ${i + 1} {#p${i + 1}}\n${b ? '\n' + b + '\n' : ''}\n## free: S${i + 1} {#s${i + 1}}\n\nProse.\n`);
+    fs.writeFileSync(path.join(d, 'source.md'),
+      `---\ntitle: T\nsection: outline\n${fm}---\n\n## title: {#title}\n\n${parts.join('\n')}`);
+    const r = spawnSync(process.execPath,
+      [path.join(ROOT, 'build.js'), path.join(d, 'source.md'), '--audience-only'],
+      { cwd: ROOT, encoding: 'utf8' });
+    return { code: r.status, out: (r.stdout || '') + (r.stderr || ''),
+             html: r.status === 0 ? fs.readFileSync(path.join(d, 'audience.html'), 'utf8') : '' };
+  };
+  const CAP = 'Angreifermodell • Angriffsfläche • Trust Boundaries';
+
+  // The default is what it always was, or every deck with an outline divider
+  // and a body under a part heading moves.
+  const below = run('', [CAP, '', '']);
+  // Matched on the MARKUP and not on the string: `.so-cap` is three rules in
+  // the stylesheet of every deck, so a bare /so-cap/ passes on a page that
+  // never emitted one - which is how the first cut of these assertions went
+  // green against a build that had not been written yet.
+  ok(!/<div class="so-cap">/.test(below.html) && /class="section-body"/.test(below.html),
+     'section-caption defaults to below, under the whole list as before');
+
+  const item = run('section-caption: item\n', [CAP, '', '']);
+  ok(/<div class="so-cap">/.test(item.html), 'section-caption: item lifts the caption into the list');
+  // The assertion that is the whole point: INSIDE the live <li>, not after
+  // the list. Matched on the one item that carries aria-current, so a
+  // caption that landed in the wrong item fails here rather than passing on
+  // a substring that exists somewhere in the page.
+  const live = item.html.match(/<li data-state="now" aria-current="step">[\s\S]*?<\/li>/);
+  ok(!!live && /so-cap/.test(live[0]), 'inside the li the reader is on, not after the list');
+  ok(!!live && live[0].indexOf('so-cap') > live[0].indexOf('so-text'),
+     'after that item\'s words, so it reads as belonging to them');
+  ok(!/class="section-body"/.test(item.html),
+     'and not left behind under the list as well - one caption, one place');
+  // done and next items stay one line: only the live one takes it.
+  ok((item.html.match(/<div class="so-cap">/g) || []).length === 1,
+     'exactly one item carries it: done and next stay one line');
+
+  // Divider CONTENT is not a caption and keeps the width of the measure. A
+  // blockquote is the case that made this a test rather than a comment: it
+  // is the reason `# Heading` takes a body at all.
+  const quote = run('section-caption: item\n', ['> A quotation opens this part.', '', '']);
+  ok(!/<div class="so-cap">/.test(quote.html) && /class="section-body"/.test(quote.html),
+     'a quotation stays under the list, where a divider\'s own content belongs');
+  // With a real asset on disk, or the build fails for the missing file and
+  // the assertion passes for the wrong reason - which it did, first time.
+  fs.mkdirSync(path.join(d, 'assets'), { recursive: true });
+  fs.writeFileSync(path.join(d, 'assets/pic.png'), Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64'));
+  const pic = run('section-caption: item\n', ['![a picture](assets/pic.png)', '', '']);
+  ok(pic.code === 0 && !/<div class="so-cap">/.test(pic.html) && /class="section-body"/.test(pic.html),
+     'and so does a picture', `exit ${pic.code}`);
+
+  // Two paragraphs are still prose and still a caption; the stylesheet
+  // spaces them.
+  const two = run('section-caption: item\n', [`${CAP}\n\nAnd a second line.`, '', '']);
+  ok(/<div class="so-cap">/.test(two.html), 'two paragraphs of prose are still a caption');
+
+  // The key is closed, like every other enum in the frontmatter.
+  const bad = run('section-caption: sideways\n', [CAP, '', '']);
+  ok(bad.code !== 0 && /not a placement this tool draws/.test(bad.out),
+     'an unknown placement is refused, and the message lists the two');
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.log(failures.map(f => '  ✗ ' + f).join('\n'));

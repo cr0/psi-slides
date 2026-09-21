@@ -9,6 +9,7 @@ closing-credits: contact
 cover: quote
 cover-align: middle
 section: outline
+section-caption: item
 section-mark: Part
 theme: light-blue
 collapse: none
@@ -313,6 +314,8 @@ box b "1fr" right of a gap 0.22 w 0.95 h 1.9 {.tone-3}
 :::
 
 # Revealing a picture {#reveal}
+
+Backdrops • scrims • the beat that uncovers them
 
 ## free: The window walks the beats, and the picture stands still {.wide #reveal-why}
 
