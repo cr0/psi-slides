@@ -248,6 +248,8 @@ What is different here is the combination: one text rendered at two densities, a
 
 ## What this fork adds
 
+**Safari is a first-class target.** Two browser specs (`test/figure-edge.mjs`, `test/frame-fade.mjs`) compare pixels in Chromium and WebKit; run `npx playwright install webkit` once so their WebKit half runs.
+
 Everything below is off unless a deck writes it. Details live in the skills (`.claude/skills/psi-slides-*`) and in [CHANGELOG.md](CHANGELOG.md); every example here builds.
 
 **Identity and colour**
@@ -288,7 +290,7 @@ Everything below is off unless a deck writes it. Details live in the skills (`.c
 
 **Figures**
 
-- Under `offset`, a `::: draw` box looks like a card: the tone as a tint, the first label line as its heading, the hard edge.
+- Under `offset`, a `::: draw` box looks like a card: the tone as a tint, the first label line as its heading, the hard edge. The edge is drawn as a shape behind the box, not a CSS filter, so Safari shows it too – and it moves with the box on a beat.
 - Flat field bars: `default box h 2.4 {.bare .mono}` and toned boxes `right of … gap 0` – tint without outline or edge, the name in ink and the lines under it in the tone.
 - A leader that turns once: `edge m.bottom -- note.left {.elbow .muted}` between anchors on crossing axes.
 - `--check-fit` reports figures whose labels are under 70% of the body text, live and in `print.html`. Fix: fewer canvas units (`::: draw 60x10`, not `150x24`).

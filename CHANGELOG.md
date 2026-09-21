@@ -7,6 +7,37 @@ from building the same way is a major version.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Safari drew no edge under a figure box, and a grey band above every
+  framed footer.** Both were WebKit rendering the fork's own CSS differently
+  from Chromium, and both passed every check here, because every check here
+  ran Chromium.
+
+  The figure edge under `elevation: offset` was `filter: drop-shadow()` on the
+  box outline. WebKit ignores a filter function on an element inside an SVG:
+  the rule matched, `getComputedStyle` reported the shadow, and nothing was
+  painted - so figures in Safari had no edge beside cards that had one. It is
+  geometry now: the compiler emits a `.dg-lift` copy of each outline,
+  5 figure units down and right, behind the box (`opts.lift`, only under
+  `offset`; the in-page editor is told through `window.PSI_DG_LIFT`). The
+  copy carries its own geometry key, a copy of the box's in every frame, so a
+  box that moves on a beat takes its edge with it and the runtime needed no
+  change; it is not a layout element, so label fit, edge anchors and the
+  viewBox are what they were. A `<use>` clone was tried first and rejected:
+  WebKit gives the clone the original's matched styles and Chromium does not,
+  so the edge came out a different colour per engine.
+
+  The `identity:` frame faded its footer with a gradient from `var(--paper)`
+  (an `oklch()` colour) to `transparent`, which WebKit interpolates through
+  grey. It is a flat paper fill under an alpha mask now.
+
+  Two browser specs read PIXELS in Chromium and in WebKit -
+  `test/figure-edge.mjs` past a box corner, `test/frame-fade.mjs` in the
+  fade - and each was run against the old code first and failed there. WebKit
+  is optional: without `npx playwright install webkit` the WebKit half is a
+  note and the Chromium half still runs.
+
 ### Added
 
 - **`style: {ink-soft: N}` and `style: {question-body: ink}` - the quiet text,

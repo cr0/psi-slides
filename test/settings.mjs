@@ -3343,9 +3343,11 @@ console.log('\nlayout generations');
      'edge: tone leaves no edge mixed toward black, live or on paper', `${blacks(tone.html)} left`);
   ok(/--card-edge: var\(--activity\);/.test(tone.html),
      'the activity box edge is the kind colour itself');
-  ok(/drop-shadow\(\d+px \d+px 0 var\(--tone-1, var\(--emph\)\)\)/.test(tone.html),
+  // The figure edge is the lifted copy's fill and stroke (it was a
+  // drop-shadow, which WebKit does not paint inside an SVG).
+  ok(/\.tone-1 > \.dg-lift:not\(#_\) \{ fill: var\(--tone-1, var\(--emph\)\); stroke: var\(--tone-1, var\(--emph\)\);/.test(tone.html),
      'and so is a figure box edge');
-  ok(/drop-shadow\(\d+px \d+px 0 color-mix\(in oklab, var\(--ink\) 30%, var\(--paper\)\)\)/.test(tone.html),
+  ok(/> \.dg-lift \{ fill: color-mix\(in oklab, var\(--ink\) 30%, var\(--paper\)\); stroke: color-mix\(in oklab, var\(--ink\) 30%, var\(--paper\)\);/.test(tone.html),
      'a colourless box keeps its grey edge, it has no colour to take');
   const eDir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-edge-bad-'));
   fs.writeFileSync(path.join(eDir, 'source.md'), '---\ntitle: T\nstyle: {edge: colour}\n---\n\n## title: {#title}\n\n## free: F {#f}\n\nA.\n');
@@ -3824,6 +3826,63 @@ console.log('\nlayout generations');
   const bad = run('section-caption: sideways\n', [CAP, '', '']);
   ok(bad.code !== 0 && /not a placement this tool draws/.test(bad.out),
      'an unknown placement is refused, and the message lists the two');
+}
+
+// ── the offset edge on a figure is geometry, not a filter ──
+// It shipped as `filter: drop-shadow(5px 5px 0 …)` on the box outline. Chrome
+// painted it; WebKit ignores a filter function on an element inside an SVG,
+// with the rule matching and the computed style reporting the shadow - so a
+// lecturer in Safari saw figures with no edge beside cards that had one, and
+// nothing a headless-Chrome check could measure said so. The edge is now a
+// `.dg-lift` copy of the outline, which every engine and print draw alike.
+{
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-lift-'));
+  const run = (fm, draw, args = ['--audience-only']) => {
+    fs.writeFileSync(path.join(d, 'source.md'),
+      `---\ntitle: T\n${fm}---\n\n## title: {#title}\n\n## figure: F {#f}\n\n::: draw 96x40\n${draw}\n:::\n`);
+    const r = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(d, 'source.md'), ...args],
+      { cwd: ROOT, encoding: 'utf8' });
+    const read = (n) => { try { return fs.readFileSync(path.join(d, n), 'utf8'); } catch { return ''; } };
+    return { code: r.status, html: read('audience.html'), print: read('print.html') };
+  };
+  const DRAW = 'box a "One" at 0,0 {.tone-1}\nbox b "Two" right of a gap 3 {.hex}\nbox c "Lane" below a gap 1 {.bare}\nedge a -> b';
+  const off = run('style: {elevation: offset}\n', DRAW, []);
+  const lifts = off.html.match(/<(rect|path) id="[^"]*--lift" class="dg-lift" aria-hidden="true" transform="translate\(5 5\)"/g) || [];
+  ok(lifts.length === 3, 'under offset every box carries a lifted copy of its outline, 5 down and 5 right', `${lifts.length}`);
+  ok(/<path id="[^"]*b--lift" class="dg-lift"/.test(off.html), 'a hexagon lifts as its own path, so the edge follows the shape');
+  // A declaration, not the word: the compiler's own source rides in the page
+  // for the editor, and its comments say why there is no filter any more.
+  ok(!/filter:\s*drop-shadow/.test(off.html) && !/filter:\s*drop-shadow/.test(off.print),
+     'and no drop-shadow filter is left anywhere, live or in print');
+  ok(/dg-lift/.test(off.print), 'print draws the same copy - it is geometry, not a background graphic');
+  // The copy sits BEHIND its box: emitted first inside the box's group.
+  ok(/<g id="[^"]*a"[^>]*dg-box[^>]*><rect id="[^"]*a--lift"/.test(off.html), 'emitted first, so the box is painted over it');
+  // A lane is bare: the copy exists, the stylesheet hides it, so a style step
+  // that took `.bare` off would bring the edge back without a recompile.
+  ok(/\.dg-box:is\(\.dg-bar, \.bare, \.clear\) > \.dg-lift[^{]*\{ display: none; \}/.test(off.html),
+     'a bare, clear or chart box draws no edge, by a rule that follows a class change');
+
+  // Nothing moves for a deck that does not ask for offset.
+  const flat = run('', DRAW, []);
+  // `[^"$]`: the compiler's source rides in the page for the editor, and its
+  // template literal `<rect id="${prefix}${e.id}--lift"` is not an element.
+  ok(!/<(rect|path) id="[^"$]*--lift"/.test(flat.html) && !/window\.PSI_DG_LIFT = \d/.test(flat.html),
+     'without offset no copy is emitted and the editor is not told to add one');
+
+  // A box that moves on a beat takes its edge with it: the copy has its own
+  // geometry key, equal to the box's in every frame that names the box.
+  const moved = run('style: {elevation: offset}\n',
+    'box a "One" at 0,0 {.tone-1 @m}\nbox b "Two" right of a gap 3\nstep\nmove @m to 0,1.5');
+  const frames = JSON.parse((moved.html.match(/class="psi-diagram-frames"[^>]*>([^<]*)<\/script>/) || [])[1] || 'null');
+  const same = frames && frames.frames.every(f => !f.geom['a--r'] || JSON.stringify(f.geom['a--lift']) === JSON.stringify(f.geom['a--r']));
+  const movesAtAll = frames && frames.frames.length > 1
+    && JSON.stringify(frames.frames[0].geom['a--r']) !== JSON.stringify(frames.frames[1].geom['a--r'] || frames.frames[0].geom['a--r']);
+  ok(moved.code === 0 && same && movesAtAll, 'a box that moves on a beat moves its edge on the same beat, by the same vector');
+  ok(frames && frames.kinds['a--lift'] === frames.kinds['a--r'], 'and the runtime is told it is the same kind of drawable');
+
+  // The editor recompiles in the page; it has to be told the offset too, or
+  // an edit in the browser drops the edge until the next build.
+  ok(/window\.PSI_DG_LIFT = 5;/.test(off.html), 'the in-page editor is told the offset, so an edit keeps the edge');
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

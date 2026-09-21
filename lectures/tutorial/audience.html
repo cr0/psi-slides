@@ -22602,6 +22602,7 @@ function createDiagramCompiler(env = {}) {
     const [vbX, vbY, vbW, vbH] = boxFor(printBoxes.length ? printBoxes : liveBoxes);
 
     const kinds = {};
+    const lifted = [];
     const fitOf = new Map();
     for (const f of frames) for (const [k, v] of f.fits) fitOf.set(k, v);
     let svgBody = '';
@@ -22621,6 +22622,35 @@ function createDiagramCompiler(env = {}) {
         // wanted a different one would have nothing to switch. The parser
         // refuses that line rather than letting it be a silent no-op.
         const shape = kind === 'box' ? dgShapeName(st, dgPointOf(model, e)) : '';
+        // The lifted edge, when the host asks for one (`opts.lift`, the offset
+        // in px): a second copy of the outline, emitted first so it sits
+        // behind, and moved down and right by a transform. It is geometry and
+        // not a filter because a filter function on an element *inside* an
+        // SVG is ignored by WebKit - the rule matched, the computed style
+        // said drop-shadow, and Safari drew nothing - while a shape is drawn
+        // the same by every engine and in print. Its own id and its own
+        // geometry key (`--lift`, a copy of `--r` in every frame, below) are
+        // what make it move with its box: the runtime tweens whatever keys a
+        // frame names, by id, and needs to know nothing about lifts. It is
+        // not a layout element and not in printGeom, so label fit, anchors
+        // and the viewBox are exactly what they were; the few px it hangs
+        // past the frame are the host's overflow to allow.
+        //
+        // Emitted for every box, and the host's stylesheet hides it where a
+        // class says there is no edge (bare, clear, a chart's column): those
+        // classes can change per beat, and a stylesheet follows a class
+        // change where an emit-time decision could not.
+        if (kind === 'box' && opts.lift) {
+          const t = ` transform="translate(${opts.lift} ${opts.lift})"`;
+          lifted.push(e.id);
+          if (shape) {
+            kinds[e.id + '--lift'] = shape;
+            inner += `<path id="${prefix}${e.id}--lift" class="dg-lift" aria-hidden="true"${t} d="${dgShapeD(shape, v[0], v[1], v[2], v[3])}"/>`;
+          } else {
+            kinds[e.id + '--lift'] = 'rect';
+            inner += `<rect id="${prefix}${e.id}--lift" class="dg-lift" aria-hidden="true"${t} x="${v[0].toFixed(2)}" y="${v[1].toFixed(2)}" width="${v[2].toFixed(2)}" height="${v[3].toFixed(2)}" rx="4"/>`;
+          }
+        }
         if (shape) {
           kinds[e.id + '--r'] = shape;
           inner += `<path id="${prefix}${e.id}--r" class="dg-shape" d="${dgShapeD(shape, v[0], v[1], v[2], v[3])}"/>`;
@@ -22723,6 +22753,15 @@ function createDiagramCompiler(env = {}) {
         geom: Object.fromEntries([...f.geom].map(([k, v]) => [k, v.map(n => Math.round(n * 100) / 100)])),
       })),
     };
+    // Each lifted edge follows its box through every frame: the same vector
+    // under its own key. Only frames that move the box name it, exactly like
+    // the box's own key, so an edge is never tweened on a beat its box sits
+    // still on.
+    if (lifted.length) {
+      for (const fr of payload.frames) {
+        for (const id of lifted) if (fr.geom[id + '--r']) fr.geom[id + '--lift'] = fr.geom[id + '--r'];
+      }
+    }
 
     const svgId = `${prefix}root`;
     const aria = opts.alt ? ` role="img" aria-label="${escapeHtml(opts.alt)}"` : ' role="img"';
@@ -23002,7 +23041,10 @@ function dgeCompile(fig, body) {
       out.errors = window.PSI_DG.dgSortProblems(dgeDedupe(res.errors));
       return out;
     }
-    out.html = fig.compiler.renderDiagram(src, fig.attrs, { prefix: fig.prefix, alt: fig.alt, base });
+    // `lift` is the offset edge (elevation: offset), which the build draws
+    // as geometry at compile time; without it here a figure recompiled in
+    // the browser would lose its edge until the next build.
+    out.html = fig.compiler.renderDiagram(src, fig.attrs, { prefix: fig.prefix, alt: fig.alt, base, lift: window.PSI_DG_LIFT || 0 });
     out.ok = true;
   } catch (err) {
     out.errors = dgeErrorsFrom(err);

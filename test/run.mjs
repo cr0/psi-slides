@@ -59,6 +59,8 @@ const SPECS = [
   './figure-sequence.mjs',
   './figure-framing.mjs',
   './figure-framing-network.mjs',
+  './figure-edge.mjs',
+  './frame-fade.mjs',
 ];
 
 const filter = process.argv.slice(2).filter(a => !a.startsWith('-'));

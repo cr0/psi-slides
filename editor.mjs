@@ -183,7 +183,10 @@ function dgeCompile(fig, body) {
       out.errors = window.PSI_DG.dgSortProblems(dgeDedupe(res.errors));
       return out;
     }
-    out.html = fig.compiler.renderDiagram(src, fig.attrs, { prefix: fig.prefix, alt: fig.alt, base });
+    // `lift` is the offset edge (elevation: offset), which the build draws
+    // as geometry at compile time; without it here a figure recompiled in
+    // the browser would lose its edge until the next build.
+    out.html = fig.compiler.renderDiagram(src, fig.attrs, { prefix: fig.prefix, alt: fig.alt, base, lift: window.PSI_DG_LIFT || 0 });
     out.ok = true;
   } catch (err) {
     out.errors = dgeErrorsFrom(err);
