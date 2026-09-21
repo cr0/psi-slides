@@ -4366,6 +4366,14 @@ function parseLecture(src) {
   dgLectureTags.clear();
   dgEmittedBlocks.length = 0;
   let diagramBase = null;
+  // Under `elevation: offset` a figure box stands on the same hard edge a
+  // card does, drawn by the compiler as a second copy of the outline (see
+  // `opts.lift` in diagram-core). Asked for here, at compile time, because it
+  // is geometry now; it used to be a CSS filter the stylesheet could add
+  // after the fact, and WebKit does not paint a filter function on an element
+  // inside an SVG. Nothing is emitted for any other elevation, so those
+  // figures compile to exactly what they did.
+  const diagramLift = styleSettings(frontmatter).elevation === 'offset' ? FIGURE_EDGE_PX : 0;
   if (frontmatter['draw-defaults'] != null) {
     const { layer, errors } = parseDiagramDefaults(frontmatter['draw-defaults']);
     if (errors.length) {
@@ -4906,6 +4914,7 @@ function parseLecture(src) {
               : 'an unattached diagram',
           alt: currentChunk ? currentChunk.heading : '',
           base: diagramBase,
+          lift: diagramLift,
           onCompile: (model) => {
             for (const tag of model.tags.keys()) dgLectureTags.add(tag);
             // A clock with nothing to walk. `autoplay N` advances the
@@ -7026,16 +7035,30 @@ function edgeCss(css, st) {
 // one picture: 5 units is what 0.22em is on a card at the figure's usual scale.
 // Only authored boxes: a chart's column (`dg-bar`), a lane or a see-through
 // frame (`.bare`, `.clear`) stays what the figure language drew.
-const FIGURE_EDGE_OFFSET = '5px';
+// The edge is GEOMETRY: the compiler emits a `.dg-lift` copy of each box's
+// outline, FIGURE_EDGE_PX down and right, behind it (`opts.lift`). It was a
+// `filter: drop-shadow()` on the outline, which Chrome painted and WebKit did
+// not - a filter function on an element inside an SVG is ignored there, with
+// the rule matching and the computed style reporting the shadow, so nothing
+// short of looking in Safari showed it was gone. A shape is drawn the same by
+// every engine and in print. The colours are the ones the shadow had; only
+// the property they land on changed, which is why edgeCss and ciMixCss still
+// find them.
+const FIGURE_EDGE_PX = 5;
 function figureCardCss() {
   const box = '.psi-diagram .dg-box:not(.dg-bar):not(.bare):not(.clear)';
-  const shape = ' > :is(rect, .dg-shape)';
+  const shape = ' > :is(rect, .dg-shape):not(.dg-lift)';
+  const lift = ' > .dg-lift';
   const tv = (t) => `var(--${t}, ${CARD_TONE_DEFAULTS[t]})`;
-  const edge = (c) => `filter: drop-shadow(${FIGURE_EDGE_OFFSET} ${FIGURE_EDGE_OFFSET} 0 ${c});`
+  // The copy takes the edge colour as both fill and stroke - the stroke so
+  // it has the outline's full footprint, not the fill's inset one - and
+  // nothing else the outline's own rules would give it: no dash, no accent.
+  const edge = (c) => `fill: ${c}; stroke: ${c}; stroke-dasharray: none;`
     + ' -webkit-print-color-adjust: exact; print-color-adjust: exact;';
   const paint = (sel, v, dark, ink) =>
     `${box}${sel}${shape} { fill: color-mix(in oklab, ${v} 22%, var(--paper));`
-    + ` stroke: color-mix(in oklab, ${v} 55%, var(--paper)); ${edge(`color-mix(in oklab, ${v} ${dark}%, black)`)} }`
+    + ` stroke: color-mix(in oklab, ${v} 55%, var(--paper)); }`
+    + ` ${box}${sel}${lift}:not(#_) { ${edge(`color-mix(in oklab, ${v} ${dark}%, black)`)} }`
     // The heading is the first line; every tspan from the second line on
     // (a line starts at a tspan carrying x) goes back to the body ink.
     // Named on the tspans too: `.tone-4` inverts its label on the tspans, for
@@ -7045,7 +7068,11 @@ function figureCardCss() {
     + ` ${box}${sel} .dg-lbl text > tspan[x]:not(:first-child) ~ tspan:not(.dg-em):not(.dg-mu) { fill: var(--ink); font-weight: 400; }`;
   const rules = [
     `.psi-diagram { overflow: visible; }`,
-    `${box}${shape} { ${edge('color-mix(in oklab, var(--ink) 30%, var(--paper))')} }`,
+    // Where a class says there is no edge, the copy is not drawn. A stylesheet
+    // rule rather than an emit-time decision, because these classes can
+    // change per beat and only a rule follows a class change.
+    `.psi-diagram .dg-box:is(.dg-bar, .bare, .clear) > .dg-lift, .psi-diagram :not(.dg-box) > .dg-lift { display: none; }`,
+    `${box}${lift} { ${edge('color-mix(in oklab, var(--ink) 30%, var(--paper))')} }`,
     ...Object.keys(CARD_TONE_DEFAULTS).map(t => paint(`.${t}`, tv(t), 78, `var(--${t}-text, ${tv(t)})`)),
     paint('.accent', 'var(--emph)', 72),
     // A bare toned box is a field of a flat bar - a record layout, a packet
@@ -7896,13 +7923,21 @@ function frameCss(identity) {
    first place. So the foot fades to paper under the line, which both keeps
    the footer legible and gives the scroll somewhere to go. Gradient rather
    than a flat fill: a hard edge across the slide reads as a rule nobody
-   drew. */
+   drew.
+   The fade is a MASK over a flat paper fill, not a colour gradient to
+   transparent. The paper is an oklch() colour and transparent is black at
+   zero alpha, and WebKit interpolates between the two through grey: Safari
+   drew a smoky band across every framed slide, just above the footer, that
+   Chrome never showed. A mask interpolates alpha alone, so the colour stays
+   the paper all the way down whatever space the engine mixes in. */
 #frame::after {
   content: '';
   position: absolute;
   inset: auto 0 0 0;
   height: calc(var(--frame-foot) * 2.1);
-  background: linear-gradient(to top, var(--paper) 0%, var(--paper) 52%, transparent 100%);
+  background: var(--paper);
+  -webkit-mask-image: linear-gradient(to top, #000 52%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 52%, transparent 100%);
 }
 #frame .frame-foot-line {
   position: absolute;
@@ -10918,6 +10953,7 @@ function editorPayload(frontmatter, columnsHtml, view) {
     + `<script>\n${diagramCoreJs()}\n`
     + `window.PSI_DG_DEFAULTS = ${jsonForScript(base)};\n`
     + `window.PSI_DG_EDIT_HTML = ${peerNeedsHtml};\n`
+    + (styleSettings(frontmatter).elevation === 'offset' ? `window.PSI_DG_LIFT = ${FIGURE_EDGE_PX};\n` : '')
     + `${editorJs()}\n</script>`;
 }
 
