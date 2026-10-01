@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="psi-slides:speaker" content="speaker.html">
+<meta name="psi-slides:print" content="print.html">
 <title>psi-slides – a guided tour – speaker</title>
 <style>
 
@@ -12411,6 +12413,17 @@ const SELF_ORIGIN = (typeof window.origin === 'string') ? window.origin : locati
 function setPeer(w) {
   if (w && w !== window && !w.closed) peer = w;
 }
+// The file name of a sibling view, as the head declares it. A published
+// bundle renames the views and rewrites the tag; a page without the tag (a
+// build older than it) falls back to the name the build writes. Encoded per
+// path segment, because a published name is a lecture title and may hold
+// a '#', a '?' or a '%'.
+const SIBLING_VIEWS = {"speaker":"speaker.html","print":"print.html"};
+function siblingView(kind) {
+  const m = document.querySelector('meta[name="psi-slides:' + kind + '"]');
+  const file = (m && m.getAttribute('content')) || SIBLING_VIEWS[kind];
+  return file.split('/').map(encodeURIComponent).join('/');
+}
 function sendToPeer(msg) {
   if (!peer || peer.closed) { peer = null; return; }
   try { peer.postMessage(msg, '*'); } catch (e) { peer = null; }
@@ -15421,7 +15434,7 @@ document.addEventListener('keydown', (e) => {
       flashMode(state.blanked ? 'projection blanked' : 'projection back');
       e.preventDefault(); break;
     case 'p': case 'P':
-      window.open('print.html', '_blank', 'noopener');
+      window.open(siblingView('print'), '_blank', 'noopener');
       e.preventDefault(); break;
     case 'd': case 'D':
       // Live demo: a window or a screen of this machine on the projection.
@@ -15452,7 +15465,7 @@ document.addEventListener('keydown', (e) => {
     case 's': case 'S':
       // Only in audience: open the speaker window and remember it as our peer.
       if (VIEW === 'audience') {
-        const w = window.open('speaker.html', 'psi-slides-speaker', 'width=1400,height=900');
+        const w = window.open(siblingView('speaker'), 'psi-slides-speaker', 'width=1400,height=900');
         setPeer(w);
         e.preventDefault();
       }

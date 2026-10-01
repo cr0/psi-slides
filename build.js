@@ -11005,6 +11005,7 @@ function renderAudience(lecture, opts = {}) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+${siblingMetaTags()}
 <title>${escapeHtml(title)} – ${escapeHtml(S['title-lecture'])}</title>
 <style>
 ${AUDIENCE_CSS}
@@ -15418,6 +15419,19 @@ nav#toc li.toc-active button { font-weight: 600; color: var(--emph); }
 
 // ── audience runtime JS (inlined verbatim into the output HTML) ──────
 
+// The two files a live view opens by name: S opens the cockpit, P the handout.
+// Both names are written into the head rather than into the runtime, so that
+// whoever publishes the views under other names – a release bundle that calls
+// them "<course> - L01 - <title> - Sprecheransicht.html" – has one tag to
+// rewrite per name instead of a string inside a script. The content is a file
+// name relative to this file, unencoded; the runtime does the encoding.
+const SIBLING_VIEWS = { speaker: 'speaker.html', print: 'print.html' };
+function siblingMetaTags() {
+  return Object.entries(SIBLING_VIEWS)
+    .map(([k, file]) => `<meta name="psi-slides:${k}" content="${escapeHtml(file)}">`)
+    .join('\n');
+}
+
 const AUDIENCE_JS = `
 const STORAGE_PREFIX = 'psi-slides:';
 const storageKey = (s) => STORAGE_PREFIX + LECTURE_TITLE + ':' + s;
@@ -15783,6 +15797,17 @@ let isApplyingRemote = false;
 const SELF_ORIGIN = (typeof window.origin === 'string') ? window.origin : location.origin;
 function setPeer(w) {
   if (w && w !== window && !w.closed) peer = w;
+}
+// The file name of a sibling view, as the head declares it. A published
+// bundle renames the views and rewrites the tag; a page without the tag (a
+// build older than it) falls back to the name the build writes. Encoded per
+// path segment, because a published name is a lecture title and may hold
+// a '#', a '?' or a '%'.
+const SIBLING_VIEWS = ${JSON.stringify(SIBLING_VIEWS)};
+function siblingView(kind) {
+  const m = document.querySelector('meta[name="psi-slides:' + kind + '"]');
+  const file = (m && m.getAttribute('content')) || SIBLING_VIEWS[kind];
+  return file.split('/').map(encodeURIComponent).join('/');
 }
 function sendToPeer(msg) {
   if (!peer || peer.closed) { peer = null; return; }
@@ -18794,7 +18819,7 @@ document.addEventListener('keydown', (e) => {
       flashMode(state.blanked ? 'projection blanked' : 'projection back');
       e.preventDefault(); break;
     case 'p': case 'P':
-      window.open('print.html', '_blank', 'noopener');
+      window.open(siblingView('print'), '_blank', 'noopener');
       e.preventDefault(); break;
     case 'd': case 'D':
       // Live demo: a window or a screen of this machine on the projection.
@@ -18825,7 +18850,7 @@ document.addEventListener('keydown', (e) => {
     case 's': case 'S':
       // Only in audience: open the speaker window and remember it as our peer.
       if (VIEW === 'audience') {
-        const w = window.open('speaker.html', 'psi-slides-speaker', 'width=1400,height=900');
+        const w = window.open(siblingView('speaker'), 'psi-slides-speaker', 'width=1400,height=900');
         setPeer(w);
         e.preventDefault();
       }
@@ -19508,6 +19533,7 @@ function renderSpeaker(lecture, opts = {}) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+${siblingMetaTags()}
 <title>${escapeHtml(title)} – ${escapeHtml(S['title-speaker'])}</title>
 <style>
 ${AUDIENCE_CSS}
