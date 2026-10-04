@@ -24592,7 +24592,10 @@ function createSpanTable(model, body) {
 //                          compiled SVG carries the data URI – so this is a
 //                          table lookup.
 //   imageAspect(abs)    -> h/w or null. Same split.
-//   warn(msg)           Node: console.warn('[diagram] …'). Browser: into the
+//   warn(msg, kind)     `kind` is 'note' for a figure drawn as written that reads
+//                          badly (the exposed-run report) and absent for a drawing
+//                          defect; a host may ignore it.
+//                          Node: console.warn('[diagram] …'). Browser: into the
 //                          editor's message area, so a [diagram] warning is
 //                          something the author sees rather than something
 //                          buried in a console nobody has open.
@@ -28907,7 +28910,7 @@ function createDiagramCompiler(env = {}) {
         + `so the room sees a head with almost no shaft. A written gap is never widened for you, `
         + `because other elements are chained off it – so the fix is on the line that wrote it: `
         + `give ${e.from.ref} and ${e.to.ref} about ${want.toFixed(2)} more rows of gap, or take `
-        + `the written gap off that placement and let the default clear the arrow.`);
+        + `the written gap off that placement and let the default clear the arrow.`, 'note');
     }
   }
 

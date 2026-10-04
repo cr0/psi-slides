@@ -45,20 +45,48 @@ sperrt):
   In `PRD.md` außerhalb §2.1 stehen noch alte Zahlen (Zeilen 140, 284, 290,
   292).
 
+Nachtrag 13:00:
+
+- Merge committet (`610f41f`) und als `migrate/2.0.0` nach `origin` gepusht.
+  `styling/showcase` unverändert `eb9ebaf`, `origin/main` noch am alten
+  Fork-Punkt.
+- Browser-Suite nach den Test-Korrekturen: 1822 bestanden, 0 fehlgeschlagen.
+  `test/settings.mjs` 1265 von 1265, Desktop 58 von 58.
+- **Entschieden (Dozent): Variante A.** Die Schlusszeile
+  `[diagram] N figure warning(s) above` zählt nur Zeichenfehler; die
+  Leinwand-Meldungen (`figure-overflows-canvas`, `figure-underfills-canvas`,
+  `figure-type-small`) und „exposed run" zählen als
+  `[diagram] N figure note(s) above` – beides geparste Verträge.
+- **Grundsatz (Dozent):** Hat 2.0.0 ein Feature, das der Fork selbst gebaut
+  hatte, gilt Upstream.
+- **Figuren (Dozent):** kein kursweiter `figure-type`-Wert, keine pauschalen
+  Maße. Die Figuren werden in den Kursen als geführte Migration konzepttreu
+  nachgezogen (figure-design.md, Regel 11); `frame WxH` / `{.figure-type-N}`
+  nur für ein Schaustück, mit Begründung.
+- **Befund aus dem Vorher/Nachher (INFSEC t00 `#schedule`, t01
+  `#asymmetry`):** 2.0.0 zeichnet bestehende Figuren nicht nur kleiner,
+  sondern anders. Regel „Peers share one size": Kästen, die über
+  `right of` / `left of` verbunden sind, teilen Breite und Höhe, über
+  `below` / `above` die Breite; ein geschriebenes `w` gilt für die ganze
+  Kette. Ein Balken, der `below p1 … w 36.8` unter einer Reihe liegt, macht
+  damit `p1` so breit wie sich selbst. Mit reinem Upstream 2.0.0 nachgebaut:
+  dasselbe Bild, also kein Merge-Fehler. Der Ausweg im Quelltext ist `{.own}`
+  am Balken (beendet die Kette) oder `row a, b, c`. Dafür gibt es **keine**
+  Meldung der Engine außer der Leinwand-Meldung, die als Folge entsteht.
+  Kandidaten sind die 22 Figuren mit geändertem viewBox; das gehört in die
+  geführte Figuren-Migration der Kurse.
+- Reihenfolge (Dozent): Engine abschließen → Skills-Session finalisiert die
+  Skills → nach Abschluss der Migration werden die Veranstaltungen
+  umgestellt. `styling/showcase` bewegt sich nach dem Push der Skills und vor
+  dem ersten `update.sh`, auf ausdrückliches Wort des Dozenten.
+- Der Fork folgt Upstream nur lesend, keine Rückflüsse.
+
 Offen:
 
-- Commit des Merges (Signatur über 1Password aus der Sandbox nicht
-  erreichbar).
-- **Was die Schlusszeile zählt.** Kein kursweiter `figure-type`-Wert räumt die
-  Leinwand-Meldungen ab (gemessen mit 1, 0.8, 0.7, 0.6: kleiner tauscht
-  „overflows" gegen „underfills"). `check-all.mjs` der Skills-Session wertet
-  die Schlusszeile als Befund und würde für fast jede Vorlesung mit Figuren
-  rot. Vorschlag: die Schlusszeile zählt nur, was ihr Satz sagt – „what is
-  drawn is not what the source says" (übermalte Labels, Überlappung, Pfeil im
-  Kasten) –, und die Leinwand-Meldungen bekommen eine eigene Zeile.
-- Vorher/Nachher-Bilder der Figurenfolien; `--check-fit` am Korpus.
+- Bewegung von `styling/showcase` (Wort des Dozenten), danach `origin/main`.
+- Element-Meldungen (exposed run, lands inside, overlap) nennen keinen Chunk.
 - `cwebp` ist auf diesem Rechner defekt (libtiff fehlt).
-- Auslieferung (Schritt 10).
+- `PRD.md` außerhalb §2.1: alte Zahlen (Zeilen 140, 284, 290, 292).
 
 Der Rest dieses Dokuments ist der Plan, wie er vor der Ausführung stand.
 

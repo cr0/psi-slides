@@ -4869,6 +4869,24 @@ console.log('\nlayout generations');
   const quiet = drawRun(head + 'box a "One" at 0,0\nbox b "Two" right of a gap 4.0\n:::\n');
   ok(!/figure warning/.test(quiet.err), 'a clean figure adds no closing line');
 
+  // The closing count is of drawing defects only. A figure drawn as written
+  // that fits its canvas badly is a *note* and has a line of its own, so the
+  // warning count a course wrapper fails on never moves for it.
+  const small = head.replace('96x26', '24x8').replace('w 2.6 h 1.4', 'w 6 h 3');
+  const sparse = drawRun(small + 'box a "One" at 0,0\nbox b "Two" right of a gap 2\n:::\n');
+  ok(/figure-underfills-canvas/.test(sparse.err) && /\[diagram\] 1 figure note\(s\) above/.test(sparse.err),
+     'a figure that underfills its canvas closes with a figure note line');
+  ok(!/figure warning/.test(sparse.err),
+     'and no figure warning line, because nothing drawn differs from the source');
+  const both = drawRun(small
+    + 'box a "One" at 0,0\nbox b "Two" right of a gap 2\n\n'
+    + 'edge a -> b "a caption with far too many words for this gap" side top\n:::\n');
+  ok(/\[diagram\] 1 figure warning\(s\) above/.test(both.err)
+     && /\[diagram\] 2 figure note\(s\) above/.test(both.err),
+     'a real defect, an underfill and an exposed-run report print both lines, each counted on its own');
+  ok(both.err.indexOf('figure warning(s) above') < both.err.indexOf('figure note(s) above'),
+     'warning line first, note line after it');
+
   // The icon token the compiler has no pass for. The build draws the colons
   // and says nothing - correctly, it is a label like any other - so the
   // linter is the only thing between the author and eight literal characters

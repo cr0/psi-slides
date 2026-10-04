@@ -31,6 +31,18 @@ from building the same way is a major version.
      is staged into the desktop engine (`FILES` in
      `desktop/scripts/stage-engine.mjs`).
 
+- **The closing `figure warning(s)` line counts drawing defects only; canvas
+  and legibility reports get a `figure note(s)` line of their own.** Upstream's
+  `figure-overflows-canvas`, `figure-underfills-canvas`, `figure-type-small` and
+  the edge report "its exposed run is ... px" describe a figure drawn as
+  written that fits its canvas badly or reads badly, so "what is drawn is not
+  what the source says" was false for them, and a two-box figure tripped a
+  course wrapper that fails on `[diagram] <n> figure warning(s)`. They are
+  classified where they are raised (`dgWarn(msg, 'note')`; the compiler passes
+  the kind as a second argument to its `warn` callback) and close the build
+  with `[diagram] <n> figure note(s) above` after the warning line, if any.
+  Every message still prints where it did. Both prefixes are parsed contracts.
+
 ### Fixed
 
 - **Safari drew no edge under a figure box, and a grey band above every

@@ -4248,10 +4248,22 @@ const dgLectureTags = new Set();
 
 // Layout runs once per step, so the same complaint would otherwise be
 // printed once per frame. Reset per build alongside the compiler's counter.
+//
+// Two kinds, classified where the message is raised and never by matching its
+// text afterwards. A DEFECT (the default) is a drawing that differs from its
+// source: a label painted over, an overlap, an edge inside an outline. A NOTE
+// (`dgWarn(msg, 'note')`) is a figure drawn as written that fits its canvas
+// badly or reads badly: figure-overflows-canvas, figure-underfills-canvas,
+// figure-type-small, and the compiler's "exposed run" report. The compiler
+// passes the kind as the optional second argument of its `warn` callback, so
+// a host that takes only `msg` (the in-browser editor) is unaffected. Both
+// print identically; only the closing lines count them apart.
 const dgWarned = new Set();
-function dgWarn(msg) {
-  if (dgWarned.has(msg)) return;
-  dgWarned.add(msg);
+const dgNoted = new Set();
+function dgWarn(msg, kind) {
+  const bag = kind === 'note' ? dgNoted : dgWarned;
+  if (bag.has(msg)) return;
+  bag.add(msg);
   console.warn(`[diagram] ${msg}`);
 }
 
@@ -4512,7 +4524,7 @@ function reportFigureTypeStatic() {
             ? ` Its own labels land at about ${f.label.toFixed(0)} px either way - that is the`
               + ` drawing's width against its box, which no multiplier changes - under the`
               + ` ${FIG_TYPE_FLOOR_PX} px a back row can read.`
-            : ''));
+            : ''), 'note');
         continue;
       }
       const fill = (f.contentW * f.contentH) / (f.canvas.w * f.canvas.h);
@@ -4522,7 +4534,7 @@ function reportFigureTypeStatic() {
           + ` ${lab(f.canvas.h)}), so the slide reads empty. More in the drawing, a narrower column`
           + ` (.standard holds ${(FIG_COLUMN_PX.standard / (f.em * f.ft)).toFixed(0)}`
           + ` labels against .wide's ${(FIG_COLUMN_PX.wide / (f.em * f.ft)).toFixed(0)}),`
-          + ` a larger {.figure-type-N}, or  ${wants}  to reserve only what it needs.`);
+          + ` a larger {.figure-type-N}, or  ${wants}  to reserve only what it needs.`, 'note');
         continue;
       }
     }
@@ -4534,7 +4546,7 @@ function reportFigureTypeStatic() {
         + ` the ${Math.round(FIG_REF_HEIGHT_PX)} px a slide allows - so it is scaled to that and its`
         + ` labels land at about ${f.label.toFixed(0)} px at 1600x900, under the ${FIG_TYPE_FLOOR_PX} px a`
         + ` back row can read. Here it is the height cap and not the column that decides the width:`
-        + ` less in the drawing, or a flatter arrangement of the same thing.`);
+        + ` less in the drawing, or a flatter arrangement of the same thing.`, 'note');
       continue;
     }
     const roomier = f.width === 'wide' || f.width === 'full'
@@ -4543,7 +4555,7 @@ function reportFigureTypeStatic() {
     dgWarn(`figure-type-small in ${f.where}: the figure is ${f.typeW.toFixed(0)} labels wide, so in a`
       + ` .${f.width || 'standard'} column its labels land at about ${f.label.toFixed(0)} px at`
       + ` 1600x900 - under the ${FIG_TYPE_FLOOR_PX} px a back row can read. Fewer grid`
-      + ` units or shorter labels, or ${roomier}.`);
+      + ` units or shorter labels, or ${roomier}.`, 'note');
   }
 }
 
@@ -33272,6 +33284,7 @@ function buildOnce(absIn, only, opts = {}) {
   dgSymbolCounter = 0;
   dgCore.resetCounter();
   dgWarned.clear();
+  dgNoted.clear();
   dgLectureTags.clear();
   MATH_ERRORS.length = 0;
   UNRESOLVED_ASSETS.clear();
@@ -35916,6 +35929,16 @@ async function main() {
   if (dgWarned.size) {
     console.warn(`[diagram] ${dgWarned.size} figure warning(s) above: what is drawn is `
       + `not what the source says. Scroll up – each one names the element and the pixels.`);
+  }
+  // The second contract, the same way: `[diagram] <n> figure note(s)` is
+  // grepped by whoever wants to enforce canvas fit and legibility separately
+  // from drawing defects (those five tokens are not free to change; the
+  // sentence after the colon is). A note is a figure drawn as written – see
+  // dgWarn – so it never joins the warning count above.
+  if (dgNoted.size) {
+    console.warn(`[diagram] ${dgNoted.size} figure note(s) above: drawn as written, but the `
+      + `figure does not fit its canvas or an arrow has no shaft to read. Scroll up – each one `
+      + `names the figure and the fix.`);
   }
   emitEvent({
     type: 'build-success', reason: 'manual',
