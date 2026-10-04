@@ -81,9 +81,34 @@ Nachtrag 13:00:
   dem ersten `update.sh`, auf ausdrückliches Wort des Dozenten.
 - Der Fork folgt Upstream nur lesend, keine Rückflüsse.
 
+Nachtrag 04.10.2026, Abschluss der Engine-Seite:
+
+- **Ausgeliefert.** `origin/styling/showcase` steht auf `e9a8343`,
+  `origin/main` auf `d56bd35` (Upstream v2.0.0); vom Dozenten selbst gepusht.
+  Skills-Release `6992b6f` (Migrationen 0007 Logo, 0008 `neighbours`, 0009
+  Figuren) liegt vor.
+- **Abweichungen von psi-slides 2.0.0 nur nach Rückfrage beim Dozenten.**
+- **Figurenfolien unter 2.0.0** (gemessen, 1920x1080, 98 Folien mit Figur):
+  75 liegen unter dem Deck-Zoom, vorher keine; reines Upstream-Verhalten.
+  Regel: ein Label hat Fließtextgröße, und eine Zeichnung breiter als ihre
+  Spalte (49.5 Labels bei `.full`) nimmt die Schrift der Folie herunter; dazu
+  reserviert die Live-Ansicht die ganze Leinwandhöhe.
+- **Entschieden (Dozent, über die Skills-Session):** die Sammelprüfung bleibt
+  streng (Folie unter Deck-Zoom ist ein Fehler); `frame WxH` ist der
+  Normalfall für eine Figur mit Leitsatz oder Karten; kein `figure-type`
+  unter 1. Die Kurse ziehen ihre Figuren mit Migration 0009 nach: zuerst
+  `{.own}`, wo eine Kette die Zeichnung verändert hat, dann Breite und
+  `frame`.
+
 Offen:
 
-- Bewegung von `styling/showcase` (Wort des Dozenten), danach `origin/main`.
+- Lokales `styling/showcase` im Hauptverzeichnis steht noch auf `eb9ebaf`;
+  das Nachziehen scheitert an den uncommitteten Dateien dort.
+- Skills-Repo: Engine-Commit vermerken; CI-Image (`SKILLS_REF`, Job-Skript
+  mit Logo-Kopie) zusammen mit den umgestellten Quellen.
+- Kurse: Migrationen 0007–0009.
+- Worktree `.worktrees/migrate-2.0.0`, Zweig `migrate/2.0.0` und Tag
+  `pre-2.0.0` aufräumen, wenn die Kurse umgestellt sind.
 - Element-Meldungen (exposed run, lands inside, overlap) nennen keinen Chunk.
 - `cwebp` ist auf diesem Rechner defekt (libtiff fehlt).
 - `PRD.md` außerhalb §2.1: alte Zahlen (Zeilen 140, 284, 290, 292).
