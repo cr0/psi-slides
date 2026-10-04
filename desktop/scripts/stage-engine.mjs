@@ -4,10 +4,11 @@
 // createRequire for the bundled fonts and the KaTeX stylesheet, a dynamic
 // import() for ws, and a WASM load for Shiki's regex engine.
 //
-// What is copied is what the engine reads about itself: build.js, the four
+// What is copied is what the engine reads about itself: build.js, the six
 // files it splices in at run time over import.meta.url (diagram-core.mjs,
-// cue-cards.mjs, editor.mjs, editor.css), the one it imports statically
-// (tails.mjs), and the package.json and lockfile that decide the dependency
+// cue-cards.mjs, commands.mjs, pulse-embed.js, editor.mjs, editor.css), the
+// three it only imports statically (tails.mjs, colour.mjs, and pdf-core.mjs for
+// the PDF option checks) – commands.mjs is both – and the package.json and lockfile that decide the dependency
 // tree. Everything else in the repository – the lectures, the tests, the site
 // – is not the engine.
 //
@@ -35,7 +36,11 @@ const FILES = [
   'build.js',
   'diagram-core.mjs',
   'tails.mjs',
+  'colour.mjs',
   'cue-cards.mjs',
+  'commands.mjs',
+  'pdf-core.mjs',
+  'pulse-embed.js',
   'editor.mjs',
   'editor.css',
   'package.json',
@@ -58,10 +63,15 @@ for (const name of FILES) {
 }
 console.log(`staged ${FILES.length} files into engine/`);
 
-// --omit=dev because the app never runs the browser suite; --ignore-scripts
-// because nothing in this tree has an install script worth running and a
-// packaging step should not execute code it did not ask for.
-const install = spawnSync('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], {
+// --omit=dev because the app never runs the browser suite; --omit=optional
+// because the one optional dependency is playwright-core, which only
+// --slides-pdf and the three probes load, none of which the app passes - it
+// was a dev dependency until the PDF export made it optional, and 12 MB of
+// browser driver in every package is what that move would otherwise have
+// cost; --ignore-scripts because nothing in this tree has an install script
+// worth running and a packaging step should not execute code it did not ask
+// for.
+const install = spawnSync('npm', ['ci', '--omit=dev', '--omit=optional', '--ignore-scripts', '--no-audit', '--no-fund'], {
   cwd: engine,
   stdio: 'inherit',
   shell: process.platform === 'win32', // npm is a .cmd there and has no other entry point

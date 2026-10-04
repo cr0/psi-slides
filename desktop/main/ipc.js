@@ -12,7 +12,8 @@ const { spawn } = require('node:child_process');
 const { ipcMain, dialog, shell, app } = require('electron');
 
 const { resolveSource, checkNewProject, isOutputKind, EXTERNAL_URLS } = require('./validation');
-const { buildJsPath } = require('./engine');
+const { buildJsPath, engineDir } = require('./engine');
+const { createPdfExporter } = require('./pdf');
 const { openInBrowser, describeBrowser } = require('./browsers');
 
 function register(ctx) {
@@ -44,9 +45,35 @@ function register(ctx) {
 
   // ── opening a project ─────────────────────────────────────────────
 
+  // ── the PDF exports ───────────────────────────────────────────────
+
+  // The last file an export wrote, so that "open it" and "show it in the
+  // folder" need no path from the window. Forgotten with the lecture.
+  let lastPdf = null;
+  const pdf = createPdfExporter({
+    builder,
+    getWindow: () => ctx.getWindow(),
+    engineDir,
+    // The save dialog's title, in the window's language.
+    dialogTitle: () => ctx.t('pdf.title'),
+    onReport: (res) => {
+      lastPdf = res.file;
+      // The report goes into the build details as the command line prints
+      // it, diagnostics and all; the window shows the result on its own.
+      for (const line of res.report) builder.addLog(line.text);
+      builder.emit();
+    },
+  });
+  // Closing the window aborts a running export as closing the lecture does.
+  ctx.abortPdf = () => pdf.abort();
+  // The File menu greys out its export items while one runs.
+  ctx.pdfBusy = () => pdf.busy();
+
   function openProject(input) {
     const r = resolveSource(input);
     if (!r.ok) return { ok: false, error: r.error, path: String(input || '') };
+    pdf.abort();
+    lastPdf = null;
     builder.setBrowser(describeBrowser(settings.get().browser));
     builder.open(r.source, { serve: settings.get().serve });
     settings.addRecent({ path: r.source, name: r.name });
@@ -57,6 +84,8 @@ function register(ctx) {
   ctx.openProject = openProject;
 
   function closeProject() {
+    pdf.abort();
+    lastPdf = null;
     builder.close();
     ctx.rebuildMenu();
     return { ok: true };
@@ -157,6 +186,33 @@ function register(ctx) {
     if (res && res.ok === false) {
       return { ok: false, error: 'error.openFailed', path: `${kind}.html`, reason: res.reason };
     }
+    return { ok: true };
+  });
+
+  // A kind and, for the slides, the collapse – never a path. The main
+  // process asks where the file goes, in its own dialog.
+  // The menu is rebuilt when the export starts and when it ends, so that its
+  // export items are greyed out exactly while a second one would be refused.
+  ipcMain.handle('exportPdf', async (_e, kind, opts) => {
+    const running = pdf.exportPdf(kind, opts);
+    ctx.rebuildMenu();
+    try {
+      return await running;
+    } finally {
+      ctx.rebuildMenu();
+    }
+  });
+
+  ipcMain.handle('openPdf', async () => {
+    if (!lastPdf || !fs.existsSync(lastPdf)) return { ok: false, error: 'error.openFailed' };
+    const reason = await shell.openPath(lastPdf);
+    if (reason) return { ok: false, error: 'error.openFailed', path: path.basename(lastPdf), reason };
+    return { ok: true };
+  });
+
+  ipcMain.handle('showPdf', () => {
+    if (!lastPdf || !fs.existsSync(lastPdf)) return { ok: false, error: 'error.openFailed' };
+    shell.showItemInFolder(lastPdf);
     return { ok: true };
   });
 

@@ -1,8 +1,8 @@
 # Contributing
 
 Thank you for looking. Be aware of what this project is before you invest
-time in it: one author, and a test suite that covers only what a browser can
-break. It is used for real teaching, which is why it is public. Since 1.0.0
+time in it: one author, a suite of fast checks that need no browser, and a
+browser suite for what only a built page can break. It is used for real teaching, which is why it is public. Since 1.0.0
 the **source format** is stable – a change
 that stops an existing `source.md` from building the same way is a major
 version – but the code behind it is rearranged whenever that helps.
@@ -35,17 +35,18 @@ node test/run.mjs                           # the browser suite, see below
 ```
 
 `npm test` runs the fast gates and then the browser suite, in that order, so a
-compiler regression fails in a second rather than after four minutes.
+compiler regression fails in seconds rather than after twelve minutes.
 
 **`node lint.js lectures/` is the gate**, and `node test/run.mjs` is the
 safety net. The linter is zero-dependency and runs anywhere, so run it on every
 commit. The suite drives built lectures in a headless Chromium and covers what
-can only break in a built page, in three families: the navigation model, the
-diagram editor's gestures and panel, and the geometry of an emitted figure. It
-said "three things" for as long as it had three specs; it has twenty-two, and
-577 assertions. It builds and serves the lectures itself, so it never reports
-on stale HTML. It needs a browser (`$PSI_CHROME`, else the Playwright cache,
-else the browser the host installed) and takes about five minutes.
+can only break in a built page, in four families: the navigation model, the
+geometry the live chrome leaves the slide, the diagram editor's gestures and
+panel, and the geometry of an emitted figure (`test/README.md` lists them). It
+said "three things" for as long as it had three specs; it has fifty-one, and
+about 1,800 assertions. It builds and serves the lectures itself, so it never
+reports on stale HTML. It needs a browser (`$PSI_CHROME`, else the Playwright
+cache, else the browser the host installed) and takes about twelve minutes.
 `node test/run.mjs nav` runs the specs whose name matches.
 
 `no page errors` is asserted by the runner after every spec rather than by
@@ -64,17 +65,19 @@ somebody remembered.
 ### The fast gates
 
 ```bash
-npm run gate                   # all of them, about a fifth of a second
+npm run gate                   # all twenty-one, about three seconds
 node test/gates/run.mjs corpus # only the gates whose name matches
 ```
 
-`test/gates/` is everything about the **figure language** that can be decided
-without a browser. It needs no `npm install` and no Chromium, because
-`diagram-core.mjs` and `lint.js` are both zero-dependency, and it runs on every
-push in CI, which the browser suite cannot be: it needs `npm ci`, a Chromium
-and five minutes. Where the suite *does* run is a version tag, in
+`test/gates/` is everything that can be decided without a browser: the
+**figure language** first, and any hand-mirrored list one file keeps of
+another's. It needs no `npm install` and no Chromium, because the modules it
+loads and `lint.js` are zero-dependency, and it runs on every push in CI,
+which the browser suite cannot be: it needs `npm ci`, a Chromium and twelve
+minutes. Where the suite *does* run is a version tag, in
 `release.yml`, and on demand from `browser.yml` – start that one from the
-Actions tab to put a branch through it before tagging. Five gates:
+Actions tab to put a branch through it before tagging. [`test/README.md`](test/README.md)
+says what each gate guards; five of them hold the figure language:
 
 - **`refusals.mjs`** – 170 fixtures, each compiled through `diagram-core.mjs`
   *and* run through `lint.js`, asserting the two agree on every refusal. This
@@ -126,9 +129,16 @@ particular:
   parsing contract rather than importing it. When you change the vocabulary
   in `build.js`, change it in `lint.js` in the same commit. A linter that
   disagrees with the build is worse than no linter, because it is the gate.
-- **Do not commit generated HTML.** The one exception is
-  `lectures/tutorial/*.html`, tracked so the tour is browsable from the
-  repository; rebuild and commit those whenever the tutorial source changes.
+- **Do not commit generated HTML.** The exceptions are the views of
+  `lectures/tutorial/` and `lectures/diagrams/` (all four) and of
+  `lectures/decoration/` (`audience.html` and `print.html`), tracked so the
+  tour and the two construct references are browsable from the repository.
+  Rebuild them with `npm run build:tracked` and commit them whenever one of
+  the three sources, or anything they render through, changes. That script
+  passes `--no-optimize-images`: by default an inlined PNG or JPEG becomes
+  WebP through whatever `cwebp` or `magick` the machine has, so a view built
+  with an encoder is not the same bytes as one built on the release runner,
+  which has none – and two encoder versions differ too.
 
 ## Building and releasing
 
@@ -158,13 +168,14 @@ python3 -m http.server -d _site 8000
 ```
 
 **A version tag publishes a release.** `.github/workflows/release.yml` fires on
-`v*`, and it refuses to publish if the tag disagrees with `package.json`, if
-the lint fails, if the tracked tutorial HTML is not what the current source
-builds, or if the browser suite finds a regression – it runs there, last of
+`v*`, and it refuses to publish if the tag disagrees with `package.json` or
+with `desktop/package.json`, if the lint fails, if a tracked view is not what `npm run build:tracked` makes
+of the current source, if the release notes would not fit, or if the browser suite finds a regression – it runs there, last of
 the checks because it is the only one that costs minutes. If that is a
 surprise at tag time, it should not be: run `browser.yml` from the Actions tab
 on the branch first. Then it attaches two archives, `psi-slides.tar.gz` and
-`psi-slides.zip`. **Do not rename those assets**: the README and the site link
+`psi-slides.zip`, and the desktop app's packages. **Do not rename those
+archives**: the README and the site link
 `releases/latest/download/psi-slides.tar.gz`, which only resolves while the
 file is called exactly that.
 
@@ -178,39 +189,70 @@ archive does not pretend otherwise.
 **The desktop app is packaged by a third workflow.** `.github/workflows/desktop.yml`
 runs on a push that touches `desktop/` or one of the engine files the app
 stages (`build.js`, `diagram-core.mjs`, `tails.mjs`, `cue-cards.mjs`,
-`editor.mjs`, `editor.css`, `LICENSE`, the root `package.json` and lockfile –
-`desktop/test/stage-engine.test.mjs` holds that filter against the staging
-script's own list, because it is the third hand-written copy of it): it runs the app's tests
+`commands.mjs`, `pdf-core.mjs`, `pulse-embed.js`, `editor.mjs`, `editor.css`,
+`LICENSE`, the root `package.json` and lockfile – `desktop/test/stage-engine.test.mjs`
+holds that filter against the staging script's own list, because it is the
+third hand-written copy of it), or one of the two the app does not stage but
+its smoke test runs (`pdf-export.mjs`, `chrome-path.mjs`, behind the parity
+check): it runs the app's tests
 and its smoke test, then builds unsigned packages for macOS, Windows and Linux
-and attaches them to the run as artefacts, for testing.
+and attaches them to the run as artefacts, for testing. Run by hand from the
+Actions tab (`workflow_dispatch`), it is also how a package between two
+releases is made.
 
-**Until 2.0.0 the app has its own version and its own tag.** `desktop/package.json`
-is at 0.x, and a tag `builder-<version>` runs
-`.github/workflows/desktop-release.yml`, which reuses `desktop.yml` as a
-reusable workflow and attaches the three platforms' packages to a
-**pre-release** – never a release, so `releases/latest/download/` keeps
-pointing at the last engine release. The tag is deliberately outside the
-`v*` pattern: a `v2.0.0-beta.1` would run `release.yml`, which creates
-releases without `--prerelease`, and every reader of the site would be
-handed a beta engine. The asset names carry no version (`artifactName` in
+**From 2.0.0 the app ships on the engine's tag, at the engine's version.**
+`desktop/package.json` carries the same version as `package.json`, and
+`release.yml` calls `desktop.yml` as a reusable workflow and attaches the three
+platforms' packages to the same release as the two archives. The jobs are
+ordered so the release is created once and whole: `check` compares the tag
+with both `package.json` files and cuts the release notes; `engine` (every
+engine check, then the archives) and `desktop` (the app's tests, its smoke
+test, then the packages) both need it and run side by side; `publish` needs
+all three and is the only job that writes to the release. If any of them
+fails, `publish` does not run and there is no release at all – not an engine
+release without its app. The tag stays: "Re-run failed jobs" on the run
+retries a flaky runner and then publishes, or delete the tag, fix and tag
+again. `gh release create` with assets makes a draft, uploads and only then
+publishes, so an upload that fails leaves a draft to delete, never a
+half-published release. The asset names carry no version (`artifactName` in
 `desktop/package.json`), so the site links
-`releases/download/builder-<version>/psi-slides-builder-mac-arm64.dmg` and
-the link is the package that was tested. From 2.0.0 the app and the engine
-carry the same version number, and the desktop packages become additional
-assets on the same release tag beside `psi-slides.tar.gz` and
-`psi-slides.zip`, whose names do not change.
+`releases/latest/download/psi-slides-builder-mac-arm64.dmg` and the link
+is the package that was tested; `publish` checks that all five are there
+before it creates anything.
 
-**The site's download links change after the tag, never with it.** The link
-gate in `docs/site/build-site.js` resolves internal targets and fragments; it
-does not fetch an external URL, so a page pointing at
-`releases/download/builder-<next>/…` passes the gate whether or not that
-release exists – and `pages.yml` redeploys on every push to `main`, which
-makes a commit that changes a download link a publish rather than a staging
-step. So: push the tag, wait for `desktop-release.yml` to attach all five
-assets, check them (`gh release view builder-<version> --json assets`, or a
-`curl -sIL -o /dev/null -w '%{http_code}'` per link), and only then commit
-the version strings in `docs/site/getting-started.html` and
-`getting-started.de.html` – six URLs and one `<code>` per page.
+**There is no separate desktop pre-release any more.** Up to 2.0.0 the app
+had its own 0.x version and its own `builder-<version>` tag, which ran
+`desktop-release.yml` and attached the packages to a pre-release. That
+workflow is gone: with one version for both, a pre-release of the app between
+two engine releases would need a version neither of them has, and a tag
+`release.yml` refuses. A package to try between releases is the artefact of a
+`desktop.yml` run, started by hand if no push has run it. The `builder-0.1.x`
+pre-releases stay on GitHub as they are. Do not push a `v*` tag with a
+suffix (`v2.1.0-beta.1`) to get a beta either: `release.yml` creates releases
+without `--prerelease`, and `releases/latest/download/` would hand every
+reader of the site a beta engine.
+
+**The site's download links never change.** They point at
+`releases/latest/download/<asset>`, and the asset names carry no version, so
+a release needs no edit on the site. What they do depend on is timing:
+`pages.yml` redeploys the site on every push to `main`, and until
+`release.yml` has published the new release, `latest` is the previous one.
+So the tag goes first and `main` follows once the release is out (step 6
+below): the site deploys in about four minutes while `publish` waits for the
+engine job's browser suite, about twenty, so pushing the two together still
+left the site describing a version the links did not deliver for that long,
+and an asset the previous release did not carry was a 404 – longer if the
+release failed. The link gate in `docs/site/build-site.js` resolves internal
+targets and fragments; it does not fetch an external URL, so it cannot see
+this. Once `release.yml` has published all seven assets, check them
+(`gh release view v<version> --json assets`, or a
+`curl -sIL -o /dev/null -w '%{http_code}'` per link on
+`getting-started.html`).
+
+**`ubuntu-latest` moves to Ubuntu 26 on 2026-10-19.** Every workflow here runs
+on that label; run the browser suite (`browser.yml`) once after the switch,
+before the next tag, because a runner image that moves the browser fails the
+release, not a push.
 
 **The macOS release is signed and notarised on the maintainer's machine**, not
 in CI – `npm run dist:signed` in `desktop/`, with the Developer ID
@@ -218,7 +260,7 @@ certificate in the keychain and the three notarisation variables in a
 gitignored `desktop/.env`, exactly as the Booklet Tool is released;
 `desktop/README.md` has the steps. Nothing of that is a repository secret.
 The signed package is uploaded over CI's unsigned one, under the same name:
-`gh release upload builder-<version> "desktop/dist/psi-slides-builder-mac-arm64.dmg" --clobber`,
+`gh release upload v<version> "desktop/dist/psi-slides-builder-mac-arm64.dmg" --clobber`,
 and the `.zip` the same way.
 
 **`npm run dist:signed` notarises the app, not the disk image.** Read its log:
@@ -248,26 +290,49 @@ are not signed by convention.
 Cutting a release:
 
 1. `node lint.js lectures/ docs/site/example/source.md` – clean.
-2. Rebuild the tutorial and commit `lectures/tutorial/*.html` if they moved.
-   The release job checks this and fails on a stale tour.
+2. `npm run build:tracked`, and commit the tracked views if they moved. The
+   release job runs the same command and fails on a stale view.
 3. Run the browser suite – `node test/run.mjs`, or `browser.yml` from the
    Actions tab on the branch. The release job runs it too, and a tag is a bad
    place to learn that a spec is red.
-4. Move the changelog's `## [Unreleased]` items into a new version section and
-   update the two link definitions at the bottom. The release notes are cut
-   from that section by heading, so the heading has to read `## [1.2.3]`.
-5. Bump `version` in `package.json` to match.
-6. Commit, then tag and push:
+4. Rename the changelog's `## [Unreleased]` heading to the new version, open
+   an empty `## [Unreleased]` above it, and update the two link definitions
+   at the bottom. The release notes are cut from that section by heading, so
+   the heading has to read `## [1.2.3]`. GitHub takes 125,000 characters for
+   a release body at most, and the job checks the size before it builds
+   anything. A section that would not fit opens with a `### Breaking` list
+   and a `### Highlights` list: the body is then those two plus a link to
+   `CHANGELOG.md` at the tag. Give each of `### Added`, `### Changed`,
+   `### Removed`, `### Fixed` and `### Security` one heading per section, so
+   the full section stays readable too.
+5. Bump `version` to match, in `package.json` and in both places in
+   `package-lock.json`: `npm version --no-git-tag-version 1.2.3` does all
+   three and neither commits nor tags. Run the same command in `desktop/`,
+   for `desktop/package.json` and its lockfile; the release job refuses a
+   tag that either `package.json` disagrees with.
+6. Commit, then tag and push the tag alone. The tag is on the commit that
+   will be `main`, so `release.yml` builds exactly what the site will
+   describe. Wait for its `publish` job to go green, then push `main`, which
+   deploys the site:
 
 ```bash
 git tag -a v1.2.3 -m "psi-slides 1.2.3"
-git push origin main v1.2.3
+git push origin v1.2.3
+gh run watch "$(gh run list --workflow release.yml --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status
+git push origin main
 ```
 
-Pushing `main` redeploys the site; pushing the tag publishes the release. If
-the release job fails, delete the tag on both sides (`git push --delete origin
+Pushing `main` first, or with the tag, puts a site that describes the new
+version in front of download links that still hand out the previous one. If
+a job of the release run fails, nothing is published and `main` waits. A
+runner that failed for no reason of the tree's is retried with "Re-run failed
+jobs"; otherwise
+delete the tag on both sides (`git tag -d v1.2.3`, `git push --delete origin
 v1.2.3`), fix, and tag again – a partially published release is worse than a
 late one.
+
+7. Upload the signed macOS packages over CI's unsigned ones (see above), and
+   check the site's download links resolve. They need no edit.
 
 ## Conventions
 

@@ -32,32 +32,22 @@
        kostet eine Vorlesung etwas, die es nicht benutzt. -->
   <div class="pair-up">
    <div>
-    <p><strong>Hier wird nichts gezeichnet.</strong> Eine Komposition braucht ein
-    Wort im Frontmatter &ndash; dem Einstellungsblock am Anfang der Datei &ndash;
-    oder eine <code>:::</code>-Zeile im Text, in derselben Datei wie die
-    Vorlesung. Es gibt keine Zeichenfläche, keine zweite Datei,
-    die man mitpflegen müsste, und keinen Kasten zum Ziehen &ndash; eine Folie,
-    die am Abend vorher neu geschrieben wurde, setzt sich trotzdem.</p>
+    <p><strong>Hier wird nichts von Hand platziert.</strong> Jedes Layout
+    dieser Seite braucht ein Wort im Frontmatter &ndash; dem Einstellungsblock am Anfang der
+    Datei &ndash; oder eine <code>:::</code>-Zeile im Text. Es gibt keine
+    Zeichenfläche, die man einrichten müsste, und keine zweite Datei, die man
+    mitpflegen müsste &ndash; eine Folie, die am Abend vorher neu geschrieben
+    wurde, setzt sich trotzdem.</p>
    </div>
    <div>
-    <p><strong>Eine Vorlesung, die diese Seite ignoriert, baut genau wie
-    vorher</strong> &ndash; dieselben vier Dateien, Byte für Byte. Und eine
-    Konstruktion nimmt man wieder zurück: Wer die Zeile löscht, die eine davon
+    <p><strong>Eine Vorlesung, die nichts davon benutzt, bleibt davon
+    unberührt</strong> &ndash; jede Konstruktion gilt nur dort, wo man sie
+    schreibt. Und eine Konstruktion nimmt man wieder zurück: Wer die Zeile löscht, die eine davon
     verlangt hat, bekommt die Folie so zurück, wie sie vorher war. Der Text
     bleibt, wo er ist; die Konstruktion legt sich um ihn, und man kann eine an
     einer einzelnen Folie ausprobieren, ohne den Rest der Vorlesung
     anzufassen.</p>
    </div>
-  </div>
-
-  <div class="hint">
-    <p><strong>Das hier ist jünger als die Formatzusage.</strong> Beide Wege zu
-    psi-slides bauen es &ndash; die App wie die Quellen &ndash;, aber es kam
-    nach 1.0.0, das das Quellformat festgeschrieben hat. Eine Vorlesung mit
-    <code>cover:</code>, <code>::: dock</code> oder dem Rest kann also eine
-    Änderung nötig machen, wenn diese Teile ein eigenes Release erreichen.
-    <a href="getting-started.html#preview">Loslegen</a> sagt, was die Zusage
-    deckt und was nicht.</p>
   </div>
  </div>
 </section>
@@ -67,9 +57,8 @@
   <h2 id="covers">Zehn Arten, eine Vorlesung zu eröffnen</h2>
   <p class="lede">Eine Vorlesung kann mit einem Titel in der Ecke eröffnen, mit
   einer Farbfläche oder mit einem Foto, auf dem die Worte stehen.
-  Welche es wird, sagt man im Frontmatter mit <code>cover:</code>. Die zehn stehen
-  unten von leise nach laut statt alphabetisch, weil leise oder laut die Frage
-  ist, die man bei der Wahl beantwortet.</p>
+  Welche es wird, sagt man im Frontmatter mit <code>cover:</code>. Die zehn
+  stehen unten von leise nach laut geordnet.</p>
 
   <p class="cue">Drei davon, in dieser Reihenfolge. <code>classic</code> ist
   die Voreinstellung, und eine Vorlesung, die keine nennt, bekommt sie.</p>
@@ -97,7 +86,7 @@
       <code>hero</code> aus <code>cover-image:</code>, <code>beside</code> und
       <code>above</code> aus dem, was die Titelfolie selbst trägt, sodass eine
       in der Vorlesung geschriebene Abbildung das Titelbild sein kann. Zwei weitere
-      Angaben verschieben die Schrift, statt die Komposition auszutauschen &ndash;
+      Angaben verschieben die Schrift innerhalb einer Komposition &ndash;
       mit <code>cover-align:</code> setzt man sie nach oben, in die Mitte oder
       nach unten, bei den sieben, die überhaupt eine Wahl lassen, und mit
       <code>cover-ratio:</code> sagt man, wie viel der Folie das Bild bekommt,
@@ -118,7 +107,7 @@
       <code>style: {caps: on}</code> setzt die kleine Schrift darum in
       Versalien.</p>
       <div class="gallery">
-      <figure class="shot tile"><img src="../img/masthead.webp" alt="Eine Titelfolie mit dem Titel an der Oberkante, einem Vorspann in der Mitte und den Angaben unter einer Linie am Fuß.">
+      <figure class="shot tile"><img src="../img/masthead.webp" alt="Eine Titelfolie mit dem Titel an der Oberkante, einer Einleitungszeile in der Mitte und den Angaben unter einer Linie am Fuß.">
       <figcaption><code>masthead</code> der Titel an der Oberkante, die Angaben unter einer Linie am Fuß</figcaption></figure>
       <figure class="shot tile"><img src="../img/stack.webp" alt="Eine Titelfolie, deren ganzer Schriftblock auf beiden Achsen zentriert ist.">
       <figcaption><code>stack</code> auf beiden Achsen zentriert, für eine Eröffnung, die still sein will</figcaption></figure>
@@ -146,12 +135,10 @@
     <p><strong>Die letzte Folie ist die Gegenklammer zum Titel.</strong> Eine
     Folie, die als <code>## closing:</code> geschrieben ist, wird in der
     Komposition gezeichnet, die man mit <code>cover:</code> genannt hat, damit
-    die Stunde in der Form endet, in der sie angefangen hat. Sie trägt die eigenen Worte und weder die Zeile mit dem
-    Namen noch das Datum: die sagen, wer spricht und wann, und das weiß der Saal
-    seit einer Stunde. Mit <code>closing-credits:</code> holt man sie zurück
-    &ndash; <code>contact</code> nur die Fußzeile, für die eine Zeile, wegen
-    der man eine letzte Folie meist stehen lässt, oder <code>cover</code> den
-    ganzen Block.</p>
+    die Stunde in der Form endet, in der sie angefangen hat. Sie trägt die
+    eigenen Worte, ohne die Zeile mit dem Namen und ohne das Datum. Mit
+    <code>closing-credits:</code> holt man sie zurück: <code>contact</code>
+    nur die Fußzeile, <code>cover</code> den ganzen Block.</p>
    </div>
    <div>
     <p><strong>Auch die sechs Kompositionen ohne Bild können eines
@@ -159,7 +146,7 @@
     jeder Folie, auch hinter der Titelfolie, und es gewinnt gegen das, was die
     Komposition dort gezeichnet hätte. Bei <code>panel</code> entsteht aus
     beidem etwas, das keines allein hat: die Akzentfläche wird zum Schleier,
-    und das Foto liest sich durch eine Platte aus Farbe.</p>
+    und das Foto scheint durch eine Farbfläche hindurch.</p>
    </div>
   </div>
  </div>
@@ -172,8 +159,8 @@
   <code>#</code>-Überschrift in der Quelle, und die Vorlesung stellt einen
   Trenner davor, damit der Saal bei der Überschrift ankommt, bevor die erste
   Folie des Teils kommt. Eine von sechs Kompositionen nennt man mit
-  <code>section:</code>, und sie bleiben leiser als die Titelfolie: ein
-  Trenner, den man für sie halten kann, hat seine einzige Aufgabe verfehlt.</p>
+  <code>section:</code>, und sie bleiben leiser als die Titelfolie, damit man
+  einen Trenner nicht für sie hält.</p>
 
   <!-- Alle sechs in voller Größe, während bei den Titelfolien acht eingeklappt
        bleiben; hier fällt dieselbe Entscheidung andersherum aus. Die Trenner
@@ -205,7 +192,7 @@
    <div>
     <p><strong>Ein Trenner kann seine eigene Folie tragen.</strong> Was
     zwischen der <code>#</code>-Überschrift und der ersten Folie darunter
-    steht, steht auf dieser Folie &ndash; früher fiel es wortlos weg. Ein Zitat,
+    steht, steht auf dieser Folie. Ein Zitat,
     ein Foto, eine Abbildung oder eine Reihe aus drei Begriffen: der Teil eröffnet
     damit, und es braucht keine eigene Anweisung.</p>
    </div>
@@ -214,8 +201,7 @@
     schreibt.</strong> Ein <code>## outline:</code> an der gewünschten Stelle
     gibt dieselbe Liste wie der <code>outline</code>-Trenner &ndash; meist gleich
     hinter dem Titel, wo mangels Teilgrenze gar kein Trenner entsteht. Vor dem
-    ersten Teil ist kein Punkt aktiv: Ein Plan, den noch niemand begonnen hat,
-    wird in voller Stärke gelesen.</p>
+    ersten Teil ist kein Punkt als aktuell markiert.</p>
    </div>
   </div>
  </div>
@@ -224,33 +210,32 @@
 <section class="band">
  <div class="wrap">
   <h2 id="display-face">Eine Schrift nur für die Übergangsfolien</h2>
-  <p class="lede">Titelfolie, Schlussfolie und Abschnittstrenner sind die eine
-  Stelle im Foliensatz, an der eine laute Schrift kein Fehler ist: einen Trenner
-  liest niemand, man sieht, dass einer gekommen ist, und weiß, wo man in der
-  Stunde steht. <code>fonts: {display: Anton}</code> gibt diesen dreien eine
-  Schrift und erreicht sonst nichts &ndash; eine gewöhnliche Überschrift, ein
-  Kartenkopf, eine Abbildungsbeschriftung behalten die Textschrift. 32 liegen
-  bei, unter der SIL Open Font License, in drei Geschmacksrichtungen:
-  handgeschrieben, maschinell, plakativ &ndash; und
-  <a href="../display-faces.html">jede ist hier in Titelfolie und Trenner
-  gezeichnet</a>, mit dem eigenen Titel darin.</p>
+  <p class="lede"><code>fonts: {display: Anton}</code> gibt Titelfolie,
+  Schlussfolie und Abschnittstrennern eine eigene Schrift, oft eine laute, und
+  erreicht sonst nichts: Eine gewöhnliche Überschrift, ein Kartenkopf und eine
+  Abbildungsbeschriftung behalten die Textschrift. 32 solcher Schriften liegen
+  bei, unter der SIL Open Font License, in drei Arten:
+  Hand, Maschine und Grafik &ndash; und
+  <a href="../display-faces.html#roster" hreflang="en">jede ist hier in Titelfolie und Trenner
+  gezeichnet</a> (englisch), mit dem eigenen Titel darin. Dieselbe Seite zeigt die
+  neun Textschriften &ndash; Serife, Grotesk und Mono &ndash; auf einer Folie und auf
+  einer gedruckten Seite: <a href="../display-faces.html#text-faces" hreflang="en">alle
+  mitgelieferten Schriften, für Text und für Titel</a> (englisch).</p>
 
   <div class="stage">
    <div class="stage-pair">
     <figure class="shot">
      <div class="bar"><b>audience.html</b> &middot; cover: display</div>
      <img src="../img/deco-display-cover.webp" alt="Eine Titelfolie, deren zwei Titelwörter sehr groß in einer schweren schmalen Grotesk stehen, darunter Untertitel und Angaben in der Textserife.">
-     <figcaption><strong>Der Titel ist die Folie.</strong> Der Angabenblock
-     darunter bleibt in der Textschrift &ndash; das erst macht den Kontrast zu einem
-     Kontrast und nicht zu einer Folie in einer einzigen lauten
-     Schrift.</figcaption>
+     <figcaption><strong>Der Titel füllt die Folie.</strong> Der Angabenblock
+     darunter bleibt in der Textschrift.</figcaption>
     </figure>
     <figure class="shot">
      <div class="bar"><b>audience.html</b> &middot; section: number</div>
      <img src="../img/deco-display-divider.webp" alt="Eine Trennerfolie mit einer großen Akzentziffer Zwei über einer Teilüberschrift in schwerer schmaler Grotesk.">
-     <figcaption><strong>Die Ziffer folgt dem Thema, die Wörter nicht.</strong>
+     <figcaption><strong>Die Ziffer folgt dem Farbschema, die Wörter nicht.</strong>
      <kbd>A</kbd> führt den Akzent durch sieben Farben, während die Überschrift
-     daneben die gewählte Schrift behält.</figcaption>
+     daneben die Schrift behält, die die Vorlesung gewählt hat.</figcaption>
     </figure>
    </div>
   </div>
@@ -266,10 +251,9 @@
    </div>
    <div>
     <p><strong>Kein Tastendruck kommt daran.</strong> <kbd>F</kbd> wechselt die
-    Textschrift, <kbd>A</kbd> das Akzentthema; Titelfolie und Trenner ignorieren
-    beides, während ihre Farbe weiter dem Thema folgt und sie damit auch dunkel
-    lesbar bleiben. Ein Foliensatz ohne Display-Schrift bettet nichts ein und
-    baut genau wie zuvor.</p>
+    Textschrift, <kbd>A</kbd> das Farbschema; Titelfolie und Trenner ignorieren
+    beides, während ihre Farbe weiter dem Farbschema folgt und sie damit auch
+    dunkel lesbar bleiben. Eine Vorlesung ohne Titelschrift bettet nichts ein.</p>
    </div>
   </div>
  </div>
@@ -293,15 +277,13 @@
      <div class="bar"><b>audience.html</b> &middot; ::: cards 3</div>
      <img src="../img/deco-cards.webp" alt="Eine projizierte Folie mit einem Absatz und darunter drei Kästen in einer Reihe, jeder mit einer Haarlinie umrandet und mit einem fetten Wort beginnend.">
      <figcaption><strong>Eine Größe für die ganze Reihe</strong>, genommen vom
-     längsten Punkt. Drei Größen in einer Reihe liest man als Fehler, nicht als
-     Hierarchie.</figcaption>
+     längsten Punkt, damit die drei Karten zusammenpassen.</figcaption>
     </figure>
     <figure class="shot">
      <div class="bar"><b>audience.html</b> &middot; ::: rows</div>
      <img src="../img/deco-rows.webp" alt="Eine projizierte Folie mit drei gestapelten Zeilen, jede aus einem kurzen Begriff in einem getönten Kasten links und der Erklärung daneben.">
-     <figcaption><strong>Eine Begriffsspalte für den ganzen Stapel</strong>,
-     weil er ein Raster ist und nicht ein Raster pro Zeile. Die Erklärungen fluchten,
-     wie lang die Begriffe auch sind.</figcaption>
+     <figcaption><strong>Eine Begriffsspalte für den ganzen Stapel.</strong>
+     Die Erklärungen fluchten, wie lang die Begriffe auch sind.</figcaption>
     </figure>
    </div>
   </div>
@@ -314,16 +296,16 @@
     <p><strong>Eine Reihe bedient die Folie und das Handout zugleich.</strong>
     Was man unter einer Karte auf einer zweiten Ebene schreibt, steht nicht auf
     der Projektion, aber im gedruckten Dokument: Der Saal bekommt die
-    Überschrift und der Leser die Einzelheiten. Auf <kbd>C</kbd> kommen die
+    Überschrift und die Lesenden die Einzelheiten. Auf <kbd>C</kbd> kommen die
     Ebenen an die Wand, wenn eine Frage sie braucht, ohne es zweimal zu
     schreiben.</p>
    </div>
    <div>
-    <p><strong>Worauf eine Karte steht, braucht ein Wort.</strong> Eine getönte
-    Fläche, eine Haarlinie, die Akzentfarbe mit heller Schrift darauf, die
-    Papierfarbe, gar kein Kasten oder ein Bild als eigener Grund der Karte. Nie
-    Fläche und Linie zusammen: ein grauer Kasten in einem grauen Rahmen liest
-    sich als Formularfeld und nicht als Karte.</p>
+    <p><strong>Worauf eine Karte steht, braucht ein Wort, eines von
+    sechs.</strong> Eine getönte Fläche, eine Haarlinie, die Akzentfarbe mit
+    heller Schrift darauf, die Papierfarbe, gar kein Kasten oder ein Bild als
+    eigener Grund der Karte. Schreibt man zwei davon an eine Kartenreihe, bricht
+    der Build mit einer Meldung ab.</p>
    </div>
   </div>
  </div>
@@ -349,9 +331,9 @@
     randlos hinter allem, auf jeder Folie. Eine Zeile, und die Textspalte
     bleibt, wo sie ist.</p>
     <p class="cue">Darüber liegt voreingestellt ein Schleier in der
-    Hintergrundfarbe des Themes, damit gewöhnlicher Text über dem Bild und in
-    allen sieben Themes lesbar bleibt.</p>
-    <p class="cue">Schreibt man <code>reveal</code> dahinter, ändert jeder Druck
+    Hintergrundfarbe des Farbschemas, damit gewöhnlicher Text über dem Bild und in
+    allen sieben Farbschemas lesbar bleibt.</p>
+    <p class="cue">Schreibt man <code>reveal</code> dahinter, ändert jeder Tastendruck
     auf die <kbd>Leertaste</kbd>, wie viel vom Bild zu sehen ist: ein Band an
     einer Kante, die ganze Folie oder nichts. Bewegt wird die Öffnung, nicht das
     Foto &ndash; es öffnet sich also über der Folie, statt dahinter
@@ -366,11 +348,10 @@
   <h2 id="overlay-dock">Über der Folie oder Teil des Rahmens</h2>
   <p class="lede">Ein Overlay liegt <em>über</em> der Folie und nimmt ihr
   nichts weg. Ein Dock ist <em>Teil des Rahmens</em>, und die Textspalte weicht
-  ihm. Das ist der ganze Unterschied; die Einstellungen schreibt man für beide
-  gleich.</p>
+  ihm. Die Einstellungen schreibt man für beide gleich.</p>
 
   <p class="cue">Beide nehmen eine Kante, einen Grund und eine Breite, und
-  beide lassen sich bis zu einem späteren Druck auf die <kbd>Leertaste</kbd>
+  beide lassen sich bis zu einem späteren Tastendruck auf die <kbd>Leertaste</kbd>
   zurückhalten.</p>
 
   <div class="stage">
@@ -408,9 +389,9 @@
    <div>
     <p><strong>Ein Link in einem Dock ist eine lebende Marke.</strong> Jeder
     Punkt nennt eine Folie beim Namen, und der Punkt zu der Folie, auf der der
-    Saal gerade ist, leuchtet auf, während die übrigen zurücktreten. Ein Punkt, der auf nichts zeigt, lässt den Build scheitern,
-    statt tot dazustehen &ndash; was eine von Hand gepflegte Liste beim dritten
-    Umbau tut.</p>
+    Saal gerade ist, leuchtet auf, während die übrigen zurücktreten. Ein
+    Punkt, der eine Folie nennt, die es nicht gibt, bricht den Build mit einer
+    Meldung ab, statt als toter Link stehen zu bleiben.</p>
    </div>
   </div>
  </div>
@@ -419,23 +400,23 @@
 <section class="band band-close">
  <div class="wrap">
   <div class="middle">
-  <h2>Wo es weitergeht</h2>
+  <h2>Zum Weiterlesen</h2>
   <ul class="reads">
-    <li><b><a href="../decoration/audience.html">Die Decoration-Vorlesung</a></b>
-      Jede Konstruktion dieser Seite, auf der Folie, die sie beschreibt, in
-      einer Vorlesung zum Durchblättern. Ihr
+    <li><b><a href="../decoration/audience.html" hreflang="en">Die Dekorations-Vorlesung (englisch)</a></b>
+      Die Konstruktionen dieser Seite auf eigenen Folien, in einer Vorlesung
+      zum Durchblättern. Sie trägt eine Titelfolie und nennt alle
+      zehn. Ihr
       <a href="../decoration/print.html">gedrucktes Dokument</a> kommt aus
       derselben Quelle wie das Handout.</li>
     <li><b><a href="index.html">Was psi-slides ist</a></b>
-      Die Startseite: eine Vorlesung, wie der Saal sie sieht und wie der Leser
-      sie bekommt, und warum das dieselbe Datei ist.</li>
-    <li><b><a href="in-the-room.html">Im Raum</a></b>
-      Die Stunde von hinter dem Laptop: das Cockpit, die Beats, und was man
+      Die Startseite: eine Vorlesung, wie der Saal sie sieht und wie die Lesenden
+      sie bekommen, und warum das dieselbe Datei ist.</li>
+    <li><b><a href="in-the-room.html">Im Hörsaal</a></b>
+      Die Stunde von hinter dem Laptop: das Cockpit, die Schritte, und was man
       drückt, wenn es im Saal still wird.</li>
-    <li><b><a href="../figures.html">Figures you write</a></b>
-      Die Begründung für die Abbildungssprache, und
-      <a href="../figures-you-write.html">das Handbuch</a>, das eine Abbildung Zeile
-      für Zeile aufbaut und jede Anweisung auflistet.</li>
+    <li><b><a href="../figures.html" hreflang="en">Figures you write (englisch)</a></b>
+      Die Begründung für die Abbildungssprache, dann das Handbuch: eine
+      Abbildung Zeile für Zeile aufgebaut, und jede Anweisung.</li>
   </ul>
 
   <footer>

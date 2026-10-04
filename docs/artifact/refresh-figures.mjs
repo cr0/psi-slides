@@ -13,6 +13,10 @@
  * lecture next door, so a change to the compiler reaches the page by running
  * this script rather than by anyone re-drawing anything.
  *
+ * The project site publishes the page as figures.html, with its bar put in at
+ * the topbar marker by docs/site/build-site.js. That copy is not written here:
+ * this script owns the figures, build-site.js owns the bar.
+ *
  * Two things this script exists to get right, both learned by getting them
  * wrong:
  *
@@ -169,17 +173,17 @@ function svgFor(html, chunkId, prefix) {
   const b = html.indexOf('</svg>', a);
   if (a < 0 || b < 0) throw new Error('no svg in chunk #' + chunkId);
   const svg = html.slice(a, b + 6);
-  const m = svg.match(/id="([a-z0-9]+)-root"/);
+  const m = svg.match(/id="(psiINT-dg[0-9]+)-root"/);
   if (!m) throw new Error('figure in #' + chunkId + ' carries no root id');
   // Two families of id have to be renamed, not one. The element ids are
   // numbered per document; the <symbol> an embedded picture is defined in is
   // numbered per *figure*, so two figures out of the same build both call
-  // theirs psi-sym-1. Lifted into one page, the second figure's <use> resolves
+  // theirs psiINT-sym-1. Lifted into one page, the second figure's <use> resolves
   // against the first figure's symbol - which is how the base-rate figure came
   // to show a smiling face where its own file draws a frown, with a correct
   // reference pointing at a correct symbol belonging to somebody else.
   return {
-    svg: svg.split(m[1] + '-').join(prefix + '-').split('psi-sym-').join(prefix + '-sym-'),
+    svg: svg.split(m[1] + '-').join(prefix + '-').split('psiINT-sym-').join(prefix + '-sym-'),
     old: m[1],
   };
 }
@@ -647,6 +651,19 @@ page = replaceBetween(page, '<script id="psi-dg-runtime">', '</script><!--/runti
   '\n' + runtime + '\n', 'runtime');
 say('  runtime ' + runtime.length + ' bytes, parses');
 
+// ── the figure that plays itself at the top of the page ──────────────────
+// Compiled from the live build rather than the printed one because it plays
+// itself: the frames payload is the whole point, and print's static viewBox
+// would clip the beats. demo-controls.js starts it on `[data-autoplay]`.
+{
+  const { svg, old: oldRoot } = svgFor(live, 'sitehero', 'sltop');
+  const payload = payloadFor(live, oldRoot, 'sltop');
+  if (!payload) throw new Error('#sitehero has no frames payload');
+  page = replaceBetween(page, '<div class="herotop" data-autoplay>', '</div><!--/herotop-->',
+    svg + payload, 'hero figure');
+  say('  hero figure spliced, playing itself');
+}
+
 // ── the guard the whole thing exists for ─────────────────────────────────
 // Every id in the page, not only the figure roots. The root check passed for
 // a whole commit while two figures shared a <symbol> id, because the thing
@@ -659,122 +676,63 @@ if (dupes.length) {
 const roots = allIds.filter((i) => /-root$/.test(i));
 say('  ' + roots.length + ' figures, ' + allIds.length + ' ids, all unique');
 
-// The controls under a stepped figure, read from disk and inlined into every
-// page that carries one. Two pages carry one now, which is exactly why it is a
-// file: two copies of the same event wiring is how the arrows on one page come
-// to behave differently from the arrows on the other.
+// The controls under a stepped figure, read from disk and inlined. A file of
+// its own since the page was two pages, when two copies of the same event
+// wiring would have been how the arrows on one came to behave differently from
+// the arrows on the other.
 const CONTROLS = fs.readFileSync(path.join(HERE, 'demo-controls.js'), 'utf8');
 page = replaceBetween(page, '// demo-controls-start', '// demo-controls-end',
   '\n' + CONTROLS.trimEnd() + '\n', 'demo controls');
 say('  demo controls inlined, ' + CONTROLS.length + ' bytes');
 
-// The one raster the manual carries: the screenshot of the editor's window,
-// embedded as a data: URI rather than referenced. Everything else on this page
-// is compiler output, and the page's own promise is the one the lectures make
-// - it fetches nothing at run time - so an `img/…` path would be the single
-// line that breaks it. The bytes are the same file the case page shows through
-// site.css's screenshot frame, so one shot serves both and neither can drift
-// from the other: re-take it with `node docs/site/shoot.mjs editor` and run
-// this script.
-const SHOT = path.join(ROOT, 'docs/site/img/editor.webp');
-if (!fs.existsSync(SHOT)) {
-  throw new Error('the editor screenshot is missing: ' + path.relative(ROOT, SHOT) +
-    '\nTake it with: node docs/site/shoot.mjs editor');
-}
-const shotB64 = fs.readFileSync(SHOT).toString('base64');
-const SHOT_ALT = 'The diagram editor open over a lecture slide: a dark canvas ' +
-  'holding a CBC decryption figure with one box selected, the relations that ' +
-  'place it written on the canvas beside it, a panel on the right describing ' +
-  'the beat that is standing, a rail of the figure&rsquo;s beats along the ' +
-  'bottom, and a strip of the lecture&rsquo;s other figures under that.';
-page = replaceBetween(page, '<div class="uishot-frame" data-shot="editor">',
-  '</div><!--/editorshot-->',
-  '<img src="data:image/webp;base64,' + shotB64 + '" alt="' + SHOT_ALT + '">',
-  'editor screenshot');
-say('  editor screenshot embedded, ' + Math.round(shotB64.length / 1024) + ' KB base64');
-
-// ── the project site's case for the language ────────────────────────────
-// A second output, and the reason it is here rather than in build-site.js is
-// that everything it needs has already been computed: the compiled figures,
-// the stepped payloads, the rails, the stylesheet and the runtime. The site
-// page is the argument - situation, complication, answer, then three figures
-// that carry it - and `figures-you-write.html` is the manual. Splitting them
-// was the point: one page was doing both, and its own eyebrow admitted it by
-// putting "start here" on the second section.
-//
-// It takes the site's palette rather than this page's. The diagram stylesheet
-// asks for --ink, --paper and --rule by exactly the names site.css already
-// defines, so the drawings come out in the site's colours with no mapping;
-// only --emph and a handful of component tokens are declared there.
-const SITE = path.join(ROOT, 'docs/site/figures.html');
-let site = fs.readFileSync(SITE, 'utf8');
-const siteWas = site;
-
-{
-  const { svg } = svgFor(printed, 'hero', 'slhero');
-  site = replaceSvg(site, 'slhero-root', svg);
-  site = replaceBetween(site, '<pre data-opensrc="hero">', '</pre><!--/opensrc-->',
-    hl(diagramBlock(lectureMd, 'hero').split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')),
-    'site hero listing');
-}
-
-// The figure at the top of the page. Compiled from the live build rather than
-// the printed one because it plays itself: the frames payload is the whole
-// point, and print's static viewBox would clip the beats.
-{
-  const { svg, old: oldRoot } = svgFor(live, 'sitehero', 'sltop');
-  const payload = payloadFor(live, oldRoot, 'sltop');
-  if (!payload) throw new Error('site: #sitehero has no frames payload');
-  site = replaceBetween(site, '<div class="herotop" data-autoplay>', '</div><!--/herotop-->',
-    svg + payload, 'site hero figure');
-}
-
-// The same two chunks the artifact page steps through, compiled again with a
-// prefix of their own so the two files can never collide on an element id.
-for (const chunk of ['follow', 'seq-demo']) {
-  const d = DEMOS.find((x) => x.chunk === chunk);
-  const { svg, old: oldRoot } = svgFor(live, chunk, 'sd' + chunk);
-  const payload = payloadFor(live, oldRoot, 'sd' + chunk);
-  if (!payload) throw new Error('site: #' + chunk + ' has no frames payload');
-  const data = JSON.parse(payload.slice(payload.indexOf('>') + 1, payload.lastIndexOf('</script>')));
-  site = replaceBetween(site, '<div class="demo-stage" data-demo="' + chunk + '">',
-    '</div><!--/stage-->', svg + payload, 'site stage ' + chunk);
-  const rail = ['opening', ...data.names].map((nm, i) =>
-    '\n      <li><button type="button">' +
-    (i === 0 ? '' : '<b>' + i + '</b> ') + nm.replace(/[&<>]/g, '') + '</button></li>').join('');
-  site = replaceBetween(site, '<ol class="rail" data-rail="' + chunk + '">', '</ol><!--/rail-->',
-    rail + '\n    ', 'site rail ' + chunk);
-  const block = d && d.bare
-    ? diagramBlock(lectureMd, chunk).split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
-    : diagramBlock(lectureMd, chunk);
-  site = replaceBetween(site, '<pre class="demo-src" data-demosrc="' + chunk + '">',
-    '</pre><!--/demosrc-->', hl(block), 'site source ' + chunk);
-}
-
-site = replaceBetween(site, '/* dg-css-start */', '/* dg-css-end */', '\n' + dgCss + '\n',
-  'site diagram stylesheet');
-site = replaceBetween(site, '// dg-rt-start', '// dg-rt-end', '\n' + runtime + '\n',
-  'site diagram runtime');
-site = replaceBetween(site, '// demo-controls-start', '// demo-controls-end',
-  '\n' + CONTROLS.trimEnd() + '\n', 'site demo controls');
-
-{
-  const ids = [...site.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
-  const dup = [...new Set(ids.filter((r, i) => ids.indexOf(r) !== i))];
-  if (dup.length) throw new Error('site: duplicate ids after splice: ' + dup.slice(0, 8).join(', '));
-  const figs = [...site.matchAll(/<svg id="[a-z0-9-]+-root"/g)].length;
-    say('  docs/site/figures.html: ' + figs + ' figures, ' + ids.length + ' ids, all unique');
+// The two rasters the page carries: a slide of lectures/diagrams beside the
+// links to that lecture at the top, and the screenshot of the editor's window.
+// Both are embedded as data: URIs rather than referenced. Everything else on
+// this page is compiler output, and the page's own promise is the one the
+// lectures make - it fetches nothing at run time - so an `img/…` path would be
+// the single line that breaks it. Re-take one with
+// `node docs/site/shoot.mjs <name>` and run this script.
+const SHOTS = [
+  {
+    name: 'diagrams-cbc',
+    open: '<div class="golecture-frame" data-shot="diagrams-cbc">',
+    close: '</div><!--/lectureshot-->',
+    alt: 'A projected slide from the lecture, light type on a dark ground. ' +
+      'Under the heading &ldquo;Cipher Block Chaining, decryption&rdquo;, a ' +
+      'random IV and three ciphertext blocks c0, c1 and c2 stand in a row; ' +
+      'each block feeds a Dec box with a key k beside it, and each Dec box an ' +
+      'XOR circle. Three chaining arrows, lit in orange, run from the IV, c0 ' +
+      'and c1 down to the XOR of the next column. The plaintext row under the ' +
+      'XOR circles has not appeared yet.',
+  },
+  {
+    name: 'editor',
+    open: '<div class="uishot-frame" data-shot="editor">',
+    close: '</div><!--/editorshot-->',
+    alt: 'The diagram editor open over a lecture slide: a dark canvas ' +
+      'holding a CBC decryption figure with one box selected, the relations that ' +
+      'place it written on the canvas beside it, a panel on the right describing ' +
+      'the beat that is standing, a rail of the figure&rsquo;s beats along the ' +
+      'bottom, and a strip of the lecture&rsquo;s other figures under that.',
+  },
+];
+for (const shot of SHOTS) {
+  const file = path.join(ROOT, 'docs/site/img', shot.name + '.webp');
+  if (!fs.existsSync(file)) {
+    throw new Error('a screenshot is missing: ' + path.relative(ROOT, file) +
+      '\nTake it with: node docs/site/shoot.mjs ' + shot.name);
+  }
+  const b64 = fs.readFileSync(file).toString('base64');
+  page = replaceBetween(page, shot.open, shot.close,
+    '<img src="data:image/webp;base64,' + b64 + '" alt="' + shot.alt + '">',
+    shot.name + ' screenshot');
+  say('  ' + shot.name + ' screenshot embedded, ' + Math.round(b64.length / 1024) + ' KB base64');
 }
 
 if (CHECK) {
-  const drift = [page !== was && 'figures-you-write.html', site !== siteWas && 'docs/site/figures.html']
-    .filter(Boolean);
-  say(drift.length ? '\nDRIFT: ' + drift.join(' and ') + ' do(es) not match a fresh build' : '\nup to date');
-  process.exit(drift.length ? 1 : 0);
+  say(page !== was ? '\nDRIFT: figures-you-write.html does not match a fresh build' : '\nup to date');
+  process.exit(page !== was ? 1 : 0);
 }
-fs.writeFileSync(SITE, site);
-say('wrote docs/site/figures.html (' + site.length + ' bytes)'
-  + (site === siteWas ? ' - unchanged' : ''));
 fs.writeFileSync(PAGE, page);
 say('\nwrote ' + path.relative(ROOT, PAGE) + ' (' + page.length + ' bytes)' +
   (page === was ? ' - unchanged' : ''));

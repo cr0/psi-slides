@@ -146,6 +146,12 @@ function dgeCollectFigures() {
       // its siblings.
       nth: 0,
       width: data.width || 'standard',
+      // The canvas the build laid this figure out on, carried so a re-render
+      // here reserves the same slide box the build did. Without it the first
+      // drag would redraw the figure hugging its content - a drawing that
+      // jumps to another size the moment it is touched and back on the next
+      // build. null for a figure the build gave no canvas.
+      canvas: data.canvas || null,
       alt: data.alt || '',
       images,
       compiler: dgeCompilerFor(images),
@@ -186,7 +192,7 @@ function dgeCompile(fig, body) {
     // `lift` is the offset edge (elevation: offset), which the build draws
     // as geometry at compile time; without it here a figure recompiled in
     // the browser would lose its edge until the next build.
-    out.html = fig.compiler.renderDiagram(src, fig.attrs, { prefix: fig.prefix, alt: fig.alt, base, lift: window.PSI_DG_LIFT || 0 });
+    out.html = fig.compiler.renderDiagram(src, fig.attrs, { prefix: fig.prefix, alt: fig.alt, base, canvas: fig.canvas, lift: window.PSI_DG_LIFT || 0 });
     out.ok = true;
   } catch (err) {
     out.errors = dgeErrorsFrom(err);
@@ -450,7 +456,7 @@ const DGE_SLOTS = [
   { key: 'reading', label: 'reading',
     options: [{ cls: '', label: 'across' }, { cls: 'turn', label: 'up' }] },
   // One slot, "how a line is drawn": the waypoints as segments, as a spline
-  // through them, or as a rail halfway across the gap. `.elbow` writes its own
+  // through them, or as a rail across the gap. `.elbow` writes its own
   // two waypoints, so the compiler refuses an edge that also carries `via`
   // rather than silently preferring one – an edge already bent by hand is
   // therefore not offered it.
@@ -468,6 +474,16 @@ const DGE_SLOTS = [
     options: [{ cls: '', label: 'sans' }, { cls: 'mono' }, { cls: 'serif' }, { cls: 'hand' }] },
   { key: 'fitting', label: 'type fits the box',
     options: [{ cls: '', label: 'no' }, { cls: 'fit' }, { cls: 'shrink' }] },
+  // Whether this box takes its size from the boxes it stands with. A run of
+  // `right of` boxes shares one width and one height by default, because a row
+  // of four widths reads as four weights; `.own` is how one box leaves the run
+  // – and, since nothing reaches through it, how a run is broken in two.
+  // Not on a synthesised box: a table cell, a lane, an actor's head is sized
+  // by its own statement and stands in no chain, so the swatch would only
+  // write a class the compiler ignores there.
+  { key: 'sizing', label: 'size',
+    options: [{ cls: '', label: 'shared' },
+      { cls: 'own', label: 'its own', when: (el) => !(el.synth && el.synth !== el.id) }] },
   { key: 'weightfont', label: 'text weight',
     options: [{ cls: '', label: 'regular' }, { cls: 'bold' }] },
   // Both axes, and on a box as well as a free text: a tall element with a
@@ -700,9 +716,10 @@ function dgeFrameMetrics() {
   const width = DGE.fig ? DGE.fig.width : 'standard';
   const em = DGE_FRAME_EM[DGE.frame][width] || 36;
   const px = em * dgeEmPx();
-  // .psi-diagram is capped at 62vh in the live views and at nothing in
-  // print. A figure that hits the cap leaves a band of the measure empty
-  // beside it, and that is invisible until you look at the built page.
+  // .psi-diagram is capped at 62% of the slide height in the live views and
+  // at nothing in print. A figure that hits the cap is the case where its
+  // width is decided by the frame rather than by its type, and that is
+  // invisible until you look at the built page.
   const capPx = DGE.frame === 'print' ? Infinity : window.innerHeight * 0.62;
   return { em, px, capPx, width };
 }
@@ -714,7 +731,7 @@ let dgeRoot = null;
 function dgeBuildChrome() {
   if (dgeRoot) return dgeRoot;
 
-  const tools = dgeEl('nav', { id: 'dge-tools', 'aria-label': 'Tools' });
+  const tools = dgeEl('nav', { id: 'psiINT-dge-tools', 'aria-label': 'Tools' });
   for (const t of DGE_TOOLS) {
     if (t.sep) { tools.appendChild(dgeEl('hr', {})); continue; }
     const icon = dgeEl('svg', { viewBox: '0 0 15 15', 'aria-hidden': 'true' }, [
@@ -729,7 +746,7 @@ function dgeBuildChrome() {
     tools.appendChild(btn);
   }
 
-  const seg = dgeEl('div', { class: 'dge-seg', id: 'dge-frames', role: 'group', 'aria-label': 'Frame' });
+  const seg = dgeEl('div', { class: 'dge-seg', id: 'psiINT-dge-frames', role: 'group', 'aria-label': 'Frame' });
   for (const f of ['slide', 'column', 'print']) {
     seg.appendChild(dgeEl('button', {
       type: 'button', 'data-frame': f, 'aria-pressed': String(f === DGE.frame),
@@ -737,8 +754,8 @@ function dgeBuildChrome() {
     }, [document.createTextNode(f[0].toUpperCase() + f.slice(1)), dgeEl('i', { text: '' })]));
   }
 
-  const top = dgeEl('header', { id: 'dge-top' }, [
-    dgeEl('span', { class: 'dge-name', id: 'dge-name' }),
+  const top = dgeEl('header', { id: 'psiINT-dge-top' }, [
+    dgeEl('span', { class: 'dge-name', id: 'psiINT-dge-name' }),
     dgeEl('span', {
       class: 'dge-experimental',
       text: 'experimental',
@@ -746,64 +763,64 @@ function dgeBuildChrome() {
     }),
     dgeEl('div', { class: 'dge-group' }, [
       dgeEl('button', { type: 'button', class: 'dge-btn', 'data-act': 'prev', title: 'previous figure (, or PageUp)', text: '‹', onclick: () => dgeGoFigure(-1) }),
-      dgeEl('span', { id: 'dge-figpos' }),
+      dgeEl('span', { id: 'psiINT-dge-figpos' }),
       dgeEl('button', { type: 'button', class: 'dge-btn', 'data-act': 'next', title: 'next figure (. or PageDown)', text: '›', onclick: () => dgeGoFigure(1) }),
-      dgeEl('button', { type: 'button', class: 'dge-btn', id: 'dge-board-btn', title: 'the figure board', html: 'Board <kbd>O</kbd>', onclick: () => dgeToggleBoard() }),
+      dgeEl('button', { type: 'button', class: 'dge-btn', id: 'psiINT-dge-board-btn', title: 'the figure board', html: 'Board <kbd>O</kbd>', onclick: () => dgeToggleBoard() }),
       dgeEl('button', { type: 'button', class: 'dge-btn', text: 'New figure…', title: 'put a whole figure chunk on the clipboard, for source.md', onclick: () => dgeNewFigure() }),
     ]),
     dgeEl('div', { class: 'dge-group' }, [dgeEl('span', { class: 'dge-cap', text: 'frame' }), seg]),
     dgeEl('div', { class: 'dge-group' }, [
       dgeEl('button', { type: 'button', class: 'dge-btn', text: '−', title: 'zoom out', onclick: () => dgeZoomBy(1 / 1.2) }),
-      dgeEl('span', { id: 'dge-zoom' }),
+      dgeEl('span', { id: 'psiINT-dge-zoom' }),
       dgeEl('button', { type: 'button', class: 'dge-btn', text: '+', title: 'zoom in', onclick: () => dgeZoomBy(1.2) }),
       dgeEl('button', { type: 'button', class: 'dge-btn', text: 'Fit', title: 'fit the frame in the canvas', onclick: () => dgeZoomFit() }),
     ]),
     dgeEl('span', { class: 'dge-spacer' }),
-    dgeEl('span', { id: 'dge-room' }),
+    dgeEl('span', { id: 'psiINT-dge-room' }),
     dgeEl('div', { class: 'dge-group' }, [
-      dgeEl('button', { type: 'button', class: 'dge-btn', id: 'dge-undo-btn', title: 'undo (⌘Z)', text: '↶', onclick: () => dgeUndo() }),
-      dgeEl('button', { type: 'button', class: 'dge-btn', id: 'dge-redo-btn', title: 'redo (⇧⌘Z)', text: '↷', onclick: () => dgeRedo() }),
+      dgeEl('button', { type: 'button', class: 'dge-btn', id: 'psiINT-dge-undo-btn', title: 'undo (⌘Z)', text: '↶', onclick: () => dgeUndo() }),
+      dgeEl('button', { type: 'button', class: 'dge-btn', id: 'psiINT-dge-redo-btn', title: 'redo (⇧⌘Z)', text: '↷', onclick: () => dgeRedo() }),
     ]),
-    dgeEl('button', { type: 'button', class: 'dge-btn', id: 'dge-file-btn', text: 'Open source.md…', title: 'write back straight into the file (Chromium only)', onclick: () => dgePickSourceFile() }),
-    dgeEl('button', { type: 'button', class: 'dge-btn', id: 'dge-revert-btn', text: 'Revert', title: 'discard your edits to this figure', onclick: () => dgeRevertLocal() }),
-    dgeEl('button', { type: 'button', class: 'dge-btn dge-on', id: 'dge-copy-btn', html: 'Copy source <kbd>⌘S</kbd>', onclick: () => dgeCommit() }),
+    dgeEl('button', { type: 'button', class: 'dge-btn', id: 'psiINT-dge-file-btn', text: 'Open source.md…', title: 'write back straight into the file (Chromium only)', onclick: () => dgePickSourceFile() }),
+    dgeEl('button', { type: 'button', class: 'dge-btn', id: 'psiINT-dge-revert-btn', text: 'Revert', title: 'discard your edits to this figure', onclick: () => dgeRevertLocal() }),
+    dgeEl('button', { type: 'button', class: 'dge-btn dge-on', id: 'psiINT-dge-copy-btn', html: 'Copy source <kbd>⌘S</kbd>', onclick: () => dgeCommit() }),
     dgeEl('button', { type: 'button', class: 'dge-btn', html: 'Close <kbd>Esc</kbd>', onclick: () => dgeClose() }),
   ]);
 
-  // The guide layer is a sibling of the drawing *inside* #dge-art, not of the
+  // The guide layer is a sibling of the drawing *inside* #psiINT-dge-art, not of the
   // frame: the frame has padding, so guides pinned to it would be offset by
   // that padding from the picture they annotate. Sharing the drawing's own
   // box and its viewBox is what makes a guide drawn at 3.2,1 land at 3.2,1.
-  const guides = dgeEl('svg', { id: 'dge-guides', 'aria-hidden': 'true' });
-  const art = dgeEl('div', { id: 'dge-art' }, [guides]);
-  const frame = dgeEl('div', { id: 'dge-frame' }, [art]);
-  const stage = dgeEl('div', { id: 'dge-stage' }, [frame]);
-  const board = dgeEl('div', { id: 'dge-board', hidden: true });
-  const assets = dgeEl('div', { id: 'dge-assets', hidden: true }, [
-    dgeEl('div', { id: 'dge-assets-inner' }, [
+  const guides = dgeEl('svg', { id: 'psiINT-dge-guides', 'aria-hidden': 'true' });
+  const art = dgeEl('div', { id: 'psiINT-dge-art' }, [guides]);
+  const frame = dgeEl('div', { id: 'psiINT-dge-frame' }, [art]);
+  const stage = dgeEl('div', { id: 'psiINT-dge-stage' }, [frame]);
+  const board = dgeEl('div', { id: 'psiINT-dge-board', hidden: true });
+  const assets = dgeEl('div', { id: 'psiINT-dge-assets', hidden: true }, [
+    dgeEl('div', { id: 'psiINT-dge-assets-inner' }, [
       dgeEl('header', {}, [
         dgeEl('b', { text: 'Place a picture' }),
         dgeEl('button', { type: 'button', class: 'dge-btn', text: 'Cancel', onclick: () => dgeCloseAssetPicker() }),
       ]),
-      dgeEl('div', { id: 'dge-assets-list' }),
-      dgeEl('p', { id: 'dge-assets-note' }),
+      dgeEl('div', { id: 'psiINT-dge-assets-list' }),
+      dgeEl('p', { id: 'psiINT-dge-assets-note' }),
     ]),
   ]);
-  const canvas = dgeEl('main', { id: 'dge-canvas' }, [stage, board, assets]);
+  const canvas = dgeEl('main', { id: 'psiINT-dge-canvas' }, [stage, board, assets]);
 
-  const side = dgeEl('aside', { id: 'dge-side' });
-  const status = dgeEl('footer', { id: 'dge-status' }, [
-    dgeEl('span', { class: 'dge-group', id: 'dge-beats', hidden: true }),
-    dgeEl('span', { class: 'dge-line', id: 'dge-statusline' }),
-    dgeEl('span', { class: 'dge-note', id: 'dge-statusnote' }),
+  const side = dgeEl('aside', { id: 'psiINT-dge-side' });
+  const status = dgeEl('footer', { id: 'psiINT-dge-status' }, [
+    dgeEl('span', { class: 'dge-group', id: 'psiINT-dge-beats', hidden: true }),
+    dgeEl('span', { class: 'dge-line', id: 'psiINT-dge-statusline' }),
+    dgeEl('span', { class: 'dge-note', id: 'psiINT-dge-statusnote' }),
     dgeEl('span', { class: 'dge-spacer' }),
-    dgeEl('span', { id: 'dge-counts' }),
+    dgeEl('span', { id: 'psiINT-dge-counts' }),
   ]);
-  const strip = dgeEl('section', { id: 'dge-strip', 'aria-label': 'Figures' });
+  const strip = dgeEl('section', { id: 'psiINT-dge-strip', 'aria-label': 'Figures' });
 
   tools.appendChild(dgeEl('hr', {}));
   tools.appendChild(dgeEl('button', {
-    type: 'button', class: 'dge-btn dge-tool', id: 'dge-lock', 'aria-pressed': 'false',
+    type: 'button', class: 'dge-btn dge-tool', id: 'psiINT-dge-lock', 'aria-pressed': 'false',
     title: 'keep the current tool active instead of falling back to select  (Q)',
     onclick: () => { DGE.toolLocked = !DGE.toolLocked; dgeRenderTools(); },
   }, [
@@ -814,7 +831,7 @@ function dgeBuildChrome() {
   ]));
 
   dgeRoot = dgeEl('div', {
-    id: 'dge-root', role: 'dialog', 'aria-modal': 'true',
+    id: 'psiINT-dge-root', role: 'dialog', 'aria-modal': 'true',
     'aria-label': 'Diagram editor, experimental', hidden: true,
   }, [top, tools, canvas, side, status, strip]);
   document.body.appendChild(dgeRoot);
@@ -946,7 +963,7 @@ function dgeBoxesAt(model, beat) {
 }
 
 function dgePaintArt(html) {
-  const art = dgeQ('#dge-art');
+  const art = dgeQ('#psiINT-dge-art');
   const holder = document.createElement('div');
   holder.innerHTML = html;
   const fig = holder.querySelector('figure');
@@ -966,12 +983,12 @@ function dgePaintArt(html) {
   else if (svg.dataset.liveViewbox) svg.setAttribute('viewBox', svg.dataset.liveViewbox);
   svg.removeAttribute('width');
   svg.removeAttribute('height');
-  // The compiler prefixes every id inside the figure (dg3-mix, dg3-edge-1--p)
+  // The compiler prefixes every id inside the figure (psiINT-dg3-mix, psiINT-dg3-edge-1--p)
   // and the root carries the prefix too, so keep it before overwriting the id.
   // It is the only way back from a model id to the node the compiler drew for
   // it, and searching by suffix instead would match my-edge-1--p for edge-1--p.
   DGE.prefix = /root$/.test(svg.id || '') ? svg.id.replace(/root$/, '') : '';
-  svg.id = 'dge-art-svg';
+  svg.id = 'psiINT-dge-art-svg';
   // Paint the beat on screen into it, using the runtime the build already
   // ships – no second implementation of "what does step k look like".
   const payload = fig ? fig.querySelector('script.psi-diagram-frames') : null;
@@ -988,7 +1005,7 @@ function dgePaintArt(html) {
   } else {
     DGE.frames = null;
   }
-  const guides = dgeQ('#dge-guides');
+  const guides = dgeQ('#psiINT-dge-guides');
   art.replaceChildren(svg, guides);
   guides.setAttribute('viewBox', svg.getAttribute('viewBox'));
   guides.setAttribute('preserveAspectRatio', 'xMidYMid meet');
@@ -998,15 +1015,20 @@ function dgePaintArt(html) {
 
 function dgeApplyFrame() {
   const m = dgeFrameMetrics();
-  const frame = dgeQ('#dge-frame');
-  const art = dgeQ('#dge-art');
-  const svg = dgeQ('#dge-art-svg');
+  const frame = dgeQ('#psiINT-dge-frame');
+  const art = dgeQ('#psiINT-dge-art');
+  const svg = dgeQ('#psiINT-dge-art-svg');
   if (!frame || !svg) return;
   frame.style.width = (m.px * DGE.zoom) + 'px';
   frame.style.padding = (14 * DGE.zoom) + 'px';
   art.style.width = '100%';
-  // Reproduce what .psi-diagram actually does at the destination: fill the
-  // measure, and be capped in height in the live views but not in print.
+  // The canvas shows the drawing filling the frame, capped in height in the
+  // live views and not in print. That is no longer literally what
+  // .psi-diagram does at the destination - both media size the box from the
+  // drawing's own type now - and it is still what an editor wants: the
+  // question here is where a shape sits, and the destination's answer to how
+  // large the type comes out is in the measure note below rather than in a
+  // canvas too small to drag anything on.
   svg.style.maxWidth = '100%';
   svg.style.width = '100%';
   svg.style.height = 'auto';
@@ -1016,14 +1038,51 @@ function dgeApplyFrame() {
   const natural = (m.px - 28) * ratio;
   const capped = m.capPx !== Infinity && natural > m.capPx;
   let note = `${m.width} · ${m.em}em`;
+  // How large the labels land where this figure is going, which since the
+  // live views started sizing a drawing from its type is the number that
+  // decides whether a room can read it. --dg-type-w is the viewBox measured in
+  // base labels, so the box divided by it IS the label size; under the type
+  // beside it the figure is at its box and the slide will come down to meet
+  // it (fitZoomToChunk), which the author would rather know here than find in
+  // the hall. The canvas itself still shows the drawing filling the frame -
+  // this is an editor, and a 14 px preview is not editable.
+  // --dg-fit-w and not --dg-type-w: the box a live view shows is the slide's
+  // canvas where the chunk has one, and a label's size is the box over its
+  // width in labels. The print frame resolves the same property to the print
+  // box, which is what that frame shows.
+  const typeW = parseFloat(getComputedStyle(svg).getPropertyValue('--dg-fit-w'));
+  if (typeW > 0) {
+    const box = Math.min(m.px - 28, m.capPx === Infinity ? Infinity : m.capPx / ratio);
+    const lbl = box / typeW;
+    // dgeEmPx is the CHUNK's em, which does not carry the zoom, so this is
+    // the comparison at zoom 1 - the same reference figureTypeWarning
+    // estimates against, and the conservative one: the slide's words only get
+    // bigger from here while a figure at its box does not.
+    const body = DGE.frame === 'print' ? dgeEmPx() * 0.9 : dgeEmPx();
+    note += ` · ${typeW.toFixed(0)} labels wide`;
+    note += lbl < body * 0.995
+      ? ` · at its box, so its labels are ${Math.round(lbl)} px against ${Math.round(body)} px of body type`
+      : ` · labels at body size`;
+  }
   if (capped) {
-    // Say it while the author can still fix it. This is invisible until you
-    // look at the built page: a third of the measure stays empty beside the
-    // drawing, because the height cap bound before the width did.
-    note += ` · height-capped at 62vh, so ${Math.round(100 - 100 * (m.capPx / natural))}% of the measure stays empty beside it`;
+    // The height cap deciding the width rather than the measure. It used to
+    // leave a band of the measure empty beside the drawing; the width rule
+    // hugs it now, and what is left to say is which of the two caps bound.
+    note += ` · the ${Math.round(m.capPx)} px height cap is what decides its width here`;
+  }
+  // How much of the slide's canvas this drawing takes, which is the number
+  // the dashed rectangle on the canvas shows and the build warns about. Only
+  // where there is one: a figure under `frame none`, or in a card or a pane,
+  // has no such box and the note would be describing nothing.
+  const cv = (svg.dataset.canvas || '').split(/\s+/).map(Number);
+  if (DGE.frame !== 'print' && cv.length === 4 && cv.every((n) => n > 0)) {
+    const over = cv[2] - cv[0] > 0.5 || cv[3] - cv[1] > 0.5;
+    note += over
+      ? ` · over its canvas, so the slide's type comes down to meet it`
+      : ` · fills ${Math.round(100 * (cv[2] * cv[3]) / (cv[0] * cv[1]))}% of its canvas`;
   }
   frame.dataset.measure = note;
-  dgeQ('#dge-frames').querySelectorAll('button').forEach((b) => {
+  dgeQ('#psiINT-dge-frames').querySelectorAll('button').forEach((b) => {
     b.setAttribute('aria-pressed', String(b.dataset.frame === DGE.frame));
     const em = DGE_FRAME_EM[b.dataset.frame][m.width];
     b.querySelector('i').textContent = b.dataset.frame === 'print' ? em + 'em' : em + 'em';
@@ -1037,11 +1096,11 @@ function dgeApplyFrame() {
 // stays a transform, because pan is exactly a thing that should not affect
 // layout.
 function dgeApplyView() {
-  const stage = dgeQ('#dge-stage');
+  const stage = dgeQ('#psiINT-dge-stage');
   if (!stage) return;
   stage.style.transform = `translate(${DGE.pan.x}px, ${DGE.pan.y}px)`;
   dgeApplyFrame();
-  const z = dgeQ('#dge-zoom');
+  const z = dgeQ('#psiINT-dge-zoom');
   if (z) z.textContent = Math.round(DGE.zoom * 100) + '%';
 }
 
@@ -1066,8 +1125,8 @@ function dgeZoomBy(k) {
 
 function dgeZoomFit() {
   dgeApplyFrame();
-  const canvas = dgeQ('#dge-canvas');
-  const frame = dgeQ('#dge-frame');
+  const canvas = dgeQ('#psiINT-dge-canvas');
+  const frame = dgeQ('#psiINT-dge-frame');
   if (!canvas || !frame) return;
   DGE.zoom = 1;
   DGE.pan = { x: 0, y: 0 };
@@ -1085,7 +1144,7 @@ function dgeZoomFit() {
 // number in the block is written in. getScreenCTM does the whole transform
 // chain, so zoom, pan and the frame's own scaling are all accounted for.
 function dgePointToDiagram(ev) {
-  const guides = dgeQ('#dge-guides');
+  const guides = dgeQ('#psiINT-dge-guides');
   const ctm = guides.getScreenCTM();
   if (!ctm) return { x: 0, y: 0 };
   const inv = ctm.inverse();
@@ -1116,7 +1175,7 @@ function dgeUnits(model) {
 let dgeSnapGuides = [];   // live during a drag, cleared on pointerup
 
 function dgeDrawGuides() {
-  const g = dgeQ('#dge-guides');
+  const g = dgeQ('#psiINT-dge-guides');
   if (!g || !DGE.model) return;
   g.replaceChildren();
   const { uw, uh } = dgeUnits();
@@ -1135,6 +1194,28 @@ function dgeDrawGuides() {
     grid.appendChild(dgeEl('line', { x1: vx, y1: y, x2: vx + vw, y2: y }));
   }
   g.appendChild(grid);
+
+  // The slide's canvas: the box this figure is given on an ordinary slide,
+  // drawn as a dashed rectangle so the author can see the edge they are
+  // dragging towards. It is the one thing about a figure that is decided
+  // outside the block - the chunk's column and the deck's height reserve -
+  // and without it the only way to learn a drawing had outgrown its slide was
+  // to build and read a warning.
+  //
+  // Where it sits inside the viewBox follows the same two lines the compiler
+  // follows: the content is anchored at the canvas's top on both, and to its
+  // left edge under `blocks: left` or centred on it under `center`. When the
+  // drawing fits, the two boxes are the same and the dashes lie on the edge
+  // of the canvas; when it does not, the dashes are inside the picture and
+  // that is exactly the thing worth seeing.
+  const cv = DGE.fig && DGE.fig.canvas;
+  if (cv && cv.w > 0 && cv.h > 0) {
+    g.appendChild(dgeEl('rect', {
+      class: 'dge-canvas',
+      x: cv.align === 'center' ? vx + (vw - cv.w) / 2 : vx,
+      y: vy, width: cv.w, height: cv.h,
+    }));
+  }
   // The origin, which is where the first element sits for free.
   g.appendChild(dgeEl('g', { class: 'dge-axis' }, [
     dgeEl('line', { x1: vx, y1: 0, x2: vx + vw, y2: 0 }),
@@ -1225,17 +1306,23 @@ function dgeDrawRelations(g, id) {
     const ref = DGE.boxes.get(p.ref);
     if (ref) {
       // The gap itself, drawn between the two facing edges and labelled with
-      // the number that is written on the line.
+      // the number that is written on the line – or, where the line writes
+      // none, with the number the default resolved to and the word that says
+      // it was not typed. The guide has to agree with the drawing it is drawn
+      // over: labelling an unwritten gap with nothing hid the one relation the
+      // new default is most likely to have set, and labelling it with a bare
+      // number would claim a token the source does not contain.
+      const gapText = 'gap ' + (p.gap == null ? dgeNum(dgeGapOf(null, p)) + ' (default)' : dgeGapWritten(p));
       if (p.dir === 'right' || p.dir === 'left') {
         const y = midY(b);
         const from = p.dir === 'right' ? ref.x + ref.w : ref.x;
         tick(from, y, p.dir === 'right' ? b.x : b.x + b.w, y, true);
-        label((from + (p.dir === 'right' ? b.x : b.x + b.w)) / 2 - 12, y - 5, 'gap ' + dgeNum(p.gap));
+        label((from + (p.dir === 'right' ? b.x : b.x + b.w)) / 2 - 12, y - 5, gapText);
       } else {
         const x = mid(b);
         const from = p.dir === 'below' ? ref.y + ref.h : ref.y;
         tick(x, from, x, p.dir === 'below' ? b.y : b.y + b.h, true);
-        label(x + 5, (from + (p.dir === 'below' ? b.y : b.y + b.h)) / 2, 'gap ' + dgeNum(p.gap));
+        label(x + 5, (from + (p.dir === 'below' ? b.y : b.y + b.h)) / 2, gapText);
       }
       // The edge the placement is flush with, as a hairline through both –
       // captioned, like the `align` statement's own hairline on the same
@@ -1485,6 +1572,61 @@ const DGE_ALIGN_TOL = 0.06;      // how close counts as "on that edge", in cells
 // exactly the silent failure squaring the gap exists to remove.
 const dgeGapUnit = (model) => dgeUnits(model).uh;
 
+// The gap a `rel` placement actually draws, as the number an author would
+// write – rows. A placement whose author wrote none carries `gap: null` and a
+// `gapAuto` in labels, resolved by the compiler once it has read the block's
+// edges, so the two units meet here exactly as they do in dgGapPx: this is
+// that function's answer divided back by the gap's own ruler. Everything in
+// this file that adds a delta to a gap, or shows one, goes through it – a drag
+// that read the raw field got NaN on the very placements the new default is
+// for, and an editor that writes NaN into a source is the failure this whole
+// file is built to avoid.
+function dgeGapOf(model, place) {
+  return window.PSI_DG.dgGapPx(place, dgeGapUnit(model)) / dgeGapUnit(model);
+}
+
+// **A gap keeps the unit its line wrote it in.** `gap 0.6` is rows and
+// `gap 0.6lh` is label heights, and the suffix is part of the span: the editor
+// rewrites the token, so a gesture that writes the number without it has
+// changed the author's ruler even where the drawing lands in the same place.
+// That is what a drag did – `below ufw gap 5lh` came back `gap 4.4`, correct
+// until the next change of grid moved that box and nothing else – and three
+// other paths were worse: the `side` swatches, the `of` field and a step's
+// `move … to` passed the parsed `place.gap`, a count of label heights, back
+// out with no suffix, where it was read as rows and the box jumped.
+//
+// So the arithmetic stays in rows, where every guide and every delta in this
+// file already works, and the unit is applied once on the way out.
+// `dgeGapSpelled` is the one door: every writer of a `gap` token goes through
+// it or through `dgeGapWritten`, which is the same spelling for a number
+// already on the line. A gap nobody wrote has no unit to keep and is written
+// in rows, as before.
+function dgeGapInLh(place) {
+  return !!place && place.gap != null && place.gapUnit === window.PSI_DG.DG_LH;
+}
+// A gap in rows, spelled the way `place`'s own line spells its gap.
+function dgeGapSpelled(model, place, rows, snap) {
+  const round = snap || ((v) => v);
+  if (!dgeGapInLh(place)) return dgeNum(Math.max(0, round(rows)));
+  const lh = rows * dgeGapUnit(model) / window.PSI_DG.DG_LABEL_H;
+  return dgeNum(Math.max(0, round(lh))) + window.PSI_DG.DG_LH;
+}
+// The gap the line already carries, as the line carries it – or null.
+function dgeGapWritten(place) {
+  if (!place || place.gap == null) return null;
+  return dgeNum(place.gap) + (dgeGapInLh(place) ? window.PSI_DG.DG_LH : '');
+}
+// What a typed gap field means: a number, or a number with `lh` on it. The
+// compiler's own reader, so the field and the source agree on what is a gap.
+function dgeGapTyped(v) {
+  const s = String(v || '').trim();
+  if (!s) return null;
+  const errs = [];
+  const g = window.PSI_DG.dgLen(s, errs, 0, 'gap');
+  if (errs.length || !Number.isFinite(g.n) || g.n < 0) return null;
+  return dgeNum(g.n) + (g.unit === window.PSI_DG.DG_LH ? window.PSI_DG.DG_LH : '');
+}
+
 function dgeRound(v, step) {
   return Math.round(v / step) * step;
 }
@@ -1502,9 +1644,12 @@ function dgeMainAxis(place) {
 // them is what lets the status bar show the line before the pointer is up.
 // A relation as the grammar spells it. `right of a`, `left of a`, but
 // `below a` and `above a` - the two vertical words take no "of".
+// `gap` is a number in rows, or a token already spelled in its own unit
+// (`0.6lh`, from dgeGapSpelled or dgeGapWritten) that goes on the line as is.
 function dgePlaceText(dir, ref, gap) {
   const word = (dir === 'right' || dir === 'left') ? dir + ' of' : dir;
-  return word + ' ' + ref + (gap == null ? '' : ' gap ' + dgeNum(gap));
+  return word + ' ' + ref + (gap == null ? ''
+    : ' gap ' + (typeof gap === 'string' ? gap : dgeNum(gap)));
 }
 
 const DGE_DIRS = ['left', 'right', 'above', 'below'];
@@ -1536,7 +1681,7 @@ function dgeRedock(ctx, id, place, dx, dy, snap) {
   // written to be: keep the number, change the word. While the gap was
   // axis-keyed this function and the `side` swatch row disagreed with each
   // other by uw/uh, and neither said anything, because both edits compiled.
-  const gap = Math.max(0, snap(gapPx / dgeGapUnit(ctx.model)));
+  const gap = dgeGapSpelled(ctx.model, place, gapPx / dgeGapUnit(ctx.model), snap);
   return {
     text: dgePlaceText(dir, place.ref, gap),
     why: 'docks it ' + (dir === 'right' || dir === 'left' ? dir + ' of ' : dir + ' ') + place.ref
@@ -1769,7 +1914,7 @@ function dgeGuideHosts(ctx, id, eff) {
 
 // The gaps other statements in this block already carry, on the axis this
 // placement's own direction runs along. **Only gaps the author actually
-// wrote:** every `rel` placement carries one, so counting the default 0.25
+// wrote:** a placement with none carries a resolved default, so counting those
 // would have every figure offering the same number and meaning nothing by it.
 // Cached per gesture, because it is a tokenize per candidate line and the
 // lines do not change while the pointer is down.
@@ -1786,13 +1931,21 @@ function dgeSiblingGaps(ctx, id, axis) {
     if (((p.dir === 'right' || p.dir === 'left') ? 'x' : 'y') !== axis) continue;
     const sp = ctx.spans.spanOf(n.id, 'gap');
     if (!sp || !sp.present) continue;
-    const g = Number(sp.value);
-    if (!Number.isFinite(g) || g < 0) continue;
+    // In rows for the comparison, whatever the sibling's line is written in:
+    // `0.6lh` read with Number() was NaN, so a gap in label heights was never
+    // offered at all. The sibling's own token rides along as `text`, and that
+    // is what a match writes – the promise is the *same* gap, and the same
+    // gap spelled in another unit is a rounding away from being a different
+    // one.
+    if (p.gap == null || !(p.gap >= 0)) continue;
+    const g = dgeGapOf(ctx.model, p);
+    if (!Number.isFinite(g)) continue;
+    const text = dgeGapWritten(p);
     // A sibling proper – measured from the same element, or from this one, or
     // this one from it – is the chain §9.2 means by "so a column stays
     // regular", and comes first. Anything else on the same axis is still a
     // number the author chose, and still worth offering behind it.
-    out.push({ gap: g, from: n.id, near: p.ref === myRef || p.ref === id || n.id === myRef });
+    out.push({ gap: g, text, from: n.id, near: p.ref === myRef || p.ref === id || n.id === myRef });
   }
   ctx.gaps.set(axis, out);
   return out;
@@ -1888,6 +2041,30 @@ function dgeEffState(ctx, el, beat) {
   };
 }
 
+// **Which point of the element meets its coordinate, written or derived.**
+// `.left` on a free `text` at an absolute placement anchors it on that edge
+// now, so the two places in this file that ask the question cannot read
+// `place.anchor`: a derived anchor is not a token on the line, and an editor
+// that missed it would draw a guide about a centre and write a number about a
+// corner. `dgPlaceAnchor` is the compiler's own answer and the only one.
+// Cached per gesture beside the effective state, because the resolved classes
+// cannot change while the pointer is down.
+function dgeAnchorOf(ctx, el, place, beat) {
+  if (!el || !place) return null;
+  // Through `dgPlaceAnchor` even when the word is on the line, because the one
+  // answer that is not a corner is `center`, and it has to come back as `null`
+  // here too: an element centred on its coordinate is exactly the one the
+  // guides are for. Short-circuiting on the field suppressed every guide on
+  // `#mac`'s note the moment `anchor center` started being recorded.
+  if (place.anchor) return window.PSI_DG.dgPlaceAnchor(el.kind, place, null);
+  if (ctx.clsFor !== beat) {
+    ctx.clsFor = beat;
+    ctx.cls = window.PSI_DG.dgStateAt(ctx.model, Math.max(0, Math.min(ctx.model.steps.length, beat)));
+  }
+  const st = ctx.cls && ctx.cls.get(el.id);
+  return window.PSI_DG.dgPlaceAnchor(el.kind, place, st ? st.classes : new Set(el.classes || []));
+}
+
 // Everything a drag lights up, resolved to the one or two candidates that
 // actually get applied. Returns the adjusted delta – so the drawing and the
 // plan agree about where the element ends up – the snap dgePlanDrag has to
@@ -1920,6 +2097,17 @@ function dgeGuideSnap(ctx, id, dx, dy, opts) {
   const want = { x: b.x + b.w / 2 + dx * uw, y: b.y + b.h / 2 + dy * uh };
   const eff = dgeEffState(ctx, el, beat);
   const place = eff.place;
+  // **An anchored placement gets no guides.** Every candidate below is a
+  // proposal about where the element's *centre* lands – on a neighbour's edge
+  // line, halfway between two elements, on a shared axis – and it is written
+  // back as the coordinate in `at`. With `anchor tl` that coordinate is the
+  // element's top-left corner, so the guide would draw a line through the
+  // centre and write a number about a corner. The plain drag underneath still
+  // works and still round-trips exactly, because it rewrites the number that
+  // is on the line rather than the position it resolves to. A `.left` text at
+  // a coordinate is anchored without writing the word, so the question goes
+  // through dgeAnchorOf rather than through the field.
+  if (dgeAnchorOf(ctx, el, place, beat)) return none;
   // A `between` element is already at a relation and its own drag rewrites
   // `frac`; the two proposals below are for an element that has none to lose.
   const bare = !place || place.implicit || place.kind === 'abs';
@@ -2042,7 +2230,7 @@ function dgeGuideSnap(ctx, id, dx, dy, opts) {
         // the cell of whichever way the placement runs.
         if (d > DGE_GUIDE_CELL) continue;
         cands.push({ kind: 'gap', rank: DGE_RANK.gap, tier: s.near ? 0 : 1, dist: d,
-          axes: [axis], axis, gap: s.gap, from: s.from, sign, was });
+          axes: [axis], axis, gap: s.gap, text: s.text, from: s.from, sign, was });
       }
     }
   }
@@ -2102,7 +2290,7 @@ function dgeGuideSnap(ctx, id, dx, dy, opts) {
   }
   if (!won.length) return none;
   const out = dgeGuideApply(ctx, id, dx, dy, want, won);
-  if (beat) out.snap.to = dgeStepToText(ctx, id, out, eff, want);
+  if (beat) out.snap.to = dgeStepToText(ctx, id, out, eff, want, beat);
   return out;
 }
 
@@ -2118,19 +2306,33 @@ function dgeGuideSnap(ctx, id, dx, dy, opts) {
 // source, so a reference on the axis nobody dragged survives. Where a step
 // has already moved it, the opening line's expression is no longer a true
 // statement about where it is, and the resolved number is.
-function dgeStepToText(ctx, id, out, eff, want) {
+function dgeStepToText(ctx, id, out, eff, want, beat) {
   const { uw, uh } = dgeUnits(ctx.model);
   const place = eff.place;
   if (out.snap.place) return out.snap.place;                 // between a,b frac t
   if (out.snap.gap != null && place && place.kind === 'rel') {
-    return dgeRelText(place, out.snap.gap);
+    return dgeRelText(place, out.snap.gapText || out.snap.gap);
   }
+  // A `move … to` states the coordinate, and `anchor` carries forward from the
+  // element's own line – so the number written here is the coordinate the
+  // *anchor point* lands on, not the centre `want` holds. Left uncorrected a
+  // dragged `anchor tl` element jumped half its own size the moment a step
+  // moved it, which is the same half-size slip the carry-forward rule in
+  // dgStateAt exists to prevent, arriving from the other side.
+  //
+  // The anchor may be one the author never wrote: a free `text` with `.left`
+  // at a coordinate is anchored on that edge. So this asks dgeAnchorOf and not
+  // `place.anchor`, or a step written for such a label would move it half its
+  // own width the first time a beat touched it.
+  const b = ctx.boxes.get(id);
+  const own = dgeAnchorOf(ctx, dgeFind(id, ctx.model), place, beat || 0);
+  const anch = (own && b) ? window.PSI_DG.dgAnchorOffset(own, b.w, b.h) : [0, 0];
   const comp = (axis, i) => {
     if (out.snap.ref[axis]) return out.snap.ref[axis];
     const sp = eff.own && place && place.kind === 'abs' && !eff.shift[i]
       ? dgeSpanIn(ctx, id, 'at.' + axis) : null;
     if (sp && sp.present) return sp.text;
-    return dgeNum(dgeRound(want[axis] / (axis === 'x' ? uw : uh), DGE_SNAP_CELL));
+    return dgeNum(dgeRound((want[axis] - anch[i]) / (axis === 'x' ? uw : uh), DGE_SNAP_CELL));
   };
   return comp('x', 0) + ',' + comp('y', 1);
 }
@@ -2146,7 +2348,7 @@ function dgeStepToText(ctx, id, out, eff, want) {
 // align middle` was written back out in full, on a line where the option said
 // nothing.
 function dgeRelText(place, gap) {
-  let out = dgePlaceText(place.dir, place.ref, gap == null ? place.gap : gap);
+  let out = dgePlaceText(place.dir, place.ref, gap == null ? dgeGapWritten(place) : gap);
   if (place.align && place.align !== 'middle') out += ' flush ' + place.align;
   const off = place.offset;
   if (off && (off[0] || off[1])) out += ` offset ${dgeNum(off[0])},${dgeNum(off[1])}`;
@@ -2159,7 +2361,7 @@ function dgeGuideApply(ctx, id, dx, dy, want, won) {
   const b = ctx.boxes.get(id);
   const { uw, uh } = dgeUnits(ctx.model);
   const out = { dx, dy, nodes: [],
-    snap: { at: {}, ref: {}, to: null, gap: null, place: null, append: null,
+    snap: { at: {}, ref: {}, to: null, gap: null, gapText: null, place: null, append: null,
       appendAt: null, appendAxis: null, why: '' } };
   const why = [];
   // Move the drag itself onto the candidate, so the preview, the guide and
@@ -2205,7 +2407,8 @@ function dgeGuideApply(ctx, id, dx, dy, want, won) {
       shift(c.axis, (c.axis === 'x' ? b.x + b.w / 2 : b.y + b.h / 2)
         + (c.gap - c.was) * c.sign * dgeGapUnit(ctx.model));
       out.snap.gap = c.gap;
-      why.push(`gap ${dgeNum(c.gap)} – the same gap ${c.from} has, so the row stays regular`);
+      out.snap.gapText = c.text;
+      why.push(`gap ${c.text} – the same gap ${c.from} has, so the row stays regular`);
       out.nodes.push(...dgeGuideGap(ctx, c));
     } else if (c.kind === 'spread') {
       shift(c.axis, c.target);
@@ -2277,13 +2480,13 @@ function dgeGuideGap(ctx, c) {
     const from = dir === 'right' ? ref.x + ref.w : ref.x;
     const to = dir === 'right' ? b.x : b.x + b.w;
     return [dgeGuideMark('line', { x1: from, y1: y, x2: to, y2: y }),
-      dgeGuideLabel((from + to) / 2 - 12, y - 5, 'gap ' + dgeNum(c.gap))];
+      dgeGuideLabel((from + to) / 2 - 12, y - 5, 'gap ' + c.text)];
   }
   const x = b.x + b.w / 2;
   const from = dir === 'below' ? ref.y + ref.h : ref.y;
   const to = dir === 'below' ? b.y : b.y + b.h;
   return [dgeGuideMark('line', { x1: x, y1: from, x2: x, y2: to }),
-    dgeGuideLabel(x + 5, (from + to) / 2, 'gap ' + dgeNum(c.gap))];
+    dgeGuideLabel(x + 5, (from + to) / 2, 'gap ' + c.text)];
 }
 
 // Matched marks between consecutive centres, which is what `spread` means –
@@ -2652,6 +2855,22 @@ function dgePlanDrag(ctx, id, dx, dy, opts) {
     return { edits, refusals, strain };
   }
 
+  // **A drag on something standing in a band writes an `offset`, and the band
+  // stays.** The placement says which corner of the area the element meets,
+  // which is the fact worth keeping – a drag is a distance from it, and
+  // `offset` is the option that is orthogonal to every placement precisely so
+  // that this does not have to become an `at`.
+  if (place.kind === 'in') {
+    const off = place.offset || [0, 0];
+    const mx = xBlocked ? 0 : dx, my = yBlocked ? 0 : dy;
+    if (mx || my) {
+      edits.push({ attr: 'offset',
+        value: `${dgeNum(snap(off[0] + mx))},${dgeNum(snap(off[1] + my))}`,
+        why: `keeps it in ${place.ref}` });
+    }
+    return { edits, refusals, strain };
+  }
+
   if (place.kind === 'between') {
     // Along the line joining the two, `frac`; off it, `offset`.
     const a = ctx.boxes.get(place.refs[0].ref), z = ctx.boxes.get(place.refs[1].ref);
@@ -2718,9 +2937,15 @@ function dgePlanDrag(ctx, id, dx, dy, opts) {
     // callout is that the two gaps are the *same*, and rounding it onto the
     // 0.05 grid afterwards would turn 0.62 into 0.60 and quietly break the
     // equality the guide had just promised.
-    const sib = guide && guide.gap;
-    const next = sib != null ? sib : Math.max(0, snap(place.gap + sign * gapDelta));
-    edits.push({ attr: 'gap', value: dgeNum(next), why: sib != null ? guide.why : undefined });
+    //
+    // In the unit the line already writes: the sum is taken in rows, which is
+    // what the delta is in, and spelled back as label heights where the
+    // author wrote `lh` – snapped on that ruler, so `5lh` dragged comes back
+    // `5.3lh` rather than whatever 5.3 rows is in label heights.
+    const sib = guide && guide.gap != null ? (guide.gapText || dgeNum(guide.gap)) : null;
+    const next = sib != null ? sib
+      : dgeGapSpelled(ctx.model, place, dgeGapOf(ctx.model, place) + sign * gapDelta, snap);
+    edits.push({ attr: 'gap', value: next, why: sib != null ? guide.why : undefined });
   }
   if (crossDelta && !crossBlocked) {
     const ref = ctx.boxes.get(place.ref);
@@ -2850,7 +3075,7 @@ function dgePlanResize(ctx, id, dw, dh, handle, opts) {
   // token that reads as if it were doing something.
   if (guide && guide.sameAs) {
     edits.push({ attr: 'same-as', value: guide.sameAs, why: guide.why });
-    for (const key of ['w', 'h']) {
+    for (const key of ['w', 'h', 'same-w-as', 'same-h-as']) {
       const sp = dgeSpanIn(ctx, id, key);
       if (sp && sp.present) edits.push({ attr: key, value: '', drop: true });
     }
@@ -2859,17 +3084,35 @@ function dgePlanResize(ctx, id, dw, dh, handle, opts) {
   if (el.sameAs) {
     edits.push({ attr: 'same-as', value: '', drop: true, why: `"just this one" – drops "same as ${el.sameAs}"` });
   }
+  // The one-axis forms, read the same way, and only for the axis the handle
+  // moves: an east drag on `same h as a` leaves the height where it came from.
+  if (el.sameWAs && handle !== 's') {
+    edits.push({ attr: 'same-w-as', value: '', drop: true, why: `"just this one" – drops "same w as ${el.sameWAs}"` });
+  }
+  if (el.sameHAs && handle !== 'e') {
+    edits.push({ attr: 'same-h-as', value: '', drop: true, why: `"just this one" – drops "same h as ${el.sameHAs}"` });
+  }
+  // **A chain member's size is not its own**, and the drag has to say so. A
+  // box standing in a row or a column takes the widest member's width and, in
+  // a row, the tallest member's height; the number this drag writes pins
+  // *this* box and leaves the others to re-settle, so making the dragged box
+  // the narrowest of the row visibly moves boxes nobody touched. The compiler
+  // records which axes it decided (`chainW` / `chainH` on the laid-out box) so
+  // the callout can name the reason rather than the author guessing at it.
+  const chained = (axis) => (axis === 'w' ? b.chainW : b.chainH)
+    ? 'this size came from the boxes beside it – writing it here pins this one and lets the rest re-settle'
+    : undefined;
   if (handle !== 's') {
     // A sibling's number exactly, when a guide matched one: the point of the
     // callout is that the two are the *same*, and rounding it onto the 0.05
     // grid afterwards would break the equality the guide had just promised.
     const sib = guide && guide.w;
-    edits.push({ attr: 'w', why: sib != null ? guide.why : undefined,
+    edits.push({ attr: 'w', why: sib != null ? guide.why : chained('w'),
       value: dgeNum(sib != null ? sib : Math.max(0.05, dgeRound(b.w / uw + dw, DGE_SNAP_CELL))) });
   }
   if (handle !== 'e') {
     const sib = guide && guide.h;
-    edits.push({ attr: 'h', why: sib != null ? guide.why : undefined,
+    edits.push({ attr: 'h', why: sib != null ? guide.why : chained('h'),
       value: dgeNum(sib != null ? sib : Math.max(0.05, dgeRound(b.h / uh + dh, DGE_SNAP_CELL))) });
   }
   return { edits, refusals: [] };
@@ -2901,8 +3144,9 @@ function dgeResolveEdits(ctx, id, edits, into) {
       if (!sp.present) continue;
       let start = sp.start;
       const before = ctx.source.slice(0, start);
-      const m = e.attr === 'same-as'
-        ? before.match(/\s+same\s+as\s+$/)
+      const m = e.attr === 'same-as' ? before.match(/\s+same\s+as\s+$/)
+        : e.attr === 'same-w-as' ? before.match(/\s+same\s+w\s+as\s+$/)
+        : e.attr === 'same-h-as' ? before.match(/\s+same\s+h\s+as\s+$/)
         : before.match(new RegExp('\\s+' + e.attr.replace('.', '\\.') + '\\s+$'));
       if (m) start -= m[0].length;
       into.push({ start, end: sp.end, text: '', seq: seq() });
@@ -3069,7 +3313,7 @@ function dgeRedo() {
 // block to learn what the DOM already knows. Coupled to dgPathD and
 // dgSplineD, the two texts that ever write this attribute.
 function dgeEdgePts(id) {
-  const svg = dgeQ('#dge-art-svg');
+  const svg = dgeQ('#psiINT-dge-art-svg');
   if (!svg) return null;
   // Scoped to the editor's own copy. The slide behind the modal holds the
   // same figure with the same prefixed ids, and getElementById would answer
@@ -3098,7 +3342,7 @@ function dgeEdgePts(id) {
 // Seven CSS pixels, in the diagram's own units, so a hairline is exactly as
 // easy to hit at 4x as at 1x.
 function dgeGrabTolerance(px = 7) {
-  const guides = dgeQ('#dge-guides');
+  const guides = dgeQ('#psiINT-dge-guides');
   const ctm = guides && guides.getScreenCTM();
   const s = ctm ? Math.hypot(ctm.a, ctm.b) : 1;
   return px / (s || 1);
@@ -3118,7 +3362,7 @@ function dgeSegDist(p, a, b) {
 // time. Boxes are deliberately not filtered this way: a hidden box still
 // occupies the area you clicked, where a hidden hairline occupies nothing.
 function dgeEdgeVisible(id) {
-  const svg = dgeQ('#dge-art-svg');
+  const svg = dgeQ('#psiINT-dge-art-svg');
   const g = svg && svg.querySelector('[id="' + DGE.prefix + id + '"]');
   if (!g) return true;
   return parseFloat(getComputedStyle(g).opacity || '1') > 0.02;
@@ -3347,7 +3591,7 @@ function dgeGestureBase() {
     return null;
   }
   dgeInGesture = true;
-  const svg = dgeQ('#dge-art-svg');
+  const svg = dgeQ('#psiINT-dge-art-svg');
   if (svg) DGE.pinnedViewBox = svg.getAttribute('viewBox');
   return { source: DGE.source, model: DGE.model, boxes: DGE.boxes, spans: DGE.spans };
 }
@@ -3469,14 +3713,14 @@ function dgeDockAt(ctx, id, pt) {
   // "dock it here". The chip says *which side*; the distance is whatever the
   // element already kept, and dragging adjusts it afterwards.
   // Keep the distance the element already kept – but only if the author
-  // actually wrote one. Every `rel` placement carries a default gap, so
-  // testing the model would re-emit 0.25 as an explicit token on a line that
-  // never had it, in an editor whose whole design is rewriting the smallest
-  // span it can.
+  // actually wrote one. A placement with no written `gap` carries a resolved
+  // default instead, and re-emitting that as an explicit token on a line that
+  // never had it would freeze the number against the very rule that picked it,
+  // in an editor whose whole design is rewriting the smallest span it can.
   const written = ctx.spans.spanOf(id, 'gap');
   const el = dgeFind(id, ctx.model);
   const gap = (written && written.present && el && el.place && el.place.kind === 'rel')
-    ? el.place.gap : DGE_DOCK_GAP;
+    ? dgeGapWritten(el.place) : DGE_DOCK_GAP;
   out.chip = chip.dir;
   out.text = dgePlaceText(chip.dir, host.id, gap);
   // A relation cannot win an axis a set already owns: the align would keep
@@ -4007,8 +4251,12 @@ function dgeStartMarquee(ev, canvas) {
 // shape, the shape has coordinates. Ours is: pick a tool, and the editor
 // writes a *statement* – and `container over a,b,c` has nothing to draw.
 
-function dgeFreshName(stem) {
+// `also` is what else is about to be written beside it: a paste's other names,
+// kept and renamed alike. Without it a clipboard holding `a` and `a2`, pasted
+// where `a` exists, renamed `a` to `a2` and wrote two of them.
+function dgeFreshName(stem, also) {
   const taken = new Set(DGE.model ? [...DGE.model.byId.keys()] : []);
+  for (const n of (also || [])) taken.add(n);
   if (!taken.has(stem)) return stem;
   for (let i = 2; i < 999; i++) if (!taken.has(stem + i)) return stem + i;
   return stem + Date.now();
@@ -4088,9 +4336,9 @@ function dgePlace(tool, pt) {
 const DGE_IMG_EXTS = ['svg', 'png', 'jpg', 'jpeg', 'gif', 'webp'];
 
 function dgeOpenAssetPicker(onPick) {
-  const box = dgeQ('#dge-assets');
-  const list = dgeQ('#dge-assets-list');
-  const note = dgeQ('#dge-assets-note');
+  const box = dgeQ('#psiINT-dge-assets');
+  const list = dgeQ('#psiINT-dge-assets-list');
+  const note = dgeQ('#psiINT-dge-assets-note');
   const inlined = DGE.fig.images || {};
   box.hidden = false;
   note.textContent = '';
@@ -4169,7 +4417,7 @@ function dgeAssetThumb(entry) {
 let dgeAssetThumbSeq = 0;
 
 function dgeCloseAssetPicker() {
-  const box = dgeQ('#dge-assets');
+  const box = dgeQ('#psiINT-dge-assets');
   if (box) box.hidden = true;
 }
 
@@ -4273,7 +4521,9 @@ function dgeAppendLine(line) {
   // Only say "written" when it stuck – dgeSetSource reverts a line the
   // compiler refuses and has already named the problem in the status bar,
   // and overwriting that with a success message was a lie on top of it.
-  if (dgeSetSource(lines.join('\n'))) dgeStatus(line, 'written');
+  if (!dgeSetSource(lines.join('\n'))) return false;
+  dgeStatus(line, 'written');
+  return true;
 }
 
 function dgeStartEdge(ev, pt0) {
@@ -4350,51 +4600,253 @@ function dgeSpread(axis) {
 }
 
 // Deleting lists what else refers to the element rather than leaving a block
-// that will not compile.
+// that will not compile – and says what each listed line has to do with it,
+// in three groups: the lines that go with it, the member lists that only lose
+// it, and the generated names that move because a message or a note is named
+// by its place in the run.
 function dgeDelete() {
   if (!DGE.selection.length) return;
-  // Lines that name something being deleted, *excluding* the statements of
-  // the other elements in the same selection – deleting a and b together
-  // should not report b's own line as a reason not to delete a.
-  const refs = [];
-  const seenLines = new Set();
-  for (const el of DGE.selection.map((x) => dgeFind(x))) if (el) seenLines.add(el.line);
-  for (const id of DGE.selection) {
-    for (const r of DGE.spans.referencesTo(id)) {
-      if (r.from && DGE.selection.includes(r.from)) continue;
-      if (seenLines.has(r.line)) continue;
-      refs.push(`line ${r.line}: ${r.what}`);
-    }
-  }
+  const plan = dgeDeletePlan(DGE.selection);
   const what = DGE.selection.join(', ');
-  if (refs.length && !window.confirm(
-    `Delete ${what}?\n\n${refs.length} other line(s) name ${DGE.selection.length > 1 ? 'them' : 'it'}:\n`
-    + refs.slice(0, 8).join('\n')
-    + (refs.length > 8 ? `\n… and ${refs.length - 8} more` : '')
-    + '\n\nDeleting only these lines leaves the block unable to compile; the lines above have to go too.\n\n'
-    + 'OK deletes the element and every line that names it.')) return;
-  // Delete the statements themselves and every line that names them, which
-  // is what keeps the block compiling.
-  const doomed = new Set();
-  for (const id of DGE.selection) {
-    const el = dgeFind(id);
-    if (el && el.span) doomed.add(el.line);
-    for (const r of DGE.spans.referencesTo(id)) doomed.add(r.line);
+  const many = DGE.selection.length > 1;
+  const them = many ? 'them' : 'it';
+  const rows = (list) => list.slice(0, 8).map((r) => `line ${r.line}: ${r.why}`).join('\n')
+    + (list.length > 8 ? `\n… and ${list.length - 8} more` : '');
+  const parts = [];
+  if (plan.goes.length) {
+    parts.push(`${plan.goes.length} other line(s) go too, because each needs something that goes:\n`
+      + rows(plan.goes));
   }
-  const lines = DGE.source.split('\n').filter((_, i) => !doomed.has(i + 1));
-  const alsoGone = Math.max(0, doomed.size - seenLines.size);
-  dgeSetSource(lines.join('\n'));
+  if (plan.trims.length) {
+    parts.push(`${plan.trims.length} line(s) stay, with what goes taken out of their list:\n` + rows(plan.trims));
+  }
+  if (plan.renumbered.length) {
+    parts.push('A message or a note is named by its place in the run, so the later ones move up, '
+      + 'and the lines that name them follow:\n' + plan.renumbered.slice(0, 8).join('\n')
+      + (plan.renumbered.length > 8 ? `\n… and ${plan.renumbered.length - 8} more` : ''));
+  }
+  if (parts.length && !window.confirm(`Delete ${what}?\n\n${parts.join('\n\n')}\n\n`
+    + `OK deletes ${them} and makes these changes, which is what keeps the block compiling.`)) return;
+  // Only a delete that stuck is reported as one. dgeSetSource has already put
+  // the refusal in the status bar, and "deleted a" over an `a` still on the
+  // canvas was a second sentence contradicting the first.
+  if (!dgeSetSource(plan.text)) return;
   dgeSelect([]);
-  dgeStatus('', alsoGone
-    ? `deleted ${what} and ${alsoGone} line(s) that named ${DGE.selection.length > 1 ? 'them' : 'it'}`
-    : `deleted ${what}`);
+  const also = [];
+  if (plan.goes.length) also.push(`${plan.goes.length} line(s) that needed ${them}`);
+  if (plan.trims.length) also.push(`${them} out of ${plan.trims.length} list(s)`);
+  if (plan.renumbered.length) also.push(`${plan.renumbered.length} name(s) renumbered`);
+  dgeStatus('', `deleted ${what}` + (also.length ? ' – and ' + also.join(', ') : ''));
 }
 
+// What deleting a selection does to the source. Each of these left a block
+// that would not compile, so a delete that was always refused, or – worse – one
+// that compiled and meant something else:
+//
+// - **A statement can be longer than its line.** A `table`'s rows and a
+//   `sequence`'s run sit under the head line, and `endLine` is where they end.
+// - **A dependent can have dependents.** `c right of b`, `b right of a`:
+//   deleting `a` takes `b`'s line, and `c` then names nothing. So whatever goes
+//   is asked in turn what names it, until nothing new turns up.
+// - **A statement owns the names it generates.** `emph t-0-1` in a step names
+//   a cell of the table being deleted, not the table; `style @t-row-1` names
+//   it through a generated tag.
+// - **A member list loses a member; it does not go.** Deleting `b` out of
+//   `brace br over a,b,d` writes `over a,d` and keeps the brace and everything
+//   placed against it. Only a list left shorter than its statement needs – a
+//   brace with nothing to hold, an `align` with one element – takes its line,
+//   and then its dependents. A `@tag` member is gone with the last element
+//   carrying it. Decided after everything else, because whether a list is
+//   left empty depends on all of what goes.
+// - **A message is named by its place.** `s-1` is the second message of `s`,
+//   so deleting the first makes the second `s-0`. Every reference to a later
+//   message – its name, its number `s-n-1`, its second line, `@s-msg-1` – is
+//   rewritten to the name it has now, or a `brace over s-1` would quietly
+//   move to the next message along. Notes, `s-note-N`, the same.
+//
+// Returns the new source and the three lists the confirmation shows: `goes`
+// (lines that go, with why), `trims` (lists that lose a member) and
+// `renumbered` (generated names that move, where a line names one).
+function dgeDeletePlan(ids, model, spans, source) {
+  const m = model || DGE.model;
+  const table = spans || DGE.spans;
+  const src = source === undefined ? DGE.source : source;
+  const lines = new Set();
+  const own = new Set();
+  const goes = [];
+  const gone = new Set();
+  const lists = new Map();
+  const all = [...m.nodes, ...m.edges, ...m.containers, ...m.braces, ...(m.statements || [])];
+  const take = (el, into) => {
+    if (!el || !el.line) return;
+    for (let l = el.line; l <= Math.max(el.line, el.endLine || 0); l++) into.add(l);
+  };
+  const queue = [];
+  const drop = (id, fromSelection) => {
+    if (gone.has(id)) return;
+    gone.add(id);
+    queue.push(id);
+    const el = dgeLineOwner(id, m);
+    if (el && el.span && (!el.synth || el.synth === el.id || el.entry)) {
+      take(el, lines);
+      if (fromSelection) take(el, own);
+    }
+    // The names this statement generated go with it.
+    for (const g of all) {
+      if (g.synth === id && g.id !== id) drop(g.id, fromSelection);
+    }
+    // A message's number and second line are generated from its place rather
+    // than from its name; the positional tag is what they share with it.
+    const at = dgeMsgIndex(el);
+    if (at >= 0) {
+      for (const c of m.tags.get(window.PSI_DG.dgMsgTag(el.synth, at)) || []) drop(c, fromSelection);
+    }
+  };
+  const dead = (w) => (w.startsWith('@')
+    ? (m.tags.get(w.slice(1)) || []).every((c) => gone.has(c))
+    : gone.has(w));
+  const settle = () => {
+    while (queue.length) {
+      const id = queue.shift();
+      for (const r of table.referencesTo(id)) {
+        if (r.from && gone.has(r.from)) continue;
+        if (r.list) { if (!lists.has(r.line)) lists.set(r.line, r); continue; }
+        if (!lines.has(r.line)) goes.push({ line: r.line, why: r.what });
+        lines.add(r.line);
+        if (r.from) drop(r.from, false);
+      }
+    }
+  };
+  for (const id of ids) drop(id, true);
+  for (let more = true; more;) {
+    settle();
+    more = false;
+    for (const [line, r] of lists) {
+      if (lines.has(line)) continue;
+      const left = r.list.members.filter((w) => !dead(w));
+      if (left.length >= r.list.min) continue;
+      goes.push({ line, why: left.length
+        ? `${r.what}, and ${left.join(', ')} alone is too few for it`
+        : `${r.what}, and nothing else in its list is left` });
+      lines.add(line);
+      more = true;
+      if (r.from) drop(r.from, false);
+    }
+  }
+  // The lists that only lose members. Edits inside a line never add or take
+  // a newline, so they are applied before the lines are dropped and the line
+  // numbers still hold.
+  const edits = [];
+  const trims = [];
+  for (const [line, r] of lists) {
+    if (lines.has(line)) continue;
+    const left = r.list.members.filter((w) => !dead(w));
+    if (left.length === r.list.members.length) continue;
+    const was = src.slice(r.list.start, r.list.end);
+    const next = left.join(/\s/.test(was) ? ', ' : ',');
+    edits.push({ start: r.list.start, end: r.list.end, text: next });
+    trims.push({ line, why: `${r.what} – ${was} becomes ${next}` });
+  }
+  let text = src;
+  edits.sort((a, b) => b.start - a.start);
+  for (const e of edits) text = text.slice(0, e.start) + e.text + text.slice(e.end);
+  text = text.split('\n').filter((_, i) => !lines.has(i + 1)).join('\n');
+  // Renumbering, per sequence that keeps standing and lost an entry.
+  const seqs = new Set();
+  for (const id of gone) {
+    const el = dgeFind(id, m);
+    if (el && (el.entry === 'message' || el.entry === 'note') && !gone.has(el.synth)) seqs.add(el.synth);
+  }
+  const renumbered = [];
+  for (const seq of seqs) {
+    const goneAt = (kind) => dgeSeqEntries(seq, kind, m).filter((x) => gone.has(x.el.id)).map((x) => x.i);
+    const shift = { message: goneAt('message'), note: goneAt('note') };
+    const map = dgeSeqRenumber(seq, m, (kind, i, el) => (gone.has(el.id) ? null
+      : i - shift[kind].filter((k) => k < i).length));
+    renumbered.push(...dgeNamedIn(text, map));
+    text = dgeRenameIn(text, map.ids, map.tags);
+  }
+  goes.sort((a, b) => a.line - b.line);
+  trims.sort((a, b) => a.line - b.line);
+  return { text, lines, own, goes, trims, renumbered };
+}
+
+// A sequence message's place in its run, read off the positional tag the
+// compiler gives it (`@s-msg-2` is the third message), or -1 for anything
+// that is not a message. The tag and not the id: a named message has no
+// positional id, but its number and its tag are still positional.
+function dgeMsgIndex(el) {
+  if (!el || el.entry !== 'message' || !el.synth) return -1;
+  const pre = window.PSI_DG.dgMsgTag(el.synth, '');
+  const t = (el.tags || []).find((x) => x.startsWith(pre) && /^\d+$/.test(x.slice(pre.length)));
+  return t ? Number(t.slice(pre.length)) : -1;
+}
+
+// A sequence's messages or notes with their places, in order.
+function dgeSeqEntries(seq, kind, model) {
+  const m = model || DGE.model;
+  const pre = window.PSI_DG.dgNoteName(seq, '');
+  const out = [];
+  for (const el of kind === 'message' ? m.edges : m.nodes) {
+    if (el.synth !== seq || el.entry !== kind) continue;
+    const i = kind === 'message' ? dgeMsgIndex(el)
+      : (el.id.startsWith(pre) && /^\d+$/.test(el.id.slice(pre.length)) ? Number(el.id.slice(pre.length)) : -1);
+    if (i >= 0) out.push({ el, i });
+  }
+  return out.sort((a, b) => a.i - b.i);
+}
+
+// The generated names that move when a sequence's entries move, as the two
+// maps dgeRenameIn takes. `place(kind, i, el)` answers an entry's new place,
+// or null for one that is gone. A message the author named keeps its name and
+// moves only its number, its second line and its tag; an unnamed one is
+// `s-<i>` and moves that too.
+function dgeSeqRenumber(seq, model, place) {
+  const P = window.PSI_DG;
+  const ids = new Map();
+  const tags = new Map();
+  for (const { el, i } of dgeSeqEntries(seq, 'message', model)) {
+    const j = place('message', i, el);
+    if (j == null || j === i) continue;
+    if (el.named === false) ids.set(P.dgMsgName(seq, i), P.dgMsgName(seq, j));
+    ids.set(P.dgMsgNumName(seq, i), P.dgMsgNumName(seq, j));
+    ids.set(P.dgMsgSubName(seq, i), P.dgMsgSubName(seq, j));
+    tags.set(P.dgMsgTag(seq, i), P.dgMsgTag(seq, j));
+  }
+  for (const { el, i } of dgeSeqEntries(seq, 'note', model)) {
+    const j = place('note', i, el);
+    if (j == null || j === i) continue;
+    ids.set(P.dgNoteName(seq, i), P.dgNoteName(seq, j));
+  }
+  return { ids, tags };
+}
+
+// Which of a renumbering's names a text actually uses, as "old is new now"
+// lines for a confirmation. A shifted name nobody wrote down is not news.
+function dgeNamedIn(text, map) {
+  const esc = (n) => n.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
+  const out = [];
+  for (const [a, b] of map.ids) {
+    if (new RegExp('(^|[^\\w@-])' + esc(a) + '(?![\\w-])').test(text)) out.push(`${a} is ${b} now`);
+  }
+  for (const [a, b] of map.tags) {
+    if (new RegExp('@' + esc(a) + '(?![\\w-])').test(text)) out.push(`@${a} is @${b} now`);
+  }
+  return out;
+}
+
+// Duplicate the one selected element. An element a statement generated – a
+// table cell, a lane, a chart column, a lifeline – has no line of its own to
+// copy, so the statement that drew it is duplicated, which is what dgeCopy
+// takes too. A sequence's own entries are lines inside its run, and a copy of
+// one goes into the run right after the original (dgeDuplicateEntry).
 function dgeDuplicate() {
   if (DGE.selection.length !== 1) return;
-  const el = dgeFind(DGE.selection[0]);
+  let el = dgeFind(DGE.selection[0]);
+  if (el && el.synth && el.synth !== el.id && !el.entry) el = dgeFind(el.synth);
   if (!el || !el.span) return;
-  const line = DGE.source.slice(el.span[0], el.span[1]);
+  if (el.entry) { dgeDuplicateEntry(el); return; }
+  const [line, ...rest] = dgeWholeStatement(el).split('\n');
   const name = dgeFreshName(el.id);
   // Rename only the element's own name token – the second word of the
   // statement – so every reference inside the line survives.
@@ -4407,8 +4859,76 @@ function dgeDuplicate() {
   // copied from. Same drawn distance, said in the new ruler.
   const placed = /\b(at|right of|left of|below|above|between)\b/.test(renamed)
     ? renamed : renamed + ' right of ' + el.id + ' gap 0.9';
-  dgeAppendLine(placed);
-  dgeSelect([name]);
+  // The rows or the run under a multi-line statement come along, and a
+  // sequence's actors and named messages are names of their own, so they are
+  // renamed like a paste renames: fresh, and fresh from each other.
+  let tail = rest.join('\n');
+  const owned = dgeOwnedNames(el);
+  if (owned.length && tail) {
+    const map = new Map();
+    const taken = new Set([name]);
+    for (const n of owned) { const f = dgeFreshName(n, taken); taken.add(f); map.set(n, f); }
+    tail = dgeRenameIn(tail, map);
+  }
+  // Selected only once it stuck: a refused copy has no name to select.
+  if (dgeAppendLine(tail ? placed + '\n' + tail : placed)) dgeSelect([name]);
+}
+
+// An actor, a message or a note, copied into its sequence's run on the line
+// after the original. An actor and a named message get a fresh name; an
+// unnamed message or a note is named by its place, so the copy takes the next
+// place and every later entry of its kind moves down one, with the lines that
+// name them rewritten – the renumbering a delete does, the other way round.
+function dgeDuplicateEntry(el) {
+  const P = window.PSI_DG;
+  const seq = el.synth;
+  const raw = DGE.source.split('\n')[el.line - 1] || '';
+  const indent = raw.match(/^\s*/)[0];
+  const line = DGE.source.slice(el.span[0], el.span[1]);
+  let copy = line;
+  let pick = null;
+  const toks = P.dgTokenize(line, 0).filter((x) => !x.q && !x.attr);
+  if (el.entry === 'actor' || (el.entry === 'message' && el.named !== false)) {
+    // The name is an actor's second token and a named message's first.
+    const tk = el.entry === 'actor' ? toks[1] : toks[0];
+    if (!tk) return;
+    pick = dgeFreshName(el.id);
+    copy = line.slice(0, tk.s) + pick + line.slice(tk.e);
+  }
+  let text = DGE.source;
+  if (el.entry !== 'actor') {
+    const kind = el.entry;
+    const at = kind === 'message' ? dgeMsgIndex(el)
+      : Number(el.id.slice(P.dgNoteName(seq, '').length));
+    if (!(at >= 0)) return;
+    const map = dgeSeqRenumber(seq, DGE.model, (k, i) => (k === kind && i > at ? i + 1 : i));
+    text = dgeRenameIn(text, map.ids, map.tags);
+    if (!pick) pick = kind === 'message' ? P.dgMsgName(seq, at + 1) : P.dgNoteName(seq, at + 1);
+  }
+  const lines = text.split('\n');
+  lines.splice(el.line, 0, indent + copy);
+  if (!dgeSetSource(lines.join('\n'))) return;
+  dgeSelect([pick]);
+  dgeStatus(copy, `a copy of ${el.id}, in the run of ${seq} after it`);
+}
+
+// A statement's whole text: its own line, trimmed as `span` has it, and the
+// lines a `table` or a `sequence` read under it, exactly as written.
+function dgeWholeStatement(el, source) {
+  const src = source === undefined ? DGE.source : source;
+  const head = src.slice(el.span[0], el.span[1]);
+  if (!el.endLine || el.endLine <= el.line) return head;
+  return [head, ...src.split('\n').slice(el.line, el.endLine)].join('\n');
+}
+
+// The names a multi-line statement's own lines declare, other than its own:
+// a sequence's actors and the messages someone named. Generated names – `u-life`,
+// `s-0`, a note – follow their makers and are not in the list.
+function dgeOwnedNames(el, model) {
+  const m = model || DGE.model;
+  return [...m.nodes, ...m.edges]
+    .filter((x) => x.synth === el.id && x.id !== el.id && x.entry && x.entry !== 'note' && x.named !== false)
+    .map((x) => x.id);
 }
 
 // ── the sidebar ─────────────────────────────────────────────────────
@@ -4444,7 +4964,7 @@ function dgeSelect(ids) {
 }
 
 function dgeRenderSide() {
-  const side = dgeQ('#dge-side');
+  const side = dgeQ('#psiINT-dge-side');
   if (!side || !DGE.model) return;
   side.replaceChildren();
 
@@ -4757,9 +5277,10 @@ function dgeRenderSide() {
     wrap.appendChild(dgeEl('h3', { text: 'waypoints' }));
     if (!via.length) {
       wrap.appendChild(dgeEl('div', { class: 'dge-hint', text: dgeCurveOf(single) === 'elbow'
-        ? 'None – .elbow draws its own two waypoints, a rail halfway across the gap on '
-          + 'whichever axis the ends are further apart. An edge cannot carry both, so take '
-          + 'the class off to bend it by hand.'
+        ? 'None – .elbow draws its own two waypoints, a rail across the gap on whichever '
+          + 'axis the ends are further apart. Halfway, unless that leaves too little run '
+          + 'after it for the arrowhead to read, in which case it sits nearer the source. '
+          + 'An edge cannot carry both, so take the class off to bend it by hand.'
         : 'None – the arrow runs straight. Drag one of the hollow dots on the line to bend it.' }));
     } else {
       const list = dgeEl('div', { class: 'dge-chips' });
@@ -4858,6 +5379,31 @@ function dgeRenderSide() {
         dgeEl('div', { class: 'dge-hint', text:
           'The column of numbers left of the frame. The number in the drawing and the index in '
           + 'the tag are the same number, so message 4 is the one @' + single.id + '-msg-3 names.' }),
+      ]));
+    }
+  }
+
+  // The one bare word a table's own statement reads, and the same control for
+  // the same reason: a closed list of one, present as a token or absent as an
+  // insertion point. The row names both readings rather than one and a
+  // checkbox, because "unheaded off" is not a phrase anyone thinks in.
+  if (single && single.frame === 'table') {
+    const sp = dgeSpanOf(single.id, 'unheaded');
+    if (sp) {
+      const row = dgeEl('div', { class: 'dge-swatches' });
+      for (const [word, label] of [['', 'heading row'], ['unheaded', 'no heading']]) {
+        row.appendChild(dgeEl('button', {
+          type: 'button', class: 'dge-sw',
+          'aria-pressed': String((sp.present ? 'unheaded' : '') === word),
+          text: label,
+          onclick: () => dgeWriteAttr(single.id, 'unheaded', word),
+        }));
+      }
+      side.appendChild(dgeEl('div', {}, [
+        dgeEl('div', { class: 'dge-slot' }, [dgeEl('b', { text: 'first row' }), row]),
+        dgeEl('div', { class: 'dge-hint', text:
+          'Whether the first row is set bold. It is still the row that fixes the column count '
+          + 'either way, and still @' + single.id + '-row-0.' }),
       ]));
     }
   }
@@ -5085,6 +5631,10 @@ function dgeSlotRows(chosen, kinds) {
       // author the wrong thing about their figure.
       const fixed = opt.inherit ? '' : dgeBeatFixed(slot, opt.cls, carried);
       if (fixed) whys.add(fixed);
+      // The other reason a swatch is offered and cannot be clicked, and it is
+      // about the element rather than about the beat – so it says so on the
+      // swatch and does not join `whys`, which is the beat's sentence.
+      const voided = fixed ? '' : (opt.inherit ? '' : dgeVoidedBy(opt.cls));
       row.appendChild(dgeEl('button', {
         type: 'button', class: 'dge-sw',
         'data-fill': opt.fill === undefined ? null : (opt.fill || 'none'),
@@ -5092,14 +5642,18 @@ function dgeSlotRows(chosen, kinds) {
         // produces is whatever the default says, and that state is already the
         // swatch the default's own class owns – so it never reads as pressed.
         'aria-pressed': String(!opt.inherit && current === opt.cls),
-        disabled: !!fixed,
+        disabled: !!fixed || !!voided,
         title: fixed
           ? (opt.cls ? '.' + opt.cls : 'nothing in this slot') + ' – ' + fixed
             + ' is settled once when the figure is built, so a step has nothing to switch'
-          : (opt.inherit ? 'drop this element’s own say and take the default'
-            : (opt.cls ? (slot.arrow ? opt.cls : '.' + opt.cls) : 'nothing in this slot')),
+          : voided
+            ? `.${opt.cls} – .${voided} is on this line, and the two together draw nothing at `
+              + 'all: one deletes the outline the other patterns. Take that one off first, or '
+              + 'use .clear, which takes off the fill and keeps the outline.'
+            : (opt.inherit ? 'drop this element’s own say and take the default'
+              : (opt.cls ? (slot.arrow ? opt.cls : '.' + opt.cls) : 'nothing in this slot')),
         text: opt.fill !== undefined && !opt.inherit ? '' : (opt.label || opt.cls),
-        onclick: fixed ? null : () => dgeSetSlot(slot, opt.cls, opt),
+        onclick: (fixed || voided) ? null : () => dgeSetSlot(slot, opt.cls, opt),
       }));
     }
     // Its own class beside the shared one, the rule chips already follow: a
@@ -5218,6 +5772,34 @@ function dgeSlotCarried(names) {
 // because they are listed as exceptions; that listing is precisely the
 // narrowing this replaced, which let a fill swatch at beat 2 quietly edit the
 // printed handout.
+// **A swatch whose only outcome is a compiler refusal is not a control**, which
+// is item 15 one pair further along. `DG_CLASS_VOIDS` is the short table of
+// classes from two different slots where the first deletes the surface the
+// second draws on: `.bare` takes the outline off, so `{.bare .dashed}` draws
+// nothing round the element at all and the build refuses it. The element
+// wearing one of them gets the other greyed out with the reason on it, rather
+// than a click that rolls itself back and a sentence in the message area.
+//
+// Read off the **written tail** and only at beat 0, which is exactly the scope
+// the compiler's refusal has: it reads one tail, so a `.dashed` on the
+// element's own line and a `.bare` arriving from a `default box` are not the
+// pair, and neither is a `style` step's own tail at a later beat. A greying
+// stricter than the refusal would be a control taken away for a line the
+// author is entitled to write.
+function dgeVoidedBy(cls) {
+  if (!cls || DGE.beat) return '';
+  const pairs = (window.PSI_DG && window.PSI_DG.DG_CLASS_VOIDS) || [];
+  for (const pair of pairs) {
+    const other = cls === pair[0] ? pair[1] : cls === pair[1] ? pair[0] : null;
+    if (!other) continue;
+    for (const id of DGE.selection) {
+      const el = dgeLineOwner(id);
+      if (el && (el.classes || []).includes(other)) return other;
+    }
+  }
+  return '';
+}
+
 function dgeBeatFixed(slot, cls, carried) {
   if (!DGE.beat) return '';
   if (cls) return dgeStepFixedWhy(cls);
@@ -5624,14 +6206,24 @@ function dgeRenameMap(id, next) {
   const ids = new Map([[id, next]]);
   const tags = new Map();
   const m = DGE.model;
-  for (const el of [...m.nodes, ...m.edges, ...m.containers, ...m.braces]) {
+  const all = [...m.nodes, ...m.edges, ...m.containers, ...m.braces, ...(m.statements || [])];
+  // The names somebody wrote: every one a generated name can have been built
+  // out of.
+  const authored = all.filter((el) => !el.synth || el.synth === el.id || el.entry).map((el) => el.id);
+  for (const el of all) {
     if (!el.synth || el.synth === el.id) continue;
     // Prefix plus synthetic, not `synth === id`. A lifeline is `u-life` for
     // the actor `u` and its `synth` is the *sequence*, so keying on the owner
     // alone would leave `u-life` behind when `u` is renamed and the block
-    // would stop compiling. Names are unique, so a synthetic `X-…` can only
-    // have been generated from the X being renamed.
+    // would stop compiling.
     if (!el.id.startsWith(id + '-')) continue;
+    // **The longest authored name that prefixes it is its maker**, not any
+    // name that does. `bars a-b` beside a box `a` generates `a-b-0`, which
+    // starts with `a-` too, and renaming `a` to `c` turned `emph a-b-0` into
+    // `emph c-b-0` – a reference moved onto a name nobody generates.
+    const maker = authored.filter((n) => el.id.startsWith(n + '-'))
+      .sort((p, q) => q.length - p.length)[0];
+    if (maker !== id) continue;
     ids.set(el.id, next + el.id.slice(id.length));
   }
   const has = (t) => m.tags && m.tags.has(t);
@@ -5698,7 +6290,21 @@ function dgeRename(id, raw) {
   }
   const map = dgeRenameMap(id, next);
   const also = map.ids.size - 1 + map.tags.size;
-  if (dgeSetSource(dgeRenameIn(DGE.source, map.ids, map.tags))) {
+  // dgeRenameIn rewrites only the words it could show to be the name, so a
+  // result that does not compile means a line uses the name somewhere the
+  // parser cannot tell it from a keyword. The fallback that used to follow
+  // rewrote the keywords too – `sequence s at 0,0` became `sequence s c 0,0`
+  // – so this refuses instead, in words about the rename rather than the
+  // compiler's sentence about a line the author never touched.
+  const out = dgeRenameIn(DGE.source, map.ids, map.tags, dgeParseOf);
+  const res = dgeParseOf(out);
+  if (!res || !res.model || res.errors.length) {
+    const why = res && res.errors.length ? ` (${res.errors[0].msg.replace(/\.$/, '')})` : '';
+    return say(`${id} cannot be renamed to ${next}: a line names it where the word can also be read `
+      + `as a keyword, and only the words that are certainly the name are rewritten, which would leave `
+      + `the block unable to compile${why}. Nothing was changed.`);
+  }
+  if (dgeSetSource(out)) {
     dgeSelect([next]);
     dgeStatus('', `${id} is ${next}, in every line that named it`
       + (also ? ` – and ${also} name(s) the statement generates from it` : ''));
@@ -6192,6 +6798,48 @@ function dgeSetLeaderArrow(tok) {
   }
 }
 
+// Which point of the element lands on the coordinate `at` or `between`
+// resolved to. A swatch row like `flush`, and for the same reason: it is a
+// closed word list, so a field would be a place to make a typo the compiler
+// then has to refuse.
+//
+// Nine words in reading order rather than in `DG_ANCHORS` order, because what
+// the author is choosing is a corner of a box and the row is the box. `center`
+// writes nothing – it is the parser's default, so the swatch takes the token
+// off rather than restating it, which is what every "plain case" swatch here
+// does. Only on `at` and `between`: a relative placement answers the same
+// question with `flush`, against the element it is measured from.
+//
+// **`center` is the plain case and writes nothing – except where the default
+// is not `center`.** A free `text` carrying `.left` at a coordinate is
+// anchored on that edge with no word on the line, so the row has to press
+// `left` for it, and `center` there has to write `anchor center` out: taking
+// a token off a line that never had one would leave the swatch inert, which
+// is the one thing a swatch may not be.
+const DGE_ANCHOR_ROW = ['tl', 'top', 'tr', 'left', 'center', 'right', 'bl', 'bottom', 'br'];
+function dgeAnchorSlot(el, p) {
+  const row = dgeEl('div', { class: 'dge-swatches' });
+  const state = DGE.model ? window.PSI_DG.dgStateAt(DGE.model, DGE.beat) : null;
+  const st = state && state.get(el.id);
+  const derived = window.PSI_DG.dgPlaceAnchor(
+    el.kind, { ...p, anchor: null }, st ? st.classes : new Set(el.classes || []));
+  const now = p.anchor || derived || 'center';
+  for (const w of DGE_ANCHOR_ROW) {
+    row.appendChild(dgeEl('button', {
+      type: 'button', class: 'dge-sw', 'aria-pressed': String(now === w),
+      title: w === 'center'
+        ? (derived
+          ? `anchor center – this label is anchored ${derived} by its class, and this says otherwise`
+          : 'the coordinate is the element’s centre – the plain case, and no word on the line')
+        : `anchor ${w} – the element’s ${w} meets the coordinate, so a row of labels of `
+          + 'different lengths lines up',
+      text: w,
+      onclick: () => dgeWriteAttr(el.id, 'anchor', w === 'center' && !derived ? '' : w),
+    }));
+  }
+  return dgeEl('div', { class: 'dge-slot' }, [dgeEl('b', { text: 'anchor' }), row]);
+}
+
 // The placement, as three answers rather than one opaque phrase.
 function dgePlacementPane(el) {
   const wrap = dgeEl('div', {});
@@ -6230,8 +6878,15 @@ function dgePlacementPane(el) {
   // places and 0.4 in the third, and once a gap became square all three drew a
   // hair instead of a gutter. One number, one reason.
   const kinds = dgeEl('div', { class: 'dge-chips' });
-  const kindOf = p.kind === 'rel' ? 'beside' : p.kind === 'between' ? 'between' : 'at';
-  for (const [key, label] of [['at', 'at x,y'], ['beside', 'beside'], ['between', 'between two']]) {
+  const kindOf = p.kind === 'rel' ? 'beside' : p.kind === 'between' ? 'between'
+    : p.kind === 'in' ? 'in' : 'at';
+  // The zones this block draws, because the fourth kind needs one to name and
+  // most figures have none. Offered only where there is one, for the reason
+  // `between` says it needs two other elements rather than writing something
+  // that will not compile.
+  const zones = ((DGE.model && DGE.model.nodes) || []).filter((n) => n.zone).map((n) => n.id);
+  for (const [key, label] of [['at', 'at x,y'], ['beside', 'beside'], ['between', 'between two'],
+    ...(zones.length || kindOf === 'in' ? [['in', 'in a zone']] : [])]) {
     kinds.appendChild(dgeEl('button', {
       type: 'button', class: 'dge-sw', 'aria-pressed': String(key === kindOf),
       text: label,
@@ -6244,6 +6899,11 @@ function dgePlacementPane(el) {
         if (key === 'beside') {
           const ref = (p.kind === 'between' && p.refs[0] && p.refs[0].ref) || others[0];
           if (ref) write(dgePlaceText('right', ref, DGE_DOCK_GAP));
+          return;
+        }
+        if (key === 'in') {
+          if (zones.length) write('in ' + zones[0]);
+          else dgeStatus('', 'in needs an area to stand in – this figure draws no zone.', true);
           return;
         }
         const a = p.kind === 'rel' ? p.ref : others[0];
@@ -6294,6 +6954,7 @@ function dgePlacementPane(el) {
         + 'value in a plot’s own units – roc@0.35. Each half is read on its own, '
         + 'so one may borrow and the other be a number.' }));
     }
+    wrap.appendChild(dgeAnchorSlot(el, p));
   } else if (p.kind === 'rel') {
     const dirs = dgeEl('div', { class: 'dge-chips' });
     for (const d of DGE_DIRS) {
@@ -6301,7 +6962,7 @@ function dgePlacementPane(el) {
         type: 'button', class: 'dge-sw', 'aria-pressed': String(d === p.dir),
         text: d === 'right' || d === 'left' ? d + ' of' : d,
         title: 'dock it ' + d + ' of ' + p.ref + ' – dragging it past that edge does the same',
-        onclick: () => { if (d !== p.dir) write(dgePlaceText(d, p.ref, p.gap)); },
+        onclick: () => { if (d !== p.dir) write(dgePlaceText(d, p.ref, dgeGapWritten(p))); },
       }));
     }
     wrap.appendChild(dgeEl('div', { class: 'dge-slot' }, [dgeEl('b', { text: 'side' }), dirs]));
@@ -6337,17 +6998,27 @@ function dgePlacementPane(el) {
       dgeEl('label', { class: 'dge-num' }, [
         dgeEl('span', { text: 'of' }),
         dgeEl('input', {
-          type: 'text', value: p.ref, list: 'dge-elids',
+          type: 'text', value: p.ref, list: 'psiINT-dge-elids',
           onchange: (e) => {
             const v = e.target.value.trim();
-            if (v && v !== p.ref) write(dgePlaceText(p.dir, v, p.gap)); else dgeRenderSide();
+            if (v && v !== p.ref) write(dgePlaceText(p.dir, v, dgeGapWritten(p))); else dgeRenderSide();
           },
         }),
       ]),
       dgeEl('label', { class: 'dge-num' }, [
         dgeEl('span', { text: 'gap' }),
         dgeEl('input', {
-          type: 'text', value: dgeNum(p.gap),
+          // The resolved number either way, because the field has to show the
+          // distance the reader sees. Where the line writes no `gap` that is
+          // the default the compiler settled – one label, or 1.6 of them
+          // between two elements an edge joins – and the title says so, so a
+          // number nobody typed cannot be mistaken for one that was. Typing
+          // into the field is the act that writes it.
+          type: 'text', value: p.gap == null ? dgeNum(dgeGapOf(null, p)) : dgeGapWritten(p),
+          title: p.gap == null
+            ? 'no gap is written on this line – this is the default, in rows'
+            : dgeGapInLh(p) ? 'the gap written on this line, in label heights'
+              : 'the gap written on this line, in rows – 0.6lh is label heights',
           // Refuse what is not a number instead of silently writing 0 –
           // `Number('0.,4') || 0` collapsed a typo into "no gap at all".
           //
@@ -6357,14 +7028,18 @@ function dgePlacementPane(el) {
           // bad token: dgePlaceText renders NaN through dgeNum as "0" and the
           // line comes out `right of a gap 0`, which is legal and silent.
           // Measured: `box b "B" right of a gap 0` compiles clean.
+          //
+          // A number, or a number in label heights: `0.6lh` is a gap the
+          // grammar takes, so refusing it here made the panel the one place
+          // an author could not write one.
           onchange: (e) => {
-            const n = Number(e.target.value.trim());
-            if (!e.target.value.trim() || !Number.isFinite(n)) {
-              dgeStatus('', `"${e.target.value}" is not a number – the gap keeps its ${dgeNum(p.gap)}.`, true);
+            const g = dgeGapTyped(e.target.value);
+            if (g == null) {
+              dgeStatus('', `"${e.target.value}" is not a gap – the gap keeps its ${p.gap == null ? dgeNum(dgeGapOf(null, p)) : dgeGapWritten(p)}.`, true);
               dgeRenderSide();
               return;
             }
-            write(dgePlaceText(p.dir, p.ref, n));
+            write(dgePlaceText(p.dir, p.ref, g));
           },
         }),
       ]),
@@ -6376,7 +7051,7 @@ function dgePlacementPane(el) {
       row.appendChild(dgeEl('label', { class: 'dge-num' }, [
         dgeEl('span', { text: i ? 'and' : 'between' }),
         dgeEl('input', {
-          type: 'text', value: (p.refs[i] || {}).ref || '', list: 'dge-elids',
+          type: 'text', value: (p.refs[i] || {}).ref || '', list: 'psiINT-dge-elids',
           onchange: (e) => {
             const v = e.target.value.trim();
             const a = i === 0 ? v : (p.refs[0] || {}).ref;
@@ -6406,11 +7081,74 @@ function dgePlacementPane(el) {
       }),
     ]));
     wrap.appendChild(row);
+    wrap.appendChild(dgeAnchorSlot(el, p));
+  } else if (p.kind === 'in') {
+    // The band's own two axes, as two swatch rows. They are the words the
+    // grammar has rather than an `anchor`: a band is a rectangle and what the
+    // element meets is a corner of it, so `left`/`right` across and
+    // `top`/`bottom` down, with `center` on each.
+    // `center` alone answers both axes, so an axis that is centred while the
+    // other is not has to spell the other one out even where it is the
+    // default: `in z center` is the middle of the band and `in z left center`
+    // is its left edge, halfway down. Writing the bare word for the second
+    // case is how the pane sent a centred row to the wrong corner once.
+    const text = (ax, ay, gap) => {
+      const mid = ax === 'center' || ay === 'center';
+      const xw = ax === 'left' && !(mid && ax !== 'center') ? '' : ' ' + ax;
+      const yw = ay === 'top' && !(mid && ay !== 'center') ? '' : ' ' + ay;
+      return 'in ' + p.ref + (gap != null ? ' gap ' + (typeof gap === 'string' ? gap : dgeNum(gap)) : '')
+        + (ax === 'center' && ay === 'center' ? ' center' : xw + yw);
+    };
+    for (const [slot, words, cur, of] of [
+      ['across', ['left', 'center', 'right'], p.ax, 'x'],
+      ['down', ['top', 'center', 'bottom'], p.ay, 'y'],
+    ]) {
+      const swrow = dgeEl('div', { class: 'dge-swatches' });
+      for (const w of words) {
+        swrow.appendChild(dgeEl('button', {
+          type: 'button', class: 'dge-sw', 'aria-pressed': String(cur === w), text: w,
+          title: `against the ${w} of the band ${p.ref} reserves`,
+          onclick: () => write(of === 'x' ? text(w, p.ay, dgeGapWritten(p)) : text(p.ax, w, dgeGapWritten(p))),
+        }));
+      }
+      wrap.appendChild(dgeEl('div', { class: 'dge-slot' }, [dgeEl('b', { text: slot }), swrow]));
+    }
+    wrap.appendChild(dgeEl('div', { class: 'dge-nums' }, [
+      dgeEl('label', { class: 'dge-num' }, [
+        dgeEl('span', { text: 'in' }),
+        dgeEl('input', {
+          type: 'text', value: p.ref, list: 'psiINT-dge-elids',
+          onchange: (e) => {
+            const v = e.target.value.trim();
+            if (v && v !== p.ref) write(text(p.ax, p.ay, dgeGapWritten(p)).replace('in ' + p.ref, 'in ' + v));
+            else dgeRenderSide();
+          },
+        }),
+      ]),
+      dgeEl('label', { class: 'dge-num' }, [
+        dgeEl('span', { text: 'gap' }),
+        dgeEl('input', {
+          type: 'text', value: dgeGapWritten(p) || '0',
+          title: p.gap == null ? 'no gap is written on this line – the element meets the band'
+            : dgeGapInLh(p) ? 'how far inside the band it sits, in label heights'
+              : 'how far inside the band it sits, in rows',
+          onchange: (e) => {
+            const g = dgeGapTyped(e.target.value);
+            if (g == null) {
+              dgeStatus('', `"${e.target.value}" is not a gap – the gap keeps its ${dgeGapWritten(p) || '0'}.`, true);
+              dgeRenderSide();
+              return;
+            }
+            write(text(p.ax, p.ay, Number(g.replace(/lh$/, '')) ? g : null));
+          },
+        }),
+      ]),
+    ]));
   }
 
   // One list for every id in the block, so the reference fields complete
   // rather than having to be remembered.
-  const dl = dgeEl('datalist', { id: 'dge-elids' });
+  const dl = dgeEl('datalist', { id: 'psiINT-dge-elids' });
   for (const o of others) dl.appendChild(dgeEl('option', { value: o }));
   wrap.appendChild(dl);
   wrap.appendChild(dgeEl('div', { class: 'dge-hint', text:
@@ -6452,7 +7190,7 @@ function dgeElementList() {
 function dgeSourcePane() {
   const wrap = dgeEl('div', {});
   wrap.appendChild(dgeEl('h3', { text: 'source' }));
-  const pane = dgeEl('div', { id: 'dge-source' });
+  const pane = dgeEl('div', { id: 'psiINT-dge-source' });
   const errLines = new Set((DGE.problems || []).map((p) => p.line).filter(Boolean));
   DGE.source.split('\n').forEach((line, i) => {
     const sel = DGE.selection.some((id) => {
@@ -6509,8 +7247,8 @@ function dgeNote(note, bad) {
 
 function dgeStatus(line, note, bad) {
   DGE.status = { line: line || '', note: note || '', bad: !!bad };
-  const l = dgeQ('#dge-statusline');
-  const n = dgeQ('#dge-statusnote');
+  const l = dgeQ('#psiINT-dge-statusline');
+  const n = dgeQ('#psiINT-dge-statusnote');
   if (l) l.textContent = DGE.status.line;
   if (n) {
     n.textContent = DGE.status.note;
@@ -6561,7 +7299,7 @@ function dgeThumbFor(fig) {
   clone.querySelectorAll('[id]').forEach((n) => ids.add(n.id));
   if (!ids.size) return clone;
   // One pass with a longest-first alternation, never a loop of replacements.
-  // The ids in a diagram nest – `dg6-alice` is a prefix of `dg6-alice--i` –
+  // The ids in a diagram nest – `psiINT-dg6-alice` is a prefix of `psiINT-dg6-alice--i` –
   // so a second pass rewrites what the first one just inserted, and the
   // result was `dgt6-dgt6-dg6-alice--i`. A single `replace` never re-scans
   // its own output, and the longest alternative wins at each position.
@@ -6576,7 +7314,7 @@ function dgeThumbFor(fig) {
 }
 
 function dgeRenderStrip() {
-  const strip = dgeQ('#dge-strip');
+  const strip = dgeQ('#psiINT-dge-strip');
   if (!strip) return;
   strip.replaceChildren();
   DGE_FIGURES.forEach((fig, i) => {
@@ -6589,7 +7327,7 @@ function dgeRenderStrip() {
 
 function dgeToggleBoard(force) {
   DGE.boardOpen = force === undefined ? !DGE.boardOpen : force;
-  const board = dgeQ('#dge-board');
+  const board = dgeQ('#psiINT-dge-board');
   board.hidden = !DGE.boardOpen;
   if (!DGE.boardOpen) return;
   board.replaceChildren();
@@ -6635,7 +7373,7 @@ function dgeSetBeat(k) {
 }
 
 function dgeRenderBeats() {
-  const host = dgeQ('#dge-beats');
+  const host = dgeQ('#psiINT-dge-beats');
   if (!host) return;
   host.replaceChildren();
   const steps = DGE.model ? DGE.model.steps : [];
@@ -6695,7 +7433,8 @@ function dgeAddStepLines(lines) {
   const indent = (DGE.source.split('\n')[step.line] || '  ').match(/^\s*/)[0] || '  ';
   const at = step.ops.length ? step.ops[step.ops.length - 1].span[1] : step.span[1];
   const text = lines.map((l) => '\n' + indent + l).join('');
-  dgeSetSource(DGE.source.slice(0, at) + text + DGE.source.slice(at));
+  // Said only when it stuck: a refused op has its reason in the status bar.
+  if (!dgeSetSource(DGE.source.slice(0, at) + text + DGE.source.slice(at))) return;
   dgeStatus(lines.join(' · '), 'written into step “' + step.name + '”');
 }
 
@@ -6937,12 +7676,12 @@ function dgePickTool(id) {
   if (t && t.wrapper) { dgeWrap(id); return; }
   DGE.tool = id;
   dgeRenderTools();
-  const canvas = dgeQ('#dge-canvas');
+  const canvas = dgeQ('#psiINT-dge-canvas');
   canvas.classList.toggle('dge-placing', id !== 'select');
 }
 
 function dgeRenderTools() {
-  const rail = dgeQ('#dge-tools');
+  const rail = dgeQ('#psiINT-dge-tools');
   if (!rail) return;
   rail.querySelectorAll('.dge-tool').forEach((b) => {
     const t = DGE_TOOLS.find((x) => x.id === b.dataset.tool);
@@ -6952,7 +7691,7 @@ function dgeRenderTools() {
   // Locked is a state of the rail, so it is drawn on the rail. A mode
   // announced once in the status bar is a mode nobody remembers being in.
   rail.classList.toggle('dge-locked', DGE.toolLocked);
-  const lock = dgeQ('#dge-lock');
+  const lock = dgeQ('#psiINT-dge-lock');
   if (lock) lock.setAttribute('aria-pressed', String(DGE.toolLocked));
 }
 
@@ -6962,6 +7701,9 @@ function dgeRenderTools() {
 // not a nicety.
 function dgeKeydown(ev) {
   if (!DGE.open) return;
+  // The ? panel's search field belongs to the panel, which answers its keys
+  // itself - Esc there empties the field before it closes anything.
+  if (ev.target.id === 'psiINT-help-search') return;
   const tag = (ev.target.tagName || '').toLowerCase();
   if (tag === 'input' || tag === 'textarea') {
     if (ev.key === 'Escape') ev.target.blur();
@@ -6991,11 +7733,11 @@ function dgeKeydown(ev) {
     if (k.toLowerCase() === 's') { ev.preventDefault(); dgeCommit(); return; }
     return;
   }
-  if (k === ' ') { DGE.spaceDown = true; dgeQ('#dge-canvas').classList.add('dge-pannable'); ev.preventDefault(); return; }
+  if (k === ' ') { DGE.spaceDown = true; dgeQ('#psiINT-dge-canvas').classList.add('dge-pannable'); ev.preventDefault(); return; }
   if (k === 'Escape') {
     ev.preventDefault();
     // One rung at a time, identical to the ladder on the slide.
-    if (!dgeQ('#dge-assets').hidden) return dgeCloseAssetPicker();
+    if (!dgeQ('#psiINT-dge-assets').hidden) return dgeCloseAssetPicker();
     if (DGE.boardOpen) return dgeToggleBoard(false);
     if (DGE.selection.length) return dgeSelect([]);
     if (DGE.tool !== 'select') return dgePickTool('select');
@@ -7037,7 +7779,7 @@ function dgeKeydown(ev) {
 function dgeKeyup(ev) {
   if (ev.key === ' ') {
     DGE.spaceDown = false;
-    const c = dgeQ('#dge-canvas');
+    const c = dgeQ('#psiINT-dge-canvas');
     if (c) c.classList.remove('dge-pannable');
   }
 }
@@ -7100,10 +7842,20 @@ function dgeCopy() {
   const want = dgeClosureOf(DGE.selection);
   const lines = [];
   const seen = new Set();
+  // A name a statement generated is copied as that statement, whole: a table
+  // cell an edge ends on brings its table, an actor brings its sequence, and
+  // a table or a sequence brings the lines under it. Copied as its own `span`,
+  // a table lost its rows and a sequence's actors arrived without the
+  // statement that reads them – neither pasted. The statement's own names
+  // join the clipboard's, so a paste renames them when they collide.
   for (const el of [...DGE.model.nodes, ...DGE.model.edges, ...DGE.model.containers, ...DGE.model.braces]) {
-    if (!want.has(el.id) || seen.has(el.line)) continue;
-    seen.add(el.line);
-    lines.push({ line: el.line, text: DGE.source.slice(el.span[0], el.span[1]) });
+    if (!want.has(el.id)) continue;
+    const owner = el.synth && el.synth !== el.id ? (dgeLineOwner(el.synth) || el) : el;
+    if (!owner.span || seen.has(owner.line)) continue;
+    seen.add(owner.line);
+    want.add(owner.id);
+    for (const n of dgeOwnedNames(owner)) want.add(n);
+    lines.push({ line: owner.line, text: dgeWholeStatement(owner) });
   }
   for (const a of [...DGE.model.aligns, ...DGE.model.spreads]) {
     if (a.members.every((m) => want.has(m)) && !seen.has(a.line)) {
@@ -7136,8 +7888,30 @@ function dgeCopy() {
     if (!(el.place.implicit || (el.place.kind === 'abs' && (el.place.at || []).every((c) => c && !c.ref)))) continue;
     anchors[id] = [(b.x + b.w / 2) / uw, (b.y + b.h / 2) / uh];
   }
+  // The names written on the clipboard's lines, and apart from them the names
+  // those lines generate, each with its maker – so a paste that renames `t`
+  // to `t2` sends `edge … t-0-0.bottom` to `t2-0-0` rather than to a fresh
+  // `t-0-02` that nothing generates.
+  // Authored is what dgeOwnedNames calls authored: a sequence's actors and
+  // the messages someone named. A message's positional `s-1`, a note's
+  // `s-note-0` and a lifeline are generated like a table's cells, so they
+  // follow their maker – taken for authored, `s-1` was renamed on its own and
+  // the paste then refused its own messages.
+  const generatedHere = (n) => {
+    const e = dgeFind(n);
+    return !!(e && e.synth && e.synth !== e.id
+      && (!e.entry || e.entry === 'note' || e.named === false));
+  };
+  const authored = [...want].filter((n) => !generatedHere(n));
+  const generated = [];
+  for (const n of want) {
+    if (!generatedHere(n)) continue;
+    const maker = authored.filter((a) => n.startsWith(a + '-')).sort((p, q) => q.length - p.length)[0];
+    if (maker) generated.push([n, maker]);
+  }
   DGE.clipboard = {
-    names: [...want],
+    names: authored,
+    generated,
     roots: DGE.selection.slice(),
     anchors,
     text: lines.map((l) => l.text).join('\n'),
@@ -7151,8 +7925,10 @@ function dgeCopy() {
 // `box mix "the mix of a and b"` into a figure that already has `mix` turned
 // the caption into "the mix2 of a2 and b". So this tokenizes each line and
 // rewrites only the tokens that can hold a *name*, and a quoted token is never
-// one of them. Two callers: a paste, which renames to dodge a collision, and
-// the name field, which renames because that is what it is for.
+// one of them. The callers: a paste, which renames to dodge a collision; the
+// name field, which renames because that is what it is for; and a delete or a
+// duplicate inside a sequence's run, which moves the names a message or a
+// note has by its place.
 //
 // **A tag is not an element name**, and `tags` is a second map rather than the
 // same one because the two live in different namespaces. `style @mix` is a
@@ -7164,7 +7940,41 @@ function dgeCopy() {
 // The `#id` half of an attribute tail is gone with `{#id}` itself: item 9 moved
 // every name to a token of its own, so a tail holds classes, removals and tags
 // and none of the three is a name.
-function dgeRenameIn(text, rename, tags) {
+//
+// **A bare word that spells the name is asked about, not assumed.** Names are
+// free, so an element may be called `w`, `at` or `left` – and a step may be
+// called what an element is. Rewriting every such word turned `w 2` into
+// `c 2` and `step a` into `step c`: the first is refused, so an element
+// called `w` could never be renamed; the second compiles and silently renames
+// a beat. Three rules close that. A step's own name, the word after `step`, is
+// never an element's. A match right after a dot is never one either: it is a
+// port or a coordinate, `a.left` or `a.cx`, and with an element called `left`
+// in the block, renaming it wrote `a.c`. And a whole-token occurrence is
+// swapped for a probe name and the block parsed: if the probe turns up in the
+// model as an element or a reference, the word was the name; if it vanishes
+// into a refusal, it was a keyword. Any other match inside a longer token –
+// `a,b`, `a.cx+0.2` – is a name and is not asked.
+//
+// **The occurrences are asked in source order, each on top of the ones
+// already answered.** Some references are checked on the spot against a
+// declaration above them – a message's actors, `series of`, a plot's
+// `same as` – and a name there that is not declared drops the whole
+// statement. Asked one at a time against the untouched block, `at -> v` lost
+// its statement the moment the probe stood where `at` was, still declared as
+// `actor at`, and so read as a keyword. With the declaration already answered
+// a name, the probe is declared, and the message keeps it. Each name gets a
+// probe of its own, so a paste renaming two names at once cannot make one
+// probe collide with the other.
+//
+// **Nothing is rewritten that was not answered a name.** When the careful
+// rewrite does not compile it is returned as it is, for the caller to refuse:
+// the earlier fallback rewrote every occurrence instead, keywords included,
+// and renaming an actor called `at` wrote `sequence s c 0,0`. `compile`
+// parses a body the way the caller's figure does and answers `{model,
+// errors}` or null; without it every occurrence but a port is swapped, which
+// is right for the callers that pass none – generated names, which no keyword
+// spells, and a run of sequence entries, which has no keyword to spell.
+function dgeRenameIn(text, rename, tags, compile) {
   const tagMap = tags || new Map();
   const alt = [...rename.keys(), ...tagMap.keys()]
     .sort((a, b) => b.length - a.length)
@@ -7174,11 +7984,13 @@ function dgeRenameIn(text, rename, tags) {
   // A name is bounded by anything that cannot be part of one. Element names
   // are letters, digits, _ and -, which is what makes this exact.
   const re = new RegExp('(^|[^\\w-])(' + alt + ')(?![\\w-])', 'g');
-  const swap = (str) => str.replace(re, (m, pre, name) =>
-    pre + ((pre === '@' ? tagMap : rename).get(name) || name));
-  return text.split('\n').map((line) => {
+  // Every occurrence, in source order: where it is, what replaces it, and
+  // whether it is a whole bare token and so has to be asked.
+  const occ = [];
+  let lineStart = 0;
+  for (const line of text.split('\n')) {
     const toks = window.PSI_DG.dgTokenize(line, 0);
-    const edits = [];
+    const bare = toks.filter((t) => !t.q && !t.attr);
     for (const t of toks) {
       // A comment runs to the end of the line, and dgTokenize does not strip
       // one – it hands `#` back as a bare token and every word after it as
@@ -7189,14 +8001,77 @@ function dgeRenameIn(text, rename, tags) {
       if (!t.q && !t.attr && t.v.startsWith('#')) break;
       if (t.q) continue;                       // a label is not a name
       if (t.attr) continue;                    // classes, removals and tags
-      const next = swap(t.v);
-      if (next !== t.v) edits.push({ start: t.s, end: t.e, text: next });
+      if (bare[0] && bare[0].v === 'step' && t === bare[1]) continue;   // a beat's own name
+      for (const mt of t.v.matchAll(re)) {
+        const [whole, pre, name] = mt;
+        const at = lineStart + t.s + mt.index + pre.length;
+        if (pre === '@') {
+          if (tagMap.has(name)) occ.push({ at, len: name.length, to: tagMap.get(name), tag: true });
+          continue;
+        }
+        if (pre === '.') continue;             // a port or a coordinate
+        if (!rename.has(name)) continue;
+        occ.push({ at, len: name.length, name, to: rename.get(name), ask: whole === t.v });
+      }
     }
-    edits.sort((a, b) => b.start - a.start);
-    let out = line;
-    for (const e of edits) out = out.slice(0, e.start) + e.text + out.slice(e.end);
-    return out;
-  }).join('\n');
+    lineStart += line.length + 1;
+  }
+  const build = (list, as) => {
+    let out = '';
+    let k = 0;
+    for (const o of [...list].sort((a, b) => a.at - b.at)) { out += text.slice(k, o.at) + as(o); k = o.at + o.len; }
+    return out + text.slice(k);
+  };
+  if (!compile) return build(occ, (o) => o.to);
+  let stem = 'dgeProbe';
+  while (text.includes(stem)) stem += 'x';
+  const names = [...rename.keys()];
+  const probeOf = (name) => `${stem}_${names.indexOf(name)}_`;
+  const probed = (o) => (o.tag ? o.to : probeOf(o.name));
+  // How often each name's probe shows up in the model – an element, a
+  // reference, a member – or null when the block does not parse at all.
+  const counts = (body) => {
+    let res = null;
+    try { res = compile(body); } catch (e) { res = null; }
+    if (!res || !res.model) return null;
+    const m = res.model;
+    const seen = JSON.stringify({ ...m, steps: (m.steps || []).map((s) => s.ops) },
+      (k, v) => (v instanceof Map || v instanceof Set ? [...v] : v));
+    return new Map(names.map((n) => [n, seen.split(probeOf(n)).length - 1]));
+  };
+  // Whether swapping `o` in, on top of `with`, makes its name's probe show up
+  // more often – which is what being read as the name means.
+  const gains = (o, with_, known) => {
+    const before = known || counts(build(with_, probed));
+    const after = counts(build([...with_, o], probed));
+    return !!after && (!before || after.get(o.name) > before.get(o.name));
+  };
+  // Asked twice when the first answer is no. First as the line stands: that
+  // tells `right of w w 2` apart, the reference from the width. Then with the
+  // rest of its line already swapped, for a line that names the element twice
+  // and drops whole while either is undeclared: in `plot p2 below at same as
+  // at` the `below at` is not seen until `same as at` is answered too.
+  const kept = occ.filter((o) => !o.ask);
+  const lineOf = (o) => text.lastIndexOf('\n', o.at - 1);
+  let base = counts(build(kept, probed));
+  for (const o of occ) {
+    if (!o.ask) continue;
+    const rest = occ.filter((x) => x.ask && x.at > o.at && lineOf(x) === lineOf(o));
+    if (gains(o, kept, base) || (rest.length && gains(o, [...kept, ...rest]))) {
+      kept.push(o);
+      base = counts(build(kept, probed));
+    }
+  }
+  return build(kept.sort((a, b) => a.at - b.at), (o) => o.to);
+}
+
+// The parse dgeRenameIn asks its questions with: this figure's compiler and
+// its defaults.
+function dgeParseOf(text) {
+  if (!DGE.fig) return null;
+  try {
+    return DGE.fig.compiler.parseDiagramSource(text, DGE.fig.attrs, dgeBase());
+  } catch (e) { return null; }
 }
 
 function dgePaste(inPlace) {
@@ -7206,51 +8081,66 @@ function dgePaste(inPlace) {
   // digits, _ and – only.
   let text = DGE.clipboard.text;
   const rename = new Map();
+  // Fresh from the target's names *and* from every other name being pasted,
+  // kept or renamed: `a` and `a2` on the clipboard, pasted where `a` exists,
+  // used to send `a` to `a2` beside the `a2` that came with it.
+  const taken = new Set(DGE.clipboard.names);
   for (const name of DGE.clipboard.names) {
     if (!DGE.model.byId.has(name)) continue;
-    rename.set(name, dgeFreshName(name));
+    const fresh = dgeFreshName(name, taken);
+    taken.add(fresh);
+    rename.set(name, fresh);
   }
-  if (rename.size) text = dgeRenameIn(text, rename);
-  if (!inPlace) {
-    // Ctrl-V drops the set where the pointer last was; Ctrl-Shift-V pastes
-    // in place, keeping the coordinates it had – which is what makes a
-    // series of figures line up.
-    //
-    // Re-rooting goes through the span table, not through a regex on the
-    // text. Two things a regex got wrong here and this cannot: an anchor
-    // whose placement is the *implicit* origin has nothing to replace and
-    // needs one written, and a lazy pattern happily matched the placement of
-    // some other line and left its `gap` behind as a syntax error.
+  for (const [g, maker] of (DGE.clipboard.generated || [])) {
+    if (rename.has(maker)) rename.set(g, rename.get(maker) + g.slice(maker.length));
+  }
+  if (rename.size) text = dgeRenameIn(text, rename, null, dgeParseOf);
+  // Ctrl-V drops the set where the pointer last was; Ctrl-Shift-V pastes
+  // in place, keeping the coordinates it had – which is what makes a
+  // series of figures line up.
+  //
+  // Re-rooting goes through the span table, not through a regex on the
+  // text. Two things a regex got wrong here and this cannot: an anchor
+  // whose placement is the *implicit* origin has nothing to replace and
+  // needs one written, and a lazy pattern happily matched the placement of
+  // some other line and left its `gap` behind as a syntax error.
+  //
+  // **In place still writes the implicit one.** The figure's first element
+  // stands at the origin with no placement written, and pasted below the
+  // target's own first element it is an element with no placement at all –
+  // so a copy that held the first element never pasted in place. It gets the
+  // `at` it was drawn at; an anchor with a written `at` keeps its text.
+  const anchors = DGE.clipboard.anchors || {};
+  const names = Object.keys(anchors);
+  if (names.length) {
     const pt = DGE.lastPoint || { x: 0, y: 0 };
     const { uw, uh } = dgeUnits();
-    const anchors = DGE.clipboard.anchors || {};
-    const names = Object.keys(anchors);
-    if (names.length) {
-      const base = anchors[names[0]];
-      const dx = pt.x / uw - base[0];
-      const dy = pt.y / uh - base[1];
-      const parsed = DGE.fig.compiler.parseDiagramSource(text, DGE.fig.attrs, dgeBase());
-      const table = window.PSI_DG.createSpanTable(parsed.model, text);
-      const edits = [];
-      for (const from of names) {
-        const to = rename.get(from) || from;
-        const sp = table.spanOf(to, 'place');
-        if (!sp) continue;
-        const at = `at ${dgeNum(dgeRound(anchors[from][0] + dx, DGE_SNAP_CELL))},`
-          + `${dgeNum(dgeRound(anchors[from][1] + dy, DGE_SNAP_CELL))}`;
-        edits.push({ start: sp.start, end: sp.end, text: sp.prefix + at + sp.suffix });
-      }
-      edits.sort((a, b) => b.start - a.start);
-      for (const e of edits) text = text.slice(0, e.start) + e.text + text.slice(e.end);
+    const base = anchors[names[0]];
+    const dx = inPlace ? 0 : pt.x / uw - base[0];
+    const dy = inPlace ? 0 : pt.y / uh - base[1];
+    const round = (v) => dgeNum(dgeRound(v, inPlace ? 0.01 : DGE_SNAP_CELL));
+    const parsed = DGE.fig.compiler.parseDiagramSource(text, DGE.fig.attrs, dgeBase());
+    const table = window.PSI_DG.createSpanTable(parsed.model, text);
+    const edits = [];
+    for (const from of names) {
+      const to = rename.get(from) || from;
+      const sp = table.spanOf(to, 'place');
+      if (!sp || (inPlace && sp.present)) continue;
+      const at = `at ${round(anchors[from][0] + dx)},${round(anchors[from][1] + dy)}`;
+      edits.push({ start: sp.start, end: sp.end, text: sp.prefix + at + sp.suffix });
     }
+    edits.sort((a, b) => b.start - a.start);
+    for (const e of edits) text = text.slice(0, e.start) + e.text + text.slice(e.end);
   }
   const lines = DGE.source.split('\n');
   let at = lines.length;
   for (let i = lines.length - 1; i >= 0; i--) if (/^\s*step\b/.test(lines[i])) at = i;
   lines.splice(at, 0, ...text.split('\n'));
-  dgeSetSource(lines.join('\n'));
+  // A refused paste says why and nothing else – see dgeDelete.
+  if (!dgeSetSource(lines.join('\n'))) return;
   dgeSelect(DGE.clipboard.roots.map((r) => rename.get(r) || r));
-  dgeStatus('', `pasted ${text.split('\n').length} line(s)${rename.size ? `, ${rename.size} renamed to avoid a collision` : ''}`);
+  const renamed = DGE.clipboard.names.filter((n) => rename.has(n)).length;
+  dgeStatus('', `pasted ${text.split('\n').length} line(s)${renamed ? `, ${renamed} renamed to avoid a collision` : ''}`);
 }
 
 // ── where an edit goes (editor.md §2.3) ─────────────────────────────
@@ -7370,7 +8260,14 @@ async function dgeWriteToFile() {
 // shows their version with a quiet marker. It never touches disk and never
 // syncs to the speaker window – there is no second window to sync to.
 
-const DGE_STORE = 'psi-slides:diagram:';
+// **Per lecture**, the way the reader's highlights are: `psi-diagram:v1:`, the
+// source folder's name the build passes as PSI_DG_LECTURE, then the figure.
+// The first key named only the figure, and Chrome keeps one store for every
+// page opened from file:// – so an edit to `#fig` in one lecture was drawn in
+// another lecture's `#fig`, and the suggested `#figure-1` of a new figure is
+// the same in every deck. Keys of that first form are not read: nothing in
+// one says which lecture wrote it, so adopting it would be the same mistake.
+const DGE_STORE = 'psi-diagram:v1:';
 // Which figure to come back to after a write-back reloads the page.
 const DGE_REOPEN = 'psi-slides:diagram-editor-open';
 
@@ -7381,7 +8278,7 @@ const DGE_REOPEN = 'psi-slides:diagram-editor-open';
 // shifts the moment one is inserted earlier in the lecture.
 function dgeStoreKey(fig) {
   const base = fig.chunk || 'unnamed';
-  return DGE_STORE + base + (fig.nth ? '#' + fig.nth : '');
+  return DGE_STORE + (window.PSI_DG_LECTURE || 'lecture') + ':' + base + (fig.nth ? '#' + fig.nth : '');
 }
 
 function dgeSaveLocal() {
@@ -7533,8 +8430,11 @@ function dgeNewFigure() {
   } else done(false);
 }
 
+// The view's own toggle when it is there, so the panel opens the way ?
+// opens it on a slide - emptied, with the search field focused.
 function dgeHelp() {
-  const help = document.getElementById('help-overlay');
+  if (typeof window.toggleHelp === 'function') { window.toggleHelp(); return; }
+  const help = document.getElementById('psiINT-help-overlay');
   if (help) help.classList.toggle('hidden');
 }
 
@@ -7542,11 +8442,11 @@ function dgeHelp() {
 
 function dgeRenderAll() {
   if (!DGE.open) return;
-  const name = dgeQ('#dge-name');
+  const name = dgeQ('#psiINT-dge-name');
   if (name) name.textContent = DGE.fig.chunk ? '#' + DGE.fig.chunk : 'figure ' + (DGE.index + 1);
-  const pos = dgeQ('#dge-figpos');
+  const pos = dgeQ('#psiINT-dge-figpos');
   if (pos) pos.textContent = `${DGE.index + 1} / ${DGE_FIGURES.length}`;
-  const counts = dgeQ('#dge-counts');
+  const counts = dgeQ('#psiINT-dge-counts');
   if (counts && DGE.model) {
     counts.textContent = `${DGE.model.nodes.length + DGE.model.edges.length
       + DGE.model.containers.length + DGE.model.braces.length} elements`
@@ -7556,12 +8456,12 @@ function dgeRenderAll() {
   // One line of chrome saying which of the two situations this is. A private
   // editor mode is not a separate feature – it is the cockpit's existing
   // freeze, and saying so beats growing a second concept for the same thing.
-  const room = dgeQ('#dge-room');
+  const room = dgeQ('#psiINT-dge-room');
   if (room) {
     // Read off the cockpit's own control rather than a variable: `frozen` is
     // a top-level `let` in a classic script, which is not a property of
     // window, and the button is the state made visible anyway.
-    const btn = document.getElementById('freeze-btn');
+    const btn = document.getElementById('psiINT-freeze-btn');
     const frozen = !!(btn && btn.getAttribute('aria-pressed') === 'true');
     const isSpeaker = document.body.dataset.view === 'speaker';
     room.textContent = isSpeaker
@@ -7571,7 +8471,7 @@ function dgeRenderAll() {
   }
   // The commit button names the tier it will actually use, so "where does
   // this go?" is answered before it is pressed rather than after.
-  const copy = dgeQ('#dge-copy-btn');
+  const copy = dgeQ('#psiINT-dge-copy-btn');
   if (copy) {
     copy.disabled = !!(DGE.problems && DGE.problems.length);
     const live = window.psiWatch && window.psiWatch.ready() && DGE.fig.range;
@@ -7585,7 +8485,7 @@ function dgeRenderAll() {
   }
   // Tier 3 is opportunistic and never load-bearing: offered where the
   // picker exists and there is no watch socket already doing the job.
-  const fileBtn = dgeQ('#dge-file-btn');
+  const fileBtn = dgeQ('#psiINT-dge-file-btn');
   if (fileBtn) {
     const useful = dgeCanPickFile() && !(window.psiWatch && window.psiWatch.ready());
     fileBtn.hidden = !useful || !!DGE.fileHandle;
@@ -7593,18 +8493,18 @@ function dgeRenderAll() {
   // A reader's edits live in localStorage and nowhere else, so the way back
   // has to be visible. Shown only when this figure is actually showing
   // something other than what the author wrote.
-  const revert = dgeQ('#dge-revert-btn');
+  const revert = dgeQ('#psiINT-dge-revert-btn');
   if (revert) revert.hidden = DGE.source === DGE.fig.body;
   // Every mechanism in here has to have a visible control with its key printed
   // on it – editor.md §4.2. Undo was the one that had only the key, and how
   // deep the stack is is a thing the author can otherwise only find out by
   // pressing it.
-  const undoBtn = dgeQ('#dge-undo-btn');
+  const undoBtn = dgeQ('#psiINT-dge-undo-btn');
   if (undoBtn) {
     undoBtn.disabled = !DGE.undo.length;
     undoBtn.title = DGE.undo.length ? `undo (⌘Z) – ${DGE.undo.length} change(s) back` : 'nothing to undo';
   }
-  const redoBtn = dgeQ('#dge-redo-btn');
+  const redoBtn = dgeQ('#psiINT-dge-redo-btn');
   if (redoBtn) {
     redoBtn.disabled = !DGE.redo.length;
     redoBtn.title = DGE.redo.length ? `redo (⇧⌘Z) – ${DGE.redo.length} change(s) forward` : 'nothing to redo';
@@ -7616,7 +8516,7 @@ function dgeRenderAll() {
   dgeRenderSide();
   dgeDrawGuides();
   dgeRoot.classList.toggle('dge-in-step', DGE.beat > 0);
-  const strip = dgeQ('#dge-strip');
+  const strip = dgeQ('#psiINT-dge-strip');
   if (strip) strip.querySelectorAll('.dge-thumb').forEach((b, i) => {
     b.setAttribute('aria-current', String(i === DGE.index));
   });
@@ -7641,7 +8541,7 @@ function dgeFigureForNode(node) {
 }
 
 function dgeMountEntryPoint() {
-  const overlay = document.getElementById('figure-overlay');
+  const overlay = document.getElementById('psiINT-figure-overlay');
   if (!overlay) return;
   const sync = () => {
     const card = overlay.querySelector('.figure-focus-target');
@@ -7666,7 +8566,7 @@ function dgeMountEntryPoint() {
 }
 
 function dgeOpenFromCard() {
-  const overlay = document.getElementById('figure-overlay');
+  const overlay = document.getElementById('psiINT-figure-overlay');
   const card = overlay ? overlay.querySelector('.figure-focus-target') : null;
   const i = dgeFigureForNode(card);
   if (i < 0) return false;

@@ -62,7 +62,7 @@ const ctx = {
     chooseSource: () => ctx.chooseSource && ctx.chooseSource(),
     closeProject: () => ctx.closeProject && ctx.closeProject(),
     buildNow: () => builder && builder.rebuild(),
-    command: (name) => { if (win) win.webContents.send('command', { name }); },
+    command: (name, extra) => { if (win) win.webContents.send('command', { ...extra, name }); },
     openExternal: (which) => {
       const url = which === 'tutorial'
         ? 'https://uba-psi.github.io/psi-slides/tutorial/audience.html'
@@ -110,7 +110,10 @@ function createWindow() {
   win.webContents.on('will-navigate', (event) => event.preventDefault());
 
   win.once('ready-to-show', () => win.show());
-  win.on('closed', () => { win = null; });
+  win.on('closed', () => {
+    win = null;
+    if (ctx.abortPdf) ctx.abortPdf();
+  });
 
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 }
@@ -154,6 +157,7 @@ function start() {
   });
 
   app.on('before-quit', () => {
+    if (ctx.abortPdf) ctx.abortPdf();
     if (builder) builder.stop();
   });
 

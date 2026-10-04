@@ -6,7 +6,7 @@
  * rebuild is a function of the source alone - and for a while it was not.
  * `inlineSvgCounter` numbers the id prefix of every inlined SVG and used to
  * reset once per *build* rather than once per view, so the same figure came
- * out `psi-fig-6-` under `--audience-only` and `psi-fig-8-` under a full
+ * out `psiINT-fig-6-` under `--audience-only` and `psiINT-fig-8-` under a full
  * build. Content identical, bytes different: a contributor who iterated with
  * a partial flag and committed produced a diff of pure id churn and a view
  * that read as stale to CI.
@@ -21,7 +21,7 @@
  * builds a fixture deck into a temp dir, twice, and compares two files.
  */
 import fs from 'node:fs';
-import os from 'node:os';
+import { tmpDir } from './tmp.mjs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -67,7 +67,7 @@ const ok = (cond, what, detail = '') => {
 const note = (line) => console.log('    ' + line);
 
 {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-repro-'));
+  const dir = tmpDir('psi-repro-');
   fs.writeFileSync(path.join(dir, 'source.md'), SOURCE);
   // assets/, not beside source.md: the ![](id) shorthand resolves to
   // assets/<id>.<ext> and nowhere else. Written here because the first draft
@@ -79,23 +79,35 @@ const note = (line) => console.log('    ' + line);
   fs.writeFileSync(path.join(dir, 'assets', 'fig-a.svg'), SVG(10));
   fs.writeFileSync(path.join(dir, 'assets', 'fig-b.svg'), SVG(200));
 
-  const build = (...flags) => {
-    for (const f of fs.readdirSync(dir)) if (f.endsWith('.html')) fs.unlinkSync(path.join(dir, f));
+  // `clean` empties the folder of views first. The partial build below does
+  // NOT: audience.html depends on which views stand beside it (the start
+  // menu leaves out an entry whose file is missing - see siblingViewsAbsent
+  // in build.js), so --audience-only into an empty folder is a different
+  // input, not the same source under another flag. The case this check
+  // exists for is the one release.yml meets - a tracked view rebuilt with a
+  // partial flag beside the full set already on disk - and there the menu's
+  // input is the same both times, so any difference left is a dependency on
+  // the flag set. Only audience.html is removed, so the file compared is the
+  // one this build wrote.
+  const build = (clean, ...flags) => {
+    for (const f of fs.readdirSync(dir)) {
+      if (f.endsWith('.html') && (clean || f === 'audience.html')) fs.unlinkSync(path.join(dir, f));
+    }
     const r = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(dir, 'source.md'), ...flags],
       { cwd: ROOT, encoding: 'utf8' });
     if (r.status !== 0) throw new Error('build failed: ' + (r.stdout || '') + (r.stderr || ''));
     return fs.readFileSync(path.join(dir, 'audience.html'), 'utf8');
   };
 
-  const full = build();
+  const full = build(true);
   // The fixture has to contain the thing under test, or every assertion
   // below passes by vacuity. This one line is why the check can go red.
-  const n = (full.match(/\bid="psi-fig-\d+-root"/g) || []).length;
+  const n = (full.match(/\bid="psiINT-fig-\d+-root"/g) || []).length;
   ok(n === 2, 'the fixture inlined both of its SVGs', `${n} inlined`);
 
-  ok(full === build(), 'a full build is reproducible: two runs, same bytes');
+  ok(full === build(true), 'a full build is reproducible: two runs, same bytes');
 
-  const partial = build('--audience-only');
+  const partial = build(false, '--audience-only');
   const same = full === partial;
   if (!same) {
     const a = full.split('\n'), b = partial.split('\n');
@@ -106,7 +118,7 @@ const note = (line) => console.log('    ' + line);
 
   // The property underneath it, stated directly so a failure says which half
   // broke: every id in one document is unique, whatever the floor was.
-  const ids = [...full.matchAll(/\bid="(psi-fig-\d+-[^"]*)"/g)].map(m => m[1]);
+  const ids = [...full.matchAll(/\bid="(psiINT-fig-\d+-[^"]*)"/g)].map(m => m[1]);
   ok(ids.length === new Set(ids).size,
      'and every inlined-SVG id in the document is still unique',
      `${ids.length} ids, ${new Set(ids).size} distinct`);

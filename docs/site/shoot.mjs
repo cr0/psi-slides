@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 /**
- * Re-shoots the site's screenshots from lectures/python-intro, plus the one of
- * the diagram editor from lectures/diagrams, the five decoration.html needs
+ * Re-shoots the site's screenshots from lectures/python-intro, plus the two
+ * from lectures/diagrams (the diagram editor, and a stepped slide for the
+ * figures page), the five decoration.html needs
  * from lectures/decoration, and the four-frame cue-card sequence from
- * lectures/spoken-talk.
+ * lectures/spoken-talk. One row is not a view at all: four pages of
+ * python-intro's slides.pdf, exported by build.js and rasterised by pdftoppm
+ * (poppler), which that row alone needs.
  *
- *   node docs/site/shoot.mjs                 # all twenty, into docs/site/img/
+ *   node docs/site/shoot.mjs                 # all of them, into docs/site/img/
  *   node docs/site/shoot.mjs cockpit search  # just those two
  *   node docs/site/shoot.mjs --keep-png      # leave the PNGs beside the WebP
  *
@@ -47,7 +50,7 @@
  *
  * The audience view is walked to the target chunk with the arrow keys rather
  * than addressed by fragment. That was a workaround for the bug where the
- * browser scrolled #stage-viewport to the fragment target and left the camera
+ * browser scrolled #psiINT-stage-viewport to the fragment target and left the camera
  * framing empty space; the runtime resets that scroll now (see
  * resetViewportScroll in build.js), and the walk stays because it is also
  * what a lecturer does, and because the assertion below is worth keeping
@@ -82,12 +85,32 @@ main { padding-top: 0 !important; margin-top: 0 !important; }
 </style>
 `;
 
-// The live view's own chrome is not part of any composition: the help button
-// and the edge arrows are controls, and a picture of a slide is a picture of a
-// slide. Same rig shoot-gallery.mjs uses on its tiles, and for the same
-// reason - the two sets stand on one page.
+// The documents carry the reader's tools on screen (reader: on, the default):
+// a contents sidebar or a Contents button, and from 920px a reserved column
+// for the reader's notes that pushes the text to the left. `printed` is the
+// third picture in the landing page's "in print" switch, and what it shows is
+// paper, where none of that exists. So it takes the tools away the way a
+// page without scripts would never have had them: READER_EARLY_JS sets
+// rd-ready and unhides the two elements, and this undoes both. Print media
+// itself was tried and is not a picture of paper either - without @page the
+// text sits flush against the window's left edge and loses its margin
+// numbers. The two handout shots keep the tools: they are the file in a
+// browser window, the title bar names it, and the button is what a reader of
+// that file sees.
+const PAPER_RIG = DOC_RIG + `
+<style>.rd-contents, .rd-toggle { display: none !important; }</style>
+<script>
+document.body.classList.remove('rd-ready');
+for (const e of document.querySelectorAll('.rd-contents, .rd-toggle')) e.hidden = true;
+</script>
+`;
+
+// The live view's own chrome is not part of any composition: the help button,
+// the start menu and the edge arrows are controls, and a picture of a slide
+// is a picture of a slide. Same rig shoot-gallery.mjs uses on its tiles, and
+// for the same reason - the two sets stand on one page.
 const LIVE_RIG = `
-<style>#help-button, #nav-hints, .annot-add { display: none !important; }</style>
+<style>#psiINT-help-button, #psiINT-start-menu, #psiINT-start-menu-show, #psiINT-nav-hints, .annot-add { display: none !important; }</style>
 `;
 
 // ── when these shots are stale ───────────────────────────────────────────
@@ -162,39 +185,68 @@ const LIVE_RIG = `
 // it after shooting, and commit the manual with the images.
 
 const SHOTS = [
-  { name: 'collapsed', src: 'audience.html', w: 1440, h: 900, dsf: 1.5, live: true },
-  { name: 'full', src: 'audience.html', w: 1440, h: 900, dsf: 1.5, live: true,
+  { name: 'collapsed', src: 'audience.html', w: 1440, h: 900, dsf: 1.5, live: true, quiet: true },
+  { name: 'full', src: 'audience.html', w: 1440, h: 900, dsf: 1.5, live: true, quiet: true,
     // Long enough for the "collapse: show everything" toast to fade: it is
     // feedback for the lecturer, not part of the slide.
     act: async (p) => { await p.keyboard.press('c'); await p.waitForTimeout(3000); } },
-  { name: 'overview', src: 'audience.html', w: 1440, h: 900, dsf: 1.5, live: true,
+  { name: 'overview', src: 'audience.html', w: 1440, h: 900, dsf: 1.5, live: true, quiet: true,
     act: async (p) => { await p.keyboard.press('o'); await p.waitForTimeout(1500); } },
-  { name: 'search', src: 'audience.html', w: 1440, h: 900, dsf: 1.5, live: true,
+  { name: 'search', src: 'audience.html', w: 1440, h: 900, dsf: 1.5, live: true, quiet: true,
     act: async (p) => {
       await p.keyboard.press('/');
-      await p.fill('#search-input', 'async');
+      await p.fill('#psiINT-search-input', 'async');
       await p.waitForTimeout(500);
     } },
   { name: 'cockpit', src: 'speaker.html', w: 1440, h: 900, dsf: 1.5, frag: true },
-  { name: 'printed', src: 'print.html', w: 1000, h: 625, dsf: 2.15, rig: DOC_RIG },
-  // 470 rather than 690, and the reason is DESIGN.md's fifth rule. The frame
-  // held two chunks of the document, and the second one carries nothing the
-  // first does not: the claim beside it is hyphenation, a line length made
-  // for reading, and the margin note as an aside, and all three are in the
-  // first chunk. As two chunks the shot came out 762px tall against 240px of
-  // words in the row beside it - a picture three times its own argument.
-  { name: 'handout', src: 'print-notes.html', w: 860, h: 470, dsf: 2.5, rig: DOC_RIG },
+  // `top` scrolls the document so the chunk opens the frame: the lead-in of
+  // the part above it is not what any of the three document shots is about.
+  { name: 'printed', src: 'print.html', w: 1000, h: 625, dsf: 2.15, rig: PAPER_RIG, top: true },
+  // One chunk rather than two, and the reason is DESIGN.md's fifth rule. The
+  // frame held two chunks of the document, and the second one carries
+  // nothing the first does not: the claim beside it is hyphenation, a line
+  // length made for reading, and the margin note as an aside, and all three
+  // are in the first chunk. As two chunks the shot came out 762px tall
+  // against 240px of words in the row beside it - a picture three times its
+  // own argument.
+  //
+  // The cut went to 470 rows first, and that stopped working when the
+  // screen documents grew to a reading size (15px at this width, where the
+  // frame was composed at 13.3px): 470 rows then ended in the chunk's last
+  // paragraph, above the margin note and the speaker note, so the switch
+  // below swapped two identical pictures and its "with your notes" showed no
+  // note. 640 from the chunk's top is that one chunk down to its note.
+  { name: 'handout', src: 'print-notes.html', w: 860, h: 640, dsf: 2.5, rig: DOC_RIG, top: true },
   // The same frame again from print.html, so the landing page can offer the
   // two handouts as one switch rather than showing the notes version and
   // calling it what the students take away. Identical geometry to `handout`
   // on purpose: a switch that changes the crop as well as the file reads as
   // two pictures, not as one file becoming another.
-  { name: 'handout-plain', src: 'print.html', w: 860, h: 470, dsf: 2.5, rig: DOC_RIG },
+  { name: 'handout-plain', src: 'print.html', w: 860, h: 640, dsf: 2.5, rig: DOC_RIG, top: true },
   // The editor, opened on a figure with beats. 1280 is the narrowest viewport
   // that still fits the whole top bar - at 1200 the Close button is cut in
   // half, and a screenshot of a clipped UI reads as a broken one.
   { name: 'editor', src: 'audience.html', w: 1280, h: 850, dsf: 1.5,
     lecture: 'diagrams', target: 'cbc', frag: true, act: openEditor },
+  // The lecture the figures page opens with, shown as its projection: the
+  // page links lectures/diagrams as the place to watch a figure step, so the
+  // picture beside those links is a slide of it. #cbc, the same chunk the
+  // editor shot opens, stood at the third of its four beats - the chaining
+  // arrows lit, the plaintext row still to come - because a figure partway
+  // through its beats says "this steps" without a word, and the finished one
+  // reads as any other diagram. Two presses, because #cbc has no `---`: its
+  // beats after the first are the figure's own `step` blocks.
+  //
+  // The 1280x720 frame and LIVE_RIG of the decoration rows, for their
+  // reason: a picture of a slide, not of the controls round it. And dark,
+  // unlike the landing page's set on paper (see toLightTheme), because the
+  // lecture pins `theme: dark` and this picture stands beside the link that
+  // opens it - a reader who clicks should find the slide they were shown.
+  { name: 'diagrams-cbc', src: 'audience.html', w: 1280, h: 720, dsf: 1.5,
+    lecture: 'diagrams', target: 'cbc', frag: true, rig: LIVE_RIG,
+    act: async (p) => {
+      for (let i = 0; i < 2; i++) { await p.keyboard.press(' '); await p.waitForTimeout(900); }
+    } },
   // A figure on the slide, for the preview section on the landing page. It is
   // a projection rather than a cut-out drawing, because what the section
   // claims is that these are lecture slides, not pictures pasted onto them.
@@ -217,22 +269,42 @@ const SHOTS = [
   // the four frames are the cursor standing on each of the four cards, with
   // the figure at the beat that card is spoken over.
   //
-  // Even presses only. The rail carries an entry for the projector click
-  // itself, so the cursor lands on a card, then on a click, then on the next
-  // card: 0, 2, 4, 6 are the four frames where a card is current and the
-  // figure has just moved. Deriving them rather than counting them would
+  // One press a frame. Each beat of this chunk up to the last carries one
+  // card, and the press on the last card of a beat is the projector click
+  // itself, so 0, 1, 2, 3 are the four frames where a card is current and
+  // the figure has just moved. Deriving them rather than counting them would
   // need the rail's own model, and the count is asserted below instead.
-  ...[0, 2, 4, 6].map((presses, i) => ({
+  ...[0, 1, 2, 3].map((presses, i) => ({
     name: `cue-beat-${i}`, src: 'speaker.html', w: 1440, h: 900, dsf: 1.5,
     lecture: 'spoken-talk', target: 'second-time', frag: true,
     act: (p) => cueFrame(p, presses),
   })),
+  // ── four pages of slides.pdf ────────────────────────────────────────────
+  // For the PDF section on "In the room". What that section claims is that a
+  // press becomes a page, so the picture is consecutive pages of a real
+  // export and not a live view: #async-await, which has one `---`, and the
+  // figure after it, #async-timeline, which has one `step` - a reveal and a
+  // drawing's step, two pages each. python-intro because it is the site's
+  // shot source and those two chunks are the only neighbours in it that show
+  // both kinds of beat.
+  //
+  // The rig is different from every other row, and that is why the row
+  // carries `sheet` rather than `src`: the PDF is written by build.js (the
+  // same `--slides-pdf` an author runs, default options), its pages are
+  // rasterised by pdftoppm, and the contact sheet is an HTML page of those
+  // PNGs that the loop below photographs like any other. Which PDF pages
+  // belong to the two chunks is read from `--pdf-dump-dom`, the print DOM
+  // the export builds, where each `.pdf-page` wrapper holds one clone of its
+  // chunk - counting beats by hand would go stale the day a chunk above
+  // gained a `---`.
+  { name: 'slides-pdf', sheet: { chunks: ['async-await', 'async-timeline'] },
+    target: 'async-await', w: 1440, h: 844, dsf: 1.5 },  // h: two 16:9 pages of 682 + gap + pad
   // The live annotation filling the frame, with the QR code the address gets.
   // python-intro, so it is the same lecture as the rest of the live set, and
   // typed rather than pre-seeded: the size is derived from the text, so a
   // shot of it has to go through the same keystrokes a lecturer makes.
   { name: 'annotation', src: 'audience.html', w: 1440, h: 900, dsf: 1.5,
-    live: true, act: typeAnnotation },
+    live: true, quiet: true, act: typeAnnotation },
   // ── the decoration page's five ──────────────────────────────────────────
   // Cards, rows, a backdrop, a panel and a dock, for decoration.html. They
   // belong here rather than in shoot-gallery.mjs, and the split is the one
@@ -311,11 +383,11 @@ const CUE_STRIP_PX = 620;
 async function cueFrame(p, presses) {
   await p.keyboard.press('k');
   await p.waitForTimeout(1200);
-  if (!(await p.locator('body.cue-cards #cue-rail .cue-card').count())) {
+  if (!(await p.locator('body.cue-cards #psiINT-cue-rail .cue-card').count())) {
     throw new Error('cue cards: the rail is empty');
   }
 
-  const seam = await p.locator('#preview-resizer').boundingBox();
+  const seam = await p.locator('#psiINT-preview-resizer').boundingBox();
   if (!seam) throw new Error('cue cards: no resize handle');
   await p.mouse.move(seam.x + seam.width / 2, seam.y + seam.height / 2);
   await p.mouse.down();
@@ -330,10 +402,11 @@ async function cueFrame(p, presses) {
   }
 
   // The frame is only the frame if a card is current. An entry for the
-  // projector click sits between two cards, and a sequence photographed one
-  // press out would show the rail moving and the figure standing still.
+  // projector click sits between two cards, and the cursor stands on it
+  // when a beat carries no card - a sequence photographed there would show
+  // the rail moving and the figure standing still.
   const cur = await p.evaluate(() => {
-    const e = document.querySelector('#cue-rail .cue-entry.cur');
+    const e = document.querySelector('#psiINT-cue-rail .cue-entry.cur');
     return e ? (e.querySelector('.cue-card') ? 'card' : 'click') : 'none';
   });
   if (cur !== 'card') throw new Error(`cue-cards: after ${presses} presses the cursor is on a ${cur}`);
@@ -383,18 +456,18 @@ async function openEditor(p) {
   await p.waitForTimeout(400);
   await p.keyboard.press('e');
   await p.waitForTimeout(900);
-  if (!(await p.locator('#dge-root').count())) throw new Error('editor: did not open');
+  if (!(await p.locator('#psiINT-dge-root').count())) throw new Error('editor: did not open');
   await p.evaluate(() => {
-    const beats = [...document.querySelectorAll('#dge-beats .dge-beat')];
+    const beats = [...document.querySelectorAll('#psiINT-dge-beats .dge-beat')];
     if (beats.length) beats[beats.length - 1].click();
   });
   await p.waitForTimeout(500);
-  const fit = p.locator('#dge-root button', { hasText: /^Fit$/ }).first();
+  const fit = p.locator('#psiINT-dge-root button', { hasText: /^Fit$/ }).first();
   if (!(await fit.count())) throw new Error('editor: no Fit button');
   await fit.click();
   await p.waitForTimeout(600);
   const at = await p.evaluate(() => {
-    const el = document.querySelector('#dge-art-svg [id$="-c1"] rect');
+    const el = document.querySelector('#psiINT-dge-art-svg [id$="-c1"] rect');
     if (!el) return null;
     const r = el.getBoundingClientRect();
     return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
@@ -403,14 +476,72 @@ async function openEditor(p) {
   await p.mouse.click(at.x, at.y);
   await p.waitForTimeout(600);
   const sel = await p.evaluate(() =>
-    ((document.querySelector('#dge-side .dge-sel-head') || {}).textContent || '').trim());
+    ((document.querySelector('#psiINT-dge-side .dge-sel-head') || {}).textContent || '').trim());
   if (!/c1/.test(sel)) throw new Error(`editor: selected "${sel}", expected box c1`);
+}
+
+// ── the PDF contact sheet ────────────────────────────────────────────────
+//
+// Builds the lecture with --slides-pdf into the rig's directory, finds the
+// pages of the chunks the row names, rasterises them, and returns a page that
+// lays them out two by two on white with a hairline round each page: the
+// shot's own window is white, and a page's near-white paper needs an edge.
+// (A grey ground, the one a PDF reader puts between pages, was tried and read
+// as a second stage inside the stage.)
+function contactSheet(s, dir) {
+  if (spawnSync('which', ['pdftoppm']).status !== 0) {
+    const err = new Error(`${s.name}: needs pdftoppm (poppler) on PATH to rasterise the PDF`);
+    err.userFacing = true;
+    throw err;
+  }
+  const lecture = lectureOf(s);
+  const pdf = path.join(dir, s.name + '.pdf');
+  const dom = path.join(dir, s.name + '.dom.html');
+  const b = spawnSync(process.execPath, [path.join(ROOT, 'build.js'),
+    path.join(lecture, 'source.md'), '--slides-pdf',
+    `--pdf-out=${pdf}`, `--pdf-dump-dom=${dom}`], { encoding: 'utf8' });
+  if (b.status !== 0) throw new Error(`${s.name}: --slides-pdf failed\n${b.stderr || b.stdout}`);
+
+  // Wrapper N is PDF page N; the first id after the wrapper's own is the
+  // chunk it holds.
+  const text = fs.readFileSync(dom, 'utf8');
+  const pages = [];
+  const re = /class="pdf-page" id="psiINT-pdf-p(\d+)"[\s\S]*?\bid="([^"]+)"/g;
+  for (let m; (m = re.exec(text));) {
+    if (s.sheet.chunks.includes(m[2])) pages.push(Number(m[1]));
+  }
+  if (!pages.length) throw new Error(`${s.name}: no page of ${s.sheet.chunks.join(', ')} in the PDF`);
+  const first = Math.min(...pages), last = Math.max(...pages);
+  if (last - first + 1 !== pages.length || pages.length !== 4) {
+    throw new Error(`${s.name}: expected four consecutive pages, got ${pages.join(', ')}`);
+  }
+
+  // Twice the pixels the sheet shows a page at, so the browser scales down.
+  const gap = 20, pad = 28;
+  const pw = (s.w - 2 * pad - gap) / 2;
+  spawnSync('pdftoppm', ['-f', String(first), '-l', String(last), '-png',
+    '-scale-to-x', String(Math.round(pw * s.dsf * 2)), '-scale-to-y', '-1',
+    pdf, path.join(dir, s.name + '-pg')], { stdio: 'inherit' });
+  const pngs = fs.readdirSync(dir).filter(f => f.startsWith(s.name + '-pg') && f.endsWith('.png')).sort();
+  if (pngs.length !== 4) throw new Error(`${s.name}: pdftoppm wrote ${pngs.length} page(s)`);
+  const imgs = pngs.map(f => `<img src="data:image/png;base64,${
+    fs.readFileSync(path.join(dir, f)).toString('base64')}">`).join('\n');
+  return `<!doctype html><meta charset="utf-8"><style>
+html, body { margin: 0; background: #fff; }
+body { display: grid; grid-template-columns: ${pw}px ${pw}px; gap: ${gap}px; padding: ${pad}px; }
+img { display: block; width: ${pw}px; outline: 1px solid rgba(0,0,0,.2); }
+</style>
+${imgs}`;
 }
 
 // ── the rig, and a server for it ─────────────────────────────────────────
 function buildRig(shots) {
   const dir = fs.mkdtempSync(path.join(process.env.TMPDIR || '/tmp', 'psi-shoot-'));
   for (const s of shots) {
+    if (s.sheet) {
+      fs.writeFileSync(path.join(dir, s.name + '.html'), contactSheet(s, dir));
+      continue;
+    }
     const lecture = lectureOf(s);
     const abs = path.join(lecture, s.src);
     if (!fs.existsSync(abs)) {
@@ -458,7 +589,7 @@ async function walkTo(p, target) {
 async function assertOnScreen(p, name, target) {
   const r = await p.evaluate((id) => {
     const b = document.getElementById(id).getBoundingClientRect();
-    const v = document.getElementById('stage-viewport').getBoundingClientRect();
+    const v = document.getElementById('psiINT-stage-viewport').getBoundingClientRect();
     return {
       on: b.x < v.right && b.y < v.bottom && b.x + b.width > v.left && b.y + b.height > v.top,
       x: Math.round(b.x), y: Math.round(b.y),
@@ -485,7 +616,10 @@ function checkTargets(list) {
     if (!need.has(lec)) need.set(lec, new Set());
     need.get(lec).add(id);
   };
-  for (const s of list) want(lectureOf(s), targetOf(s));
+  for (const s of list) {
+    want(lectureOf(s), targetOf(s));
+    for (const id of (s.sheet && s.sheet.chunks) || []) want(lectureOf(s), id);
+  }
   // DOC_RIG trims the document views to two chunks, and the second one is
   // named in CSS rather than in a shot row.
   want(LECTURE, TARGET);
@@ -555,6 +689,13 @@ try {
     });
     const page = await ctx.newPage();
     const target = targetOf(s);
+    // `quiet`: the runtime's own switch for a probe that photographs the
+    // projection (--frames, --check-fit, --squint set it too). It keeps the
+    // start menu shut and, with it, the chevron that reopens the menu, which
+    // otherwise stands beside the ? circle once the walk has left slide 1.
+    // The python-intro rows keep the ? circle they were composed with, so
+    // LIVE_RIG, which hides that as well, is not theirs.
+    if (s.quiet) await page.addInitScript(() => { window.PSI_NO_START_MENU = true; });
     await page.goto(`http://127.0.0.1:${port}/${s.name}.html` + (s.frag ? `#${target}` : ''),
       { waitUntil: 'networkidle' });
     await page.waitForTimeout(1000);
@@ -562,6 +703,12 @@ try {
     // Checked before the state change: overview and search deliberately
     // cover or shrink the stage, so the assertion belongs to the landing.
     if (s.live || s.frag) await assertOnScreen(page, s.name, target);
+    if (s.top) {
+      await page.evaluate((id) => {
+        window.scrollTo(0, document.getElementById(id).getBoundingClientRect().top + window.scrollY - 32);
+      }, target);
+      await page.waitForTimeout(300);
+    }
     if (s.act) await s.act(page);
 
     const png = path.join(IMG, s.name + '.png');

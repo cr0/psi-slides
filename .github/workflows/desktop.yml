@@ -16,16 +16,33 @@
 # exactly - LICENSE included, which is staged into the app and so is on the
 # list. A matrix run on a licence edit is the price of a rule with no
 # exceptions, and it is cheap: that file changes about never.
+#
+# Two names are on it that the app does not stage: pdf-export.mjs and
+# chrome-path.mjs. The smoke test ends with desktop/test/parity.mjs, which
+# exports the same lecture on the command line and compares, so a change to
+# the command line's PDF driver can fail this job, and has to run it.
 name: Desktop
 
 on:
   push:
+    # Branches only. GitHub does not evaluate `paths` for a tag push, so
+    # without this every `v*` tag started this matrix on its own, beside the
+    # run release.yml makes of it through workflow_call - the three-platform
+    # build twice for one release. A `branches` filter with no `tags` filter
+    # leaves tag pushes out.
+    branches: ['**']
     paths:
       - 'desktop/**'
       - 'build.js'
       - 'diagram-core.mjs'
       - 'tails.mjs'
+      - 'colour.mjs'
       - 'cue-cards.mjs'
+      - 'commands.mjs'
+      - 'pdf-core.mjs'
+      - 'pdf-export.mjs'
+      - 'chrome-path.mjs'
+      - 'pulse-embed.js'
       - 'editor.mjs'
       - 'editor.css'
       - 'package.json'
@@ -38,17 +55,25 @@ on:
       - 'build.js'
       - 'diagram-core.mjs'
       - 'tails.mjs'
+      - 'colour.mjs'
       - 'cue-cards.mjs'
+      - 'commands.mjs'
+      - 'pdf-core.mjs'
+      - 'pdf-export.mjs'
+      - 'chrome-path.mjs'
+      - 'pulse-embed.js'
       - 'editor.mjs'
       - 'editor.css'
       - 'package.json'
       - 'package-lock.json'
       - 'LICENSE'
       - '.github/workflows/desktop.yml'
+  # Run by hand from the Actions tab, this is also how a package between two
+  # releases is made: the run's artefacts are the packages, unsigned.
   workflow_dispatch:
-  # desktop-release.yml runs this same matrix for a `builder-*` tag and
-  # then attaches the packages to a pre-release, so the release is built by
-  # exactly the jobs that test every push.
+  # release.yml runs this same matrix for a `v*` tag and then attaches the
+  # packages to the release beside the engine archives, so the release is
+  # built by exactly the jobs that test every push.
   workflow_call:
 
 permissions:
@@ -78,9 +103,13 @@ jobs:
         run: npm test
 
       # Electron needs a display even to open a window it never shows, and a
-      # headless runner has none.
-      - name: Install xvfb
-        run: sudo apt-get update && sudo apt-get install -y xvfb
+      # headless runner has none. poppler-utils is for the parity step at the
+      # end of the smoke test, which reads both drivers' PDFs with pdftotext;
+      # its command-line half uses the runner's /usr/bin/google-chrome and the
+      # engine's playwright-core from the step above. Under CI a missing one
+      # fails the step rather than skipping it.
+      - name: Install xvfb and poppler
+        run: sudo apt-get update && sudo apt-get install -y xvfb poppler-utils
 
       - name: Smoke test
         working-directory: desktop
@@ -121,10 +150,12 @@ jobs:
       # GitHub. Windows has no code-signing certificate at all, so its
       # installer is unsigned wherever it is built and SmartScreen warns once.
       # What this job produces is for testing, and it is attached to the run
-      # rather than to a release – except when desktop-release.yml is the
-      # caller, which downloads these artefacts and attaches them to a
-      # pre-release under the names `artifactName` in desktop/package.json
-      # gives them (no version in the name, so a link keeps working).
+      # rather than to a release – except when release.yml is the caller,
+      # which downloads these artefacts and attaches them to the `v*` release
+      # under the names `artifactName` in desktop/package.json gives them (no
+      # version in the name, so a link keeps working). release.yml checks for
+      # those five names, so a change to `artifactName` or to the targets
+      # changes its list in the same commit.
       - name: Package
         working-directory: desktop
         env:

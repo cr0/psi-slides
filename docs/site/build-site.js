@@ -109,7 +109,7 @@ const BAR_TEXT = {
     chair: 'Lehrstuhl für Privatsphäre und Sicherheit in Informationssystemen',
     menu: 'Menü', lang: 'Sprache',
     nav: {
-      home: 'Start', room: 'Im Raum', decoration: 'Dekoration',
+      home: 'Start', room: 'Im Hörsaal', decoration: 'Dekoration',
       figures: 'Abbildungen', start: 'Loslegen', comparison: 'Vergleich',
     },
   },
@@ -125,16 +125,17 @@ const BAR_TEXT = {
  *             exception in topbar() below.
  *   nav       the key in BAR_TEXT[lang].nav, and the entry's presence in the
  *             bar. A row without `nav` is a page the bar does not carry - the
- *             figure manual, the display-face roster - listed so the link gate
+ *             display-face roster, the prompter - listed so the link gate
  *             knows what it is. The bar has no room to spare (see DESIGN.md,
- *             "The strip must never grow a second line"), and both of those
- *             pages are reached from the one page that introduces them.
+ *             "The strip must never grow a second line"), and each of those
+ *             pages - the prompter too - is reached from the one page that
+ *             introduces it.
  *   pending   the destination does not exist yet. The row stays in the table
  *             so the page it names is one flag away, and the bar leaves it
  *             out until then: an entry that 404s is worse than one that is
  *             missing. PSI_SITE_NAV_ALL=1 renders the pending rows anyway,
  *             which is how the bar's breakpoints were measured against the
- *             full six entries rather than against today's five.
+ *             full six entries rather than against five.
  *
  * Every row now names a page of its own. Two of them did not: `start` and
  * `decoration` pointed at sections of the home page until those sections were
@@ -148,7 +149,7 @@ const SITE_PAGES = {
   figures:    { en: 'figures.html',                                                    nav: 'figures' },
   start:      { en: 'getting-started.html',       de: 'de/getting-started.html',       nav: 'start' },
   comparison: { en: 'comparison.html',                                                 nav: 'comparison' },
-  manual:     { en: 'figures-you-write.html' },
+  prompter:   { en: 'prompter.html',              de: 'de/prompter.html' },
   faces:      { en: 'display-faces.html' },
 };
 // Bar order, left to right: the argument first, then the two catalogues, then
@@ -394,7 +395,7 @@ const countWords = (s) => stripTags(s).split(/\s+/).filter((w) => /[\p{L}\p{N}]/
 /*
  * ── The word count ─────────────────────────────────────────────────────────
  *
- * `--words` after the out-dir. PLAN-website.md sets the home page a budget -
+ * `--words` after the out-dir. docs/history/PLAN-website.md sets the home page a budget -
  * under 1,400 prose words, no section over 400 - and without a measurement
  * that is an opinion. Sections are cut at <h2>, because that is what a reader
  * sees as a section; the words before the first one are the hero.
@@ -525,7 +526,8 @@ function checkLinks(outDir, pages) {
  *              every heading needs an id, which is why the sequence of levels
  *              is what carries the comparison.
  *   images     the same pictures in the same order. The German page lives one
- *              directory down, so its "../" is normalised away.
+ *              directory down, so its "../" is normalised away, and a
+ *              `-de` shot stands for its English file of the same name.
  *   code       the same commands. A German code block may translate its
  *              `#` comments and may not translate the command, so the
  *              comparison cuts the comments off first and strips the
@@ -547,9 +549,16 @@ function twinStructure(html) {
     headings.push({ level: m[1].toLowerCase(), id: id ? id[1] : null });
   }
   const norm = (p) => p.replace(/^(?:\.\.\/)+/, '').replace(/^de\//, '');
+  // A picture whose words are the page's language comes in two files,
+  // `img/x.webp` and `img/x-de.webp` - the prompter's hint is the model's own
+  // answer in the lecture's language, so the German page cannot show the
+  // English one. The suffix is folded away here, in the pictures and in the
+  // links (which read every src too), so the pair still counts as the same
+  // picture in the same place.
+  const langShot = (p) => p.replace(/^(img\/[^/]+)-de(\.[a-z0-9]+)$/i, '$1$2');
   const images = [];
   const imgRe = /<(?:img|source)\b[^>]*\b(?:src|srcset)\s*=\s*"([^"]+)"/gi;
-  while ((m = imgRe.exec(html))) images.push(norm(decodeEntities(m[1]).split(' ')[0]));
+  while ((m = imgRe.exec(html))) images.push(langShot(norm(decodeEntities(m[1]).split(' ')[0])));
   const code = [];
   const preRe = /<pre\b[^>]*>([\s\S]*?)<\/pre>/gi;
   while ((m = preRe.exec(html))) {
@@ -561,7 +570,7 @@ function twinStructure(html) {
   }
   const links = hrefsIn(html)
     .filter((h) => !/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(h))
-    .map(norm);
+    .map((h) => langShot(norm(h)));
   return { headings, images, code, links };
 }
 
@@ -596,6 +605,47 @@ function checkTwins(twins) {
       + '\n  Prose is free; headings, pictures, commands and link targets are not.');
   }
   console.log(`  twins: ${twins.length} pair(s), same structure`);
+}
+
+// The bar's rules, for the one page that does not load site.css: every
+// top-level rule whose selectors all name a .topbar class, and the same out of
+// every @media block, in site.css's order. Read, not copied by hand, so the bar
+// on that page cannot drift from the bar everywhere else. --shot-bg is the one
+// token the bar asks for that the page does not define, and the scroll padding
+// keeps a heading the contents jumps to from landing under the sticky strip.
+function topbarCss() {
+  const css = fs.readFileSync(path.join(HERE, 'site.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const blocks = (text) => {
+    const out = [];
+    let i = 0;
+    for (;;) {
+      const open = text.indexOf('{', i);
+      if (open < 0) return out;
+      let depth = 1;
+      let j = open + 1;
+      for (; j < text.length && depth; j++) {
+        if (text[j] === '{') depth++;
+        else if (text[j] === '}') depth--;
+      }
+      const head = text.slice(i, open);
+      out.push({ head: head.slice(head.lastIndexOf(';') + 1).trim(), body: text.slice(open + 1, j - 1) });
+      i = j;
+    }
+  };
+  const isBar = (head) => head.split(',').every((sel) => /\.topbar\b/.test(sel));
+  const rules = [];
+  for (const { head, body } of blocks(css)) {
+    if (head.startsWith('@media')) {
+      const inner = blocks(body).filter((r) => isBar(r.head));
+      if (inner.length) rules.push(head + ' {\n' + inner.map((r) => '  ' + r.head + ' {' + r.body + '}').join('\n') + '\n}');
+    } else if (!head.startsWith('@') && isBar(head)) {
+      rules.push(head + ' {' + body + '}');
+    }
+  }
+  if (!rules.some((r) => r.startsWith('.topbar {')) || rules.length < 20) {
+    throw new Error('topbarCss(): found ' + rules.length + ' bar rules in site.css - has the bar been renamed?');
+  }
+  return 'html { scroll-padding-top: 3.5rem; }\n.topbar { --shot-bg: var(--panel); }\n' + rules.join('\n');
 }
 
 function main() {
@@ -642,56 +692,81 @@ function main() {
   // lecture already carries on `?`.
   landing('in-the-room.html', 'in-the-room.html', 'room', 'en', '');
   landing('in-the-room.de.html', path.join('de', 'in-the-room.html'), 'room', 'de', '../');
+  // The live prompter, pulled out of in-the-room.html once its section had
+  // outgrown the page. That page keeps a teaser under #prompter and is the
+  // only way in: the page is not in the bar.
+  landing('prompter.html', 'prompter.html', 'prompter', 'en', '');
+  landing('prompter.de.html', path.join('de', 'prompter.html'), 'prompter', 'de', '../');
   // The cover, divider, card, backdrop, overlay and dock vocabulary, pulled
   // out of the front page's longest section. The `#covers` anchor stays on
   // index.html as well, because the lecture's own QR codes used to point at
   // it and older links still do.
   landing('decoration.html', 'decoration.html', 'decoration', 'en', '');
   landing('decoration.de.html', path.join('de', 'decoration.html'), 'decoration', 'de', '../');
-  // The thirty-two display faces, each drawn into a cover and a divider. Like
-  // figures.html it is copied rather than rendered, and like the figure manual
-  // it stays out of the bar: the decoration page's display-face section is
-  // where a reader meets the role, and that is the only place it is linked
-  // from. Generated, not hand-written - tools/font-playground/
-  // build-playground.mjs writes it out of the roster and the measured scales,
-  // and its --check is what keeps the tracked page from going stale.
+  // The typefaces page: the nine text faces drawn into a slide and a page of
+  // the handout, then the thirty-two display faces, each drawn into a cover
+  // and a divider. The file keeps the name it had when it held the display
+  // faces alone, because links to it exist. Like figures.html it is generated
+  // rather than rendered from Markdown, and unlike it, it stays out of the
+  // bar: the decoration page's display-face section is where a reader meets
+  // it, and that is the only place it is linked from. Generated, not
+  // hand-written - tools/font-playground/build-playground.mjs writes it out of
+  // the roster, the measured scales and the text faces of BUNDLED_FONTS, and
+  // its --check is what keeps the tracked page from going stale.
   landing('display-faces.html', 'display-faces.html', 'faces', 'en', '');
   landing('getting-started.html', 'getting-started.html', 'start', 'en', '');
   landing('getting-started.de.html', path.join('de', 'getting-started.html'), 'start', 'de', '../');
-  // The case for `::: diagram`. Its figures, its stepped payloads, its rails
-  // and the diagram stylesheet and runtime are spliced in by
-  // docs/artifact/refresh-figures.mjs, which is the only text that compiles a
-  // figure for publication - so this page is copied verbatim like the landing
-  // pages rather than rendered from Markdown, and `refresh-figures.mjs
-  // --check` is what keeps it from going stale.
-  landing('figures.html', 'figures.html', 'figures', 'en', '');
-  // The manual the case links to. It is not rendered from Markdown and it is
-  // not assembled here - refresh-figures.mjs compiles every drawing on it from
-  // a real build - so it is copied whole. Published because the page beside it
-  // ends by sending the reader to it, and a link to a page that is not there
-  // is worse than no link.
-  // Its link back to the case is written for the repository, where the two
-  // pages are one folder apart, because the manual is described as a page you
-  // can open straight off disk and a link that only resolves after deployment
-  // is broken for exactly that reader. In _site they are siblings, so the one
-  // relative step is dropped here rather than being wrong in one of the two
-  // places the page is read.
-  const MANUAL = path.join(ROOT, 'docs/artifact/figures-you-write.html');
-  const manual = fs.readFileSync(MANUAL, 'utf8');
-  // The whole relative step is the prefix, not one filename: the manual links
-  // back to the case, to a section of the case, and now to the project home,
-  // and a per-target rewrite is a list that has to be extended every time a
-  // link is added - silently, because the missed one still resolves in the
-  // repository and only breaks once deployed. In _site every page is a
-  // sibling, so "../site/ never means anything there.
+  // The figure language: the case for it first, the manual below. One page,
+  // written and refreshed in docs/artifact/figures-you-write.html, because
+  // docs/artifact/refresh-figures.mjs is the only text that compiles a figure
+  // for publication; `refresh-figures.mjs --check` is what keeps it from going
+  // stale. It is not rendered from Markdown and it does not load site.css -
+  // it carries its own stylesheet, fonts and runtime so that it opens straight
+  // off disk - so the bar goes in at its marker together with the bar's own
+  // rules, copied out of site.css by topbarCss().
+  // Its links to the rest of the site are written for the repository, where
+  // the page sits one folder away from docs/site/, so that they resolve for a
+  // reader who opened it off disk. In _site every page is a sibling, so the
+  // whole relative step "../site/ is dropped here rather than being wrong in
+  // one of the two places the page is read - the prefix and not a list of
+  // targets, because a missed target still resolves in the repository and
+  // only breaks once deployed.
+  const FIGURES = path.join(ROOT, 'docs/artifact/figures-you-write.html');
+  const figures = fs.readFileSync(FIGURES, 'utf8');
   const LINK = '"../site/';
-  if (!manual.includes(LINK)) {
-    throw new Error('the manual has no ' + LINK + '..." link back to the site - has it been renamed?');
+  if (!figures.includes(LINK)) {
+    throw new Error('docs/artifact/figures-you-write.html has no ' + LINK + '..." link back to the site - has it been renamed?');
   }
-  fs.writeFileSync(path.join(outDir, 'figures-you-write.html'),
-    manual.split(LINK).join('"'));
+  if (!figures.includes(MARKER) || !figures.includes('</head>')) {
+    throw new Error('docs/artifact/figures-you-write.html has no ' + MARKER + ' marker for the university bar');
+  }
+  fs.writeFileSync(path.join(outDir, 'figures.html'), figures
+    .split(LINK).join('"')
+    .replace('</head>', '<style>\n' + topbarCss() + '\n</style>\n</head>')
+    .replace(MARKER, topbar('figures', 'en', '')));
+  wrote('figures.html');
+  console.log('  docs/artifact/figures-you-write.html -> figures.html');
+  // The manual had a URL of its own until it took the case in, and links to
+  // it are out there - with a fragment, often, and every section id survived
+  // the merge. So the old address forwards, fragment included: the script
+  // carries the fragment, the refresh is the fallback without scripting.
+  fs.writeFileSync(path.join(outDir, 'figures-you-write.html'), `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Figures you write &ndash; psi-slides</title>
+<link rel="canonical" href="figures.html">
+<script>location.replace('figures.html' + location.hash);</script>
+<meta http-equiv="refresh" content="0; url=figures.html">
+</head>
+<body>
+<p>This page is now <a href="figures.html">figures.html</a>.</p>
+</body>
+</html>
+`);
   wrote('figures-you-write.html');
-  console.log('  docs/artifact/figures-you-write.html -> figures-you-write.html');
+  console.log('  figures-you-write.html -> forwards to figures.html');
   fs.copyFileSync(path.join(HERE, 'site.css'), path.join(outDir, 'site.css'));
   fs.copyFileSync(path.join(HERE, 'site.js'), path.join(outDir, 'site.js'));
   // Screenshots the landing page shows. Copied rather than referenced out of
@@ -722,6 +797,7 @@ function main() {
     { en: 'index.html', de: 'index.de.html' },
     { en: 'getting-started.html', de: 'getting-started.de.html' },
     { en: 'in-the-room.html', de: 'in-the-room.de.html' },
+    { en: 'prompter.html', de: 'prompter.de.html' },
     { en: 'decoration.html', de: 'decoration.de.html' },
   ]);
   if (wantWords) reportWords(written);

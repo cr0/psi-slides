@@ -33,7 +33,7 @@ const sample = (page, id) => page.evaluate((id) => {
   // custom property the height came back as the rem number, and the sample
   // landed on the solid foot, where old and new code both show paper - the
   // first draft of this spec passed against the bug.)
-  const f = document.querySelector('#frame');
+  const f = document.querySelector('#psiINT-frame');
   const h = parseFloat(getComputedStyle(f, '::after').height) || 80;
   const band = { x: Math.round(innerWidth / 2), y: Math.round(innerHeight - h * 0.76) };
   const k = document.querySelector(`.chunk[data-chunk-id="${id}"] .chunk-content`);

@@ -28,10 +28,47 @@ lectures/*/print.html
 lectures/*/print-notes.html
 lectures/*/audience.html
 lectures/*/speaker.html
+# the corpus decks under test/corpus/ are source-only, like most lectures
+test/corpus/*/print.html
+test/corpus/*/print-notes.html
+test/corpus/*/audience.html
+test/corpus/*/speaker.html
+test/corpus/*/slides.pdf
+test/corpus/*/print.pdf
+test/corpus/*/print-notes.pdf
+test/corpus/*/squint.txt
+test/corpus/*/videos/
+# --slides-pdf, and no lecture tracks one. The three that ship their HTML do so
+# because a reader should be able to read the reference without running the
+# build; a PDF is a fallback deck for a room, not something anyone reads here,
+# and the five in this repository come to 15 MB.
+lectures/*/slides.pdf
+# --print-pdf and --print-notes-pdf, for the same reason: print.html is the
+# document, and the PDF is a copy of it for someone who will not open HTML.
+lectures/*/print.pdf
+lectures/*/print-notes.pdf
 # --squint writes this beside the source. It is a reading of a built view, so
 # it is as generated as the views are, and it moves whenever the deck does.
 lectures/*/squint.txt
 docs/artifact/figure-rules/squint.txt
+# --prompter writes one of these per run, beside the source: the transcript
+# of what the room heard, every call to the model and every hint the policy
+# let through. It is the debrief of a rehearsal and it is nobody else's.
+# These lines cover this repository and nothing else – a lecture being
+# written in a content repo of its own (../psi-slides-mylectures and the like)
+# needs the same pattern in that repo's .gitignore, which is why the sidecar
+# prints the log's full path and says so on every start. The souffleuse-*
+# spellings are the same files from before the prompter had its public name.
+prompter-*.jsonl
+lectures/*/prompter-*.jsonl
+souffleuse-*.jsonl
+lectures/*/souffleuse-*.jsonl
+# And beside it, one per build whose deck changed: the system prompt exactly
+# as it is sent, so the deck the model reads can be read by a person.
+prompter-*.prompt.txt
+lectures/*/prompter-*.prompt.txt
+souffleuse-*.prompt.txt
+lectures/*/souffleuse-*.prompt.txt
 # Three lectures ship their built outputs so they can be read straight from
 # the repository without running build.js: the self-referential tutorial, the
 # diagram reference, which is the only place every ::: draw construct is
@@ -76,6 +113,15 @@ desktop/test/shots/
 
 # Apple notarisation credentials for a local signed build (see desktop/README.md)
 desktop/.env
+
+# An OPENROUTER_API_KEY for the live prompter, however it is spelled and
+# wherever in the tree it sits. The key is the one secret this engine can be
+# handed, and a pattern that only covered the root would be one `cd` away
+# from committing it. Load it with `node --env-file=.env build.js …`.
+.env
+.env.*
+!.env.example
+**/.env
 
 # the font playground is its own package (tools/font-playground/package.json),
 # for the reason desktop/ is: the candidate faces started as an exploration

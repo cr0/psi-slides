@@ -7,6 +7,30 @@ from building the same way is a major version.
 
 ## [Unreleased]
 
+### Changed
+
+- **The fork was merged onto upstream 2.0.0** (`migrate/2.0.0`), and follows
+  upstream read-only from here: new releases are merged in, nothing goes back.
+  The package is at 2.0.0, Node >= 22; the fork keeps no version of its own and
+  its entries stay in this section. What the merge settled:
+  1. `neighbours: dim | hidden` is upstream's top-level frontmatter key; the
+     fork's `style: {neighbours}` is refused with a pointer to it.
+  2. The `--check-fit` report of labels under 70% of the body text is gone;
+     upstream's canvas rule replaces it (`figure-overflows-canvas`,
+     `figure-underfills-canvas`, `figure-type-small`, `style: {figure-type}`,
+     `{.figure-type-N}`).
+  3. `identity: {logo}` and `::: recall <path>#<id>` read files through
+     upstream's file-root rule, with no exception: only the lecture's own
+     folder and the one above it, never a dot-folder, never through a link.
+     `lint.js` reports `asset-outside-root` (error) and the build refuses, so a
+     logo kept elsewhere is copied next to the `source.md`.
+  4. The frame's elements are `#psiINT-frame` and `#psiINT-frame-print`,
+     because upstream reserves the `psiINT-` id prefix for ids the build
+     invents.
+  5. `@fortawesome/fontawesome-free` is a regular dependency, and `colour.mjs`
+     is staged into the desktop engine (`FILES` in
+     `desktop/scripts/stage-engine.mjs`).
+
 ### Fixed
 
 - **Safari drew no edge under a figure box, and a grey band above every
@@ -38,6 +62,44 @@ from building the same way is a major version.
   is optional: without `npx playwright install webkit` the WebKit half is a
   note and the Chromium half still runs.
 
+- **Under auto-fit the cockpit's thumbnails are drawn at their own slide's
+  size, not at the current slide's.** A thumbnail is a clone of its slide and
+  inherited `--zoom` from the document, which under auto-fit is the answer for
+  whichever slide is current - so on a cover every thumbnail shrank with it,
+  and on a short slide a tall slide's thumbnail ran out of its slot. Each clone
+  now carries a zoom of its own, solved by the same fit as the live slide
+  (`solveFitZoom`, lifted out of `fitZoomToChunk` for the purpose) and cached
+  under the slide and the settings that size it, so it is re-solved only when
+  the mode, the ceiling, the collapse, the face or the frame changes. Two
+  things the first cut got wrong are written beside the code: a clone cut to
+  its slot's height measures as fitting at any zoom, so it is measured at its
+  own height; and `populatePreviewStrip` runs twice while the cockpit loads,
+  so a frame callback can fire on a clone already replaced, whose zero height
+  must not reach the cache. With auto-fit off nothing changes: the lecturer's
+  zoom is one value for every slide and the clones keep inheriting it.
+
+- **A masthead cover with a lede, and a masthead closing slide, are no longer
+  fitted to the 0.6 floor.** The pinned credits were already kept out of the
+  fit's span (`data-foot`), but the field between the nameplate and the
+  credits is stretched to the frame as well, so with words in it the extent
+  was the frame at every type size - measured on a cover with one sentence of
+  lede, zoom 0.6 where the same cover without it reaches 2.2. The field now
+  carries `data-grow` and is measured by what it holds, and the closing
+  slide's words, which masthead pins to the foot with an auto top margin,
+  carry `data-foot`. `test/auto-fit.mjs` gives its cover fixture a lede and a
+  closing slide, and checks the thumbnails; both fail against the old code.
+
+- **Recorded, not fixed: `--shadow-rest` reaches further below a card than
+  `--shadow-float` does, and leaves the slide at a large `body-scale`.** Its second layer is
+  `0 0.26em 0.85em` - a much larger y-offset under a slightly smaller blur -
+  so the *resting* step of the ladder reaches 1.11 em where the *floating* one
+  reaches 1.04. At 900 px and `body-scale: 1.8` that is 46.8 px of reach into
+  44.1 px of padding, and no probe in this repository can see it. Pre-existing
+  and unrelated to `style: {elevation}` - `.cards.cg-paper` has carried
+  `--shadow-rest` since the ladder was built - so it is a **pending entry** in
+  `test/gates/elevation.mjs` rather than a change: both fixes (pulling that
+  y-offset to 0.2 em, or raising `--slide-pad-y`) move the look of every deck
+  that exists, which is not a gate's decision to make.
 ### Added
 
 - **`style: {ink-soft: N}` and `style: {question-body: ink}` - the quiet text,
@@ -129,12 +191,14 @@ from building the same way is a major version.
   Refused by build and lint: a missing file or chunk (`recall-missing`) and a
   recall of a recall (`recall-nested`).
 
-- **`style: {neighbours: dim | hidden}`**, the third neighbour mode of PRD §2
-  rule 6, which had been specified and never built. `dim` stays the default and
-  the design: the lecture is one canvas the camera moves over, and the faint
-  neighbours keep the room's sense of where it is. `hidden` takes every slide
-  but the live one to 0 - for a lecturer who wants each slide alone - and the
-  overview board still shows everything. Live views only.
+- **`style: {neighbours: dim | hidden}` gave way to upstream's key.** The
+  fork introduced it as the third neighbour mode of PRD §2 rule 6, which had
+  been specified and never built: `hidden` takes every slide but the live one
+  to 0, and the overview board still shows everything. Upstream 2.0.0 shipped
+  the same thing as a top-level frontmatter key, `neighbours: dim | hidden`
+  (default `hidden` under `transition: cut | fade`), and that is the one the
+  merge kept. `style: {neighbours}` is now refused, in the build and in
+  `lint.js`, with a pointer to the new key. Live views only.
 
 - **`palette: {tone-N-text: …}` - a tone's colour for words.** A house colour
   that fills a card well can be too light to read as a heading on the paper -
@@ -147,12 +211,16 @@ from building the same way is a major version.
   step where set - fall under 4.5:1; a rule of its own, so a deck that accepts
   light chart columns does not silence unreadable headings with it.
 
-- **`--check-fit` reports figure labels that are too small to read**, live and
-  in `print.html`: every figure whose median label is under 70% of the body
-  text beside it. A figure scales as one picture, so a wide strip shrinks its
-  labels with it - measured on a house deck at 58% on the projection and 7 px
-  on paper. A note, not a failure; the fix it names is fewer canvas units
-  (`::: draw 60x10` rather than `150x24`) or a strip split into two rows.
+- **The `--check-fit` report of figure labels under 70% of the body text gave
+  way to upstream's canvas rule.** The fork's report listed every figure whose
+  median label was under 70% of the body text beside it, live and in
+  `print.html` - a wide strip shrinks its labels with it, measured on a house
+  deck at 58% on the projection and 7 px on paper. Upstream 2.0.0 draws every
+  figure on a canvas and reports `figure-overflows-canvas`,
+  `figure-underfills-canvas` and `figure-type-small`, with `style:
+  {figure-type}` and `{.figure-type-N}` for the size of a base label, so the
+  merge dropped the 70% line. The fix it named still applies: fewer canvas
+  units (`::: draw 60x10` rather than `150x24`) or a strip split into two rows.
 
 - **Flat field bars and a leader that turns once.** Under `elevation: offset`
   a toned `.bare` box is a field of a record or header bar: the tone as the
@@ -292,220 +360,6 @@ from building the same way is a major version.
   argument `headings: center` settled for the axis. `below` is the default
   and unchanged, the `## outline:` chunk is unaffected, and the document is
   untouched: there the words have always been the column's lede.
-
-### Changed
-
-- **Inline code in running text is now spaced and sized against the prose
-  face, and `style: {code: plain}` is the way back.** A monospaced space is
-  about 0.55 em where the prose word space is about 0.25, so a span of more
-  than one token used to open a hole in the sentence – the gap inside
-  `async def` wider than the gaps around it, which reads to a room as three
-  words where two were written. And the mono's x-height is the larger of the
-  two – JetBrains Mono 0.550 against Literata's 0.507 – so at one font-size
-  the code shouted inside its own sentence. The new key answers both:
-  `spaced`, the default, widens the gaps around a multi-token span and pulls
-  the ones inside it in (a single token is left alone – it has no inner gap,
-  and a margin on one would indent the line it opens), and sizes the face at
-  `0.96 × xHeight(prose) / xHeight(mono)`, computed per deck from the
-  measured roster. `tint` puts a quiet ground behind every span instead,
-  padded left and right only. `plain` puts the span back to the flat `0.92em`
-  the tool drew before.
-
-  **This is the one `style:` default that moves an existing deck's
-  rendering**, which is why `plain` is listed in the 1.0.0 recipe in the
-  appearance skill. A face supplied from `fonts/`, and anything under
-  `fonts: none`, carries no measurement: that pairing keeps `0.92em` and the
-  build says so in one `[fonts]` line rather than guessing.
-
-- **`style: {print-neutrals: …}` answers for the page what `neutrals` answers
-  for the wall, and `light-orange` clears 4.5:1.** The two grounds are not the
-  same ground: print's palette is warm already (`#fafaf7` paper, `#8b2e00`
-  accent) where the live one is cool at chroma 0, so a deck can reasonably
-  want the page warm and the projection cool, or the reverse, and one key
-  could say only one of those. The new key takes the same four words and its
-  default is a deferral rather than a value – `''` is seeded and no written
-  value can produce it, so an unset key stays distinguishable from all four
-  and `printNeutrals()` is the one step that resolves it, exactly as
-  `printSlideNums()` does for the numbering. Writing `neutrals: warm` alone
-  therefore still warms both. Each stylesheet reads its own attribute, so
-  neither view can answer the other's key.
-
-  `light-orange` goes from `oklch(0.58 0.17 60)` to `0.54`. Measured against
-  the paper it was 4.23:1, the only one of the four accents under 4.5, and
-  the accent does land in prose because a bold phrase can be set in it – the
-  other three are 8.66, 5.99 and 4.67. 0.56 clears the line at 4.57 and 0.54
-  at 4.96; the wider margin is the one worth taking on a projector, where the
-  room's light is the variable nobody measured. `DG_THEMES` in
-  `diagram-core.mjs` mirrors the seven accents and moves with it, which is
-  what the gate that caught this exists for.
-
-- **A masthead cover with a presenter no longer sits at the auto-fit floor.**
-  One `presenter:` line took such a cover from zoom 2.2 to 0.6 – minimum type
-  on the opening slide – and nothing anywhere said why. `masthead` pins its
-  credits to the bottom with an auto top margin, which is also what lands its
-  folio rule at the top of them, inside a box `align-items: stretch` has
-  already stretched to the frame. The extent from the words at the top to the
-  words at the bottom is then the box's height at *every* type size, so the
-  fit's height test never comes true and it walks down to its floor.
-
-  The fix is the shape already in the file rather than a new idea: a band is
-  kept out of the span and its own height added back, exactly as `panelLevel`
-  does for a band overlay. The composition names its pinned block
-  (`FOOT_BAND_COVERS`) instead of the probe guessing from a measured gap.
-
-  This is the fifth construct to make the same mistake – the dock's reserved
-  track, the overlay layer, a band panel, this, and the stretched
-  `.chunk-content` under all of them. **A stretched or bottom-pinned box is
-  not content**, and every one of the five was found by something bottoming
-  out rather than by anybody reading the code, which is why `test/auto-fit.mjs`
-  now watches the floor itself.
-
-- **A built view is the same bytes whichever flags wrote it, a row's terms
-  line up with the words beside them, and shadows are one ladder.** Four
-  findings from reading what the live views draw rather than what the
-  stylesheet says. `inlineSvgCounter` reset once per *build* rather than once
-  per view, so the same figure came out `psi-fig-6-` under `--audience-only`
-  and `psi-fig-8-` under a full build: content identical, bytes different,
-  and a tracked view rebuilt with a partial flag read as stale to
-  `release.yml` for a diff of pure id churn. The floor a view restarts from
-  is not zero, because `parseLecture` splices vector assets into `::: draw`
-  blocks through the same counter and that markup is shared by all four
-  views. `test/reproducible.mjs` is the check, wired into `npm test` and into
-  `release.yml` immediately before the staleness check it makes meaningful.
-  It is not a `test/gates/` entry: that suite runs on a bare checkout with no
-  `npm ci`, and this one spawns the build.
-
-  On a `::: rows` block the anchor word did not reach the term, which *is*
-  the card, so `{.top}` moved the body and left the term centred. And the
-  anchor a row defaults to now follows the ground rather than being a second
-  question about it: on a fill, an outline or the accent it stays `middle`,
-  because a visible slab beside a longer body wants placing; with `.clear`,
-  which also zeroes the padding, it is the new `baseline`, because bare words
-  centred against a four-line body read as misaligned where on the baseline
-  they read as the hanging indent this construction has always been.
-  Measured either way: 66px of offset on a four-line body. `.baseline` on a
-  `::: cards` block is refused in both files (`cards-baseline-no-body`) – a
-  card has no body beside it to line up with.
-
-  The four shadow recipes for three jobs, in two different shadow colours and
-  all in absolute pixels, are now `--shadow-rest`, `--shadow-float` and
-  `--shadow-quiet`, in em and following `--accent-h`. The shadow under a
-  heading standing on a photograph deliberately stays outside the ladder and
-  neutral, the line `ov-glass` and the invert backdrop's text-shadow are also
-  on: a surface that exists to keep type legible stays outside the palette,
-  a surface that groups or separates follows it.
-
-- **Trackpad zoom follows the fingers rather than the event count, and it
-  zooms where the pointer is.** The board and the focus card each answered a
-  wheel event with a fixed factor picked off the sign of `deltaY` – 8 % for
-  the overview, 10 % for the card – which made the zoom a function of how many
-  events arrived rather than of how far the hand had moved. Measured on a
-  macOS trackpad in Chrome: an event every 8.4 ms, each carrying between 0.012
-  and 6 px. Twenty-two of them crossed the card's whole 1×–8× range, so 183 ms
-  of contact stood it at the ceiling, and thirty-three crossed the board's
-  0.08×–1× in 276 ms. Worse, macOS keeps sending an inertia tail once the
-  fingers lift – `deltaY` around 0.2, gaps widening past 100 ms, the sign
-  flipping as it dies out – and each of those was another full step in
-  whichever direction, so the zoom went on bouncing after the gesture was
-  over. The step is now `exp(-deltaY · k)` with `k` at 0.01, which is about
-  208 px of finger travel for the card's full range, and the per-event delta
-  is clamped at 12 px: the largest the trackpad produced was 6, so no trackpad
-  event is touched, while a mouse wheel's 100–120 px notch becomes 13 % rather
-  than 3.3×. Scaling by `exp()` also composes, which is what makes it safe to
-  coalesce several events into one frame – two events of 1 px land exactly
-  where one of 2 px does.
-
-  The judder on top of that was a second defect and it was CSS. An event every
-  8.4 ms restarted the camera's 250 ms transition from its own interpolated
-  midpoint about thirty times before it could ever complete; the focus card's
-  80 ms curve was re-aimed roughly ten times per frame. Dragging has had
-  `transition: none` since it was written – `body.overview-zooming` and
-  `body.figure-zooming` now give the wheel path the same treatment, held for
-  the length of the gesture and dropped after a quiet period, since a wheel
-  stream has no end event. The receiving window needed it too: a peer zooming
-  with a trackpad streams `figure-view` at frame rate, and the projection is
-  the half the room is looking at. Style writes and that broadcast are both
-  coalesced to one per frame.
-
-  Zoom now anchors to the pointer instead of the centre. For the card the
-  correction is `pan' = pan + (1 - r) · (Q - visibleCentre)`; for the board,
-  where the camera frames an anchor chunk and then adds `manualPan`, both the
-  anchor and the scale cancel out and one step on `manualPan` is all that is
-  left. Two things that are easy to get wrong and are worth keeping: `r` has
-  to be the ratio actually achieved rather than the one requested, or at the
-  8× ceiling the card goes on sliding under a cursor that is no longer zooming
-  anything; and the board's arithmetic has to happen in layout space, because
-  in the cockpit `#stage-viewport` is itself drawn through
-  `scale(--stage-scale)`, so a `clientX` there is a shrunken pixel while
-  `manualPan` and the chunk offsets are full-size ones. The `+` and `-` keys
-  still zoom from the centre, because a keypress carries no pointer.
-
-- **`style: {neutrals: …}` says what hue the greys carry, and the corner
-  radius is one em ladder.** Two findings from a look at what the `A` key
-  actually produces. In the four light themes that key moves `--emph` and
-  nothing else – `--ink` is fixed at chroma 0.01 on hue 260, `--paper` and
-  `--rule` at chroma 0 – and every quiet fill is mixed out of `--ink`, so a
-  card under a warm accent is a cool grey under a warm word; `light-blue` is
-  the only one where the two agree, and there by coincidence. The new key
-  takes `neutral` (the default, and today's rendering byte for byte),
-  `tinted` (the greys take the accent's own hue and the fills are mixed from
-  `--emph`), `warm` and `cool` (a fixed hue), the last two held off the
-  terminal themes because a single phosphor tone is what those are. Second,
-  the corner radii were four absolute values that had accumulated (2, 3, 6,
-  10 px) and a card's font-size is set per slide by auto-fit, so the same
-  `::: cards` row rounded at 0.23em on one slide and 0.33em on the next; they
-  are now `--radius-card` (0.3em) and `--radius-tight` (0.1em) in both
-  stylesheets. The cockpit's own chrome keeps its pixels, being fixed-size UI
-  at one scale.
-
-- **A `::: dock` column is a share of the frame, and it keeps the frame's
-  air.** Its track was a measure of type multiplied out against `var(--zoom)`,
-  which is auto-fit's zoom rather than the lecturer's, so the same inherited
-  `{.left .every}` dock stood 406, 350 and 294 px wide on three consecutive
-  slides of one part and its running list walked sideways on every advance;
-  the air was an em for the same reason and shrank with it, so the words
-  crowded the frame and the seam hardest on the slides carrying the most
-  text. A dock is part of the frame, so the widths are now `narrow` 28%,
-  `standard` 37% and `wide` 46% of the slide, and `--dock-gap` is 3.5% of it,
-  standing both inside the column and between the column and the words. The
-  text measure a dock leaves is unchanged at the widest the old ems reached;
-  what is gone is that the track grew when the lecturer zoomed, so a large
-  manual zoom now wraps a dock's items instead of widening its column, the
-  way a `::: overlay {.panel}` already did. `lint.js` mirrors the shares as
-  `DOCK_SHARE` / `DOCK_GAP_SHARE`, where the same arithmetic was a third too
-  optimistic: it read the dock's own em as the chunk's, so
-  `dock-narrows-measure` now fires on a `standard` dock beside a `standard`
-  chunk, which really does leave about 31em.
-
-- **The build refuses four things it used to accept and mis-render, so it no
-  longer draws what `lint.js` calls an error.** A `word:` heading prefix that
-  is not one of the ten types (`## principl:`) used to fall through to a
-  literal heading with no `data-tag`, leaving the search index and the speaker
-  lists an untyped chunk; a duplicate `{#id}` (on two chunks, or a chunk and a
-  column) shipped as invalid HTML with the two sharing one reveal/sync/
-  localStorage slot; a `:::` that closes nothing rendered as a literal `:::`
-  paragraph on the slide; and a `::: cards {.photo}` or a scrim with no card
-  carrying a picture, or a `detail:` with no nested level, was a word the
-  drawing ignored. All four now fail the build with a message, congruent with
-  the linter. An intentional `:::` as content still goes in a code fence, and
-  a chunk's `{#id}` is still optional in the build (`--allow-missing-ids`
-  silences the linter's `missing-id` while a talk is being sketched).
-
-- **A reveal reserves its space, everywhere, and `style: {reveal: …}` is
-  gone.** A top-level `---` used to close up so the chunk grew a block per
-  press, while a `---` inside a pane, a card row or an overlay kept its box –
-  so one mark meant two things depending on how deep it sat, and the key
-  existed to buy the nested behaviour for the top level. Reserving is now
-  what a reveal is: the chunk stands at its final height from beat 0 and the
-  words fade in where they were going to be. A deck that still writes the key
-  is refused by the build and by `lint.js`, with a message saying what
-  replaced it. Measured over seven lectures before the change, the set of
-  chunks taller than the frame is identical either way, because the last beat
-  shows every segment under both rules – so no slide that fitted stopped
-  fitting. What does change is that a slide whose later beats are long now
-  stands at that height from the start.
-
-### Added
 
 - **`identity: {accent: "#EC8A3C"}` gives a deck its own accent, and the build
   does the arithmetic the colour needs.** A house colour is a hex value in a
@@ -818,6 +672,839 @@ from building the same way is a major version.
   `activity-nested`, `cards-nested`), and `test/gates/activity.mjs` holds the
   two files together. A deck that writes no box emits nothing.
 
+## [2.0.0]
+
+### Breaking
+
+A `source.md` that built under 1.0.0 may stop building, or build
+differently, for one of these reasons. Each line links to the section that
+holds the full entry.
+
+- A lecture reads files only from its own folder and the folder one level up
+  – never from a dot-folder, never through a link to a different kind of
+  file. ([Security](#security))
+- `<!-- linter: ignore … -->` silences warnings only, never an error.
+  ([Security](#security))
+- Every `---` is a beat: a segment with nothing in it is no longer dropped,
+  so a slide can take one click more. ([Added](#added))
+- Directives nested in combinations that used to render wrong with exit 0
+  (`::: expand` inside `::: cols`, `::: cols` inside `::: overlay`, a
+  directive inside `::: cards` …) are refused. ([Added](#added))
+- A directive before the first heading is refused; 1.0.0 dropped it without
+  a word. ([Added](#added))
+- A code fence is what CommonMark says it is, in the build, the reveal split
+  and the linter. ([Changed](#changed))
+- A code fence still open at the end of the file is refused.
+  ([Changed](#changed))
+- A `::: cols`, `::: side`, `::: slide`, `::: script`, `::: marginalia` or
+  `::: embed` left open is refused. ([Changed](#changed))
+- A trailing `---` is a beat whether or not a blank line follows it.
+  ([Changed](#changed))
+- A directive line the build cannot read (`::: cols 4`, `::: backdrop
+  {.blur}` with no picture) is refused; 1.0.0 printed it on the slide.
+  ([Changed](#changed))
+- Every Markdown spelling of a picture is weighed against the 2 MB cap.
+  ([Changed](#changed))
+- `fonts:` takes the four roles or the word `none`. ([Changed](#changed))
+- An `{#id}` may not be the key a chunk without an id gets by position
+  (`c<column>-<chunk>`). ([Changed](#changed))
+- An `{#id}` may not start with `psiINT-`. ([Changed](#changed))
+- A chunk heading's `{…}` tail refuses a token without a sigil
+  (`{wide #id}`, which 1.0.0 dropped) and two answers to one slot (where
+  1.0.0 let the last win). ([Changed](#changed))
+- `slide-numbers` defaults to `horizontal`; the 1.0.0 rendering is
+  `slide-numbers: vertical`. ([Changed](#changed))
+- Building needs Node 22 or newer; Node 20 is no longer supported.
+  ([Changed](#changed))
+
+### Highlights
+
+- `::: draw`: figures written in the lecture source, compiled to inline SVG
+  at build time, with `step` blocks as beats, and a graphical editor in the
+  live views.
+- Slide decoration: `cover:` compositions, `## closing:`, `## outline:`,
+  section dividers with content, `::: backdrop`, `::: overlay`, `::: dock`,
+  `::: cards` and `::: rows`.
+- A desktop builder (`desktop/`) for authors who do not use a terminal: it
+  opens a `source.md`, builds on every save and opens the four views.
+- PDF export: `--slides-pdf`, `--print-pdf` and `--print-notes-pdf`, and the
+  same three exports in the desktop builder.
+- The cockpit: cue cards (`K`), a live demo on the projection (`D`), go to a
+  slide by number (`G`), fullscreen from the cockpit (`W`), and an optional
+  live prompter (`--prompter`).
+- Every key in the `?` panel, searchable and runnable (`Cmd-K`), and a start
+  menu on the projection before the talk starts.
+- The two documents have reader tools: a contents sidebar, highlights with
+  notes, export and import; `::: pulse` adds self-test questions.
+- Type and language: a per-lecture font roster, a `display` face for covers
+  and dividers, the `style:` block, `transition:`, and `lang:` with `labels:`
+  for the words the build writes itself.
+- Checks: `--check-fit`, `--squint` and `--frames` against the built
+  projection, and the zero-dependency gates in `test/gates/`.
+- A source someone sent you can no longer run code during the build or copy
+  files from elsewhere on the computer into the HTML.
+  ([Security](#security))
+
+### Security
+
+Running `node build.js` on a `source.md` someone sent you could run code or
+copy files from elsewhere on your computer into the HTML files. Four fixes,
+one of them a **breaking change to the source format**:
+
+- **Breaking: a lecture reads its pictures and other files from its own
+  folder and the folder one level up, and from nowhere else.** A path such as
+  `../../x.png`, and a symbolic link that leads out of that folder, used to be
+  read and inlined into the HTML as a `data:` URI. A link in `assets/`
+  pointing at a private key put the key in a page the author then sent on.
+  The rule applies after links are resolved and covers each file `node
+  build.js` reads: `![](…)`, a `::: draw` `image`, a `::: backdrop`,
+  `cover-image:`, `closing-image:`, a clip, and a face in `fonts/`. A lecture
+  that breaks it stops `node build.js` before any of the four files is
+  written, and the message names the folder it may read from; the linter
+  reports `asset-outside-root` as an error. The folder one level up is
+  allowed so that lectures side by side can keep sharing a folder of pictures
+  (`../shared/assets/logo.png`). When the folder above is the home folder or
+  the top of a disk, only the lecture's own folder is allowed and the message
+  says so, since a lecture unpacked at `~/talk` could otherwise read
+  `~/anything`. Nothing is read from a folder whose name starts with a dot
+  (`.ssh`, `.git`, `.config`, `.env` …), inside the lecture's folder too
+  (`assets/.hidden/x.png` is refused). No lecture in this repository or in the
+  content repository reads further out or from a dot-folder.
+- **The settings block at the top of `source.md` (the frontmatter) is YAML
+  only.** Its parser chooses a language from the word after the opening
+  `---`, and `---js` ran the block through `eval` inside `node build.js`. Any
+  word other than `yaml` or `yml` now stops the command, and the linter
+  reports `frontmatter-language`. The parser is also given engines for
+  JavaScript and CoffeeScript that refuse, so the block is refused even if
+  the two ever read the opening line differently.
+- **A file is never written through a link.** A folder that arrived with
+  `print.html` linked to the reader's shell profile had `node build.js`
+  overwrite the profile. The four HTML files, `squint.txt`, the `--frames`
+  pictures, a clip copied into `videos/`, a picture the editor uploads and the
+  prompter's prompt file are now written under a new name and renamed into
+  place, which replaces a link and leaves its target alone. The prompter's
+  log, the one file appended to, refuses a link at its path (and the prompter
+  says once that this run keeps no log for a debrief); `videos/` and
+  `frames/` are refused when they are links.
+- **`--optimize-images` converts only files inside the lecture's own folder.**
+  It replaces and deletes files, and it used to follow a reference anywhere.
+  A picture one level up is listed as shared and left alone, and one further
+  out is listed as refused. With ImageMagick as the encoder, the input format
+  is now named from the file's extension (`png:`, `jpeg:`, `webp:`), so a
+  `.png` that is really an SVG or MVG script can no longer tell ImageMagick to
+  read another file into the picture. The output is named `webp:` too, which
+  fixes a second bug: the temporary name ends in `.tmp`, and ImageMagick wrote
+  the input's own format into it, so a conversion with `magick` produced PNG
+  bytes under a `.webp` name.
+
+A second set of fixes concerns the programs `--watch`, `--serve` and
+`--prompter` leave running on your computer while you work. Any web page open
+in the same browser could reach them at 127.0.0.1:
+
+- **`--serve` answers only to its own name, and only with what a view can
+  ask for.** A page that points its own host name at 127.0.0.1 (DNS
+  rebinding) could read `speaker.html` – and with it the secret for the
+  `--watch` connection – as well as `source.md`, the prompter's transcript and
+  a `.env` beside the lecture. A request is now refused (403) unless its
+  `Host` is `localhost`, `127.0.0.1` or `[::1]` with the server's own port.
+  The server answers only for the views, pictures, clips, faces, stylesheets,
+  scripts and PDFs: never below a name starting with a dot, never a
+  `prompter-*` or `souffleuse-*` file, and never `source.md`, which no view
+  reads. A file of any other kind in the lecture's folder is no longer served.
+- **The `--watch` connection takes a page opened from disk or delivered by
+  `--serve`, and no other.** It used to accept any web page, with the secret
+  as the only guard on writing, so a page without the secret could still hear
+  every reload and the message of every failed rebuild, which quotes the
+  source. A connection from any other page is now refused; why a rebuild
+  failed goes only to a view that has shown the secret; a message over 4 MB
+  is refused before it is read and no longer stops `--watch`.
+- **The two documents carry no secret.** Under `--watch`, `print.html` and
+  `print-notes.html` held the same secret as the live views, which lets a
+  page write to `source.md`, and they are the files an author hands on. They
+  now carry the reload and nothing that can send.
+- **The editor's picture list and upload stay inside the lecture.** The list
+  of `assets/` named a link that leads out of the allowed folders, with the
+  size of the file it points to; it now leaves out, unread, each name `node
+  build.js` would refuse. An upload into an `assets/` that is itself a link is
+  refused, since the file would land wherever the link points.
+- **A link in `assets/` is read only when its target is the kind of file its
+  name says** – a picture, a clip or a face. `assets/pic.png` pointing at a
+  PDF, a key or a note inside the lecture's folder was inlined into the page
+  as a picture, bytes and all. `node build.js` now refuses it, and the linter
+  reports it under `asset-outside-root`.
+- **The prompter keeps its key to itself.** A key with a space or a line
+  break in it made the HTTP client throw an error quoting the header, and the
+  key went to the log, the terminal, the cockpit's badge and `--events`. A
+  key that is not printable ASCII is now refused at start, in words that do
+  not contain it, and the key is removed from every string the prompter
+  writes anywhere, whatever produced it. The transcript and the prompt file
+  are written readable by their owner alone. A base URL that is neither
+  `https` nor on this computer gets a warning at start.
+- **The prompter spends what a talk needs, and no more.** A segment of heard
+  speech is cut to 2,000 characters, and the newest one in the model's window
+  is also cut to the window's word limit; a page could hand the model a
+  megabyte per call. The seconds a segment claims to have been spoken in are
+  held to the wall clock since the one before it, so a page cannot claim a
+  minute of speech per message and earn a call per message. A new key,
+  `prompter: {calls-per-hour}` (default 360, one per ten seconds, the lowest
+  `cadence` allows), caps the calls in any hour; once they are spent, the
+  prompter says so on the badge and stays quiet until the hour frees up. A
+  call that times out now counts towards the five failures after which the
+  prompter gives up.
+- **Nothing from a model reaches the terminal as a control character.** A
+  hint or a card containing one is refused (logged as `garbage`), and every
+  line the prompter prints, `--prompter-replay` included, has control
+  characters and bidi overrides replaced by spaces.
+- **The privacy wording said something false.** “No audio is sent” and, for
+  a dry run, “nothing leaves this machine” were written in the README, the
+  project site, the terminal banners, the help and the cockpit's first toast.
+  The prompter sends no audio, but Chrome's speech recognition sends the
+  audio to Google unless it runs on the device, in a dry run too. Each of
+  those places now says so, and the toast is worded for the run it is shown
+  in: on-device or not, dry or not.
+
+A third set concerns the two live views while a talk runs:
+
+- **The projection and the cockpit listen only to each other.** Opened from
+  disk, both identify themselves to other windows as `null` (their origin),
+  and so does any restricted (sandboxed) frame, including one inside an
+  embedded video player. Such a frame could send messages to the projection
+  and be taken for the cockpit: it could blank the projection, put an address
+  and QR code of its choosing on it, and send an edited figure whose markup
+  ran script there. A message is now accepted only from the window that
+  opened this one, a window this one opened, or the one already connected.
+  The cockpit still reconnects after either window reloads.
+- **An edited figure that arrives as markup keeps only what a figure is made
+  of.** Under `editor: speaker` the cockpit sends the projection its edits
+  compiled, and the projection used to strip event handlers and
+  `javascript:` addresses from them and keep everything else, a
+  `<foreignObject>` with a frame in it included. It now keeps a fixed list of
+  SVG elements and attributes – what the figure compiler emits plus the
+  static drawing vocabulary a vector asset may carry – and a stylesheet only
+  where it styles an image inside the figure. It first reads the markup in a
+  place where nothing in it can load or run. No figure in this repository
+  changes.
+- **A `--watch` projection carries the secret only when it can write.** It
+  carried it even when the diagram editor was not included in it (`editor:
+  speaker` or `none`, or a lecture without a figure), so the window on the
+  projector held what lets a page change `source.md`. It now gets the reload
+  alone, as the two documents do. The cockpit does the same when it has
+  neither the editor nor the prompter.
+
+A fourth set closes what a review of the whole repository found before the
+tag:
+
+- **A PDF export keeps WebRTC and a worker's sockets off the network.** The
+  export refused every `http`, `https`, `ws` and `wss` request a page made,
+  but a deck script could still send STUN over UDP from an
+  `RTCPeerConnection`, from the command line and from the desktop builder,
+  and on the command line open a WebSocket from a Worker. The browser the
+  export starts now sends every connection to a proxy that does not exist
+  and lets WebRTC use no UDP outside it.
+- **`--frames` writes only into its folder.** It named each picture after
+  the chunk id it read from the running projection, which the deck's own
+  scripts can change: an id of `../../../x` wrote pictures two folders above
+  the lecture. Characters other than letters, digits, `_` and `-` in that
+  part of the name are now replaced by `_`.
+- **What `node build.js` prints is text, and nothing else.** Its messages
+  quote the source – a heading in an error, a folder or file name in a note –
+  and an escape sequence written there reached the terminal raw:
+  `## bogus: A ESC]0;PWNED BEL` retitled the terminal window, and the same
+  kind of sequence can write the clipboard. Every control character other
+  than a line break or a tab, and the characters that reverse the direction
+  of text, are now printed as spaces, in every line the build writes.
+- **The desktop builder cannot be steered by a line that looks like an
+  event.** Under `--events`, a lecture folder or font file whose name held a
+  line break followed by `{"type":"serving",…}` printed a line the app took
+  for an event, and the app then opened the views at a foreign address; a
+  forged `watching` line moved the file “Open source” opens. Under
+  `--events`, a printed line that starts with a brace is now indented by a
+  space, so only an event can start one; the app takes a `serving` address
+  only when it is `http` on this computer, and keeps the lecture it opened
+  whatever a `watching` line says.
+- **`source.md` is not written through a link either.** The rule above
+  covered every file the build makes, but `--integrate-annotations`,
+  `--optimize-images` and the diagram editor wrote `source.md` in place, so a
+  folder whose `source.md` linked to the reader's shell profile had the
+  profile rewritten. The three now write under a new name and rename it into
+  place, keeping the file's permissions. A `source.md` that is a link is
+  replaced by a file, and the build says so: an author who linked it on
+  purpose finds the change in the lecture's folder, not in the file the link
+  pointed to.
+- **The linter checks the faces in `fonts/`.** `node build.js` refused a
+  face in `fonts/` that links out of the lecture's folder and the folder
+  above, while `node lint.js` passed the deck. The linter now reports it as
+  `asset-outside-root` on the `fonts:` line that names the family.
+- **Breaking for the linter: `<!-- linter: ignore … -->` silences warnings
+  only.** It silenced errors too, so a deck someone sent could carry
+  `ignore asset-outside-root` or `ignore frontmatter-language` and pass the
+  linter as a pre-commit gate while `node build.js` refused it. An error is
+  now reported whatever the comment says. No lecture in this repository or
+  in the content repository ignores an error.
+- **The live prompter's call rate is measured on the computer's own clock.**
+  A page holding the cockpit's token could stamp each slide change eight
+  seconds after the last and each sentence with a second of speech, and got
+  a call to the model per message: 78 in 20 seconds in a dry run, bounded
+  only by `calls-per-hour`. The eight seconds between two slide calls and the
+  speech counted towards `cadence` are now held to the seconds that actually
+  passed in `node build.js`, and setting the cockpit's clock back and forth
+  no longer makes a call count as the first of the run, which waits for
+  nothing.
+- **What a page sends the prompter reaches its log cut short.** A slide id,
+  a hint id, how a hint was sent away and the name of the speech recogniser
+  are cut to 200 characters, a language tag to 35; one message used to put a
+  hundred kilobytes on a line of `prompter-*.jsonl`.
+
+### Added
+
+- **The `?` panel is a command palette in both live views.** `Cmd-K` (or
+  `Ctrl-K`) opens it with the search field focused. A row that stands for one
+  command can be run from the panel: typing selects the first such row, `↑`
+  and `↓` move the selection, and `Enter` or a click runs it – exactly as its
+  key would, so in the cockpit `W` from the panel still arms the projection.
+  Rows that describe a gesture or a key with a special meaning cannot be
+  selected, and they stand after all the rows that can, muted, under a line
+  of their own – so `↓` always moves to the row right under the selection,
+  `PageUp` and `PageDown` move by a panel, and the selection stops at either
+  end. The panel is one column, filtered or not, and keeps one size while you
+  type; the rows scroll inside it. While the field has text, the matches keep
+  that split – the runnable rows first, then the rows for reference – best
+  match first within each half (a key, then a command's own name, then a
+  description), with the section each comes from at the end of its line.
+  `Shift-C F A L` and `+ - 0` are one line per command, so each can be
+  picked and run.
+- **A start menu on the projection, before the talk starts.** Beside the `?`
+  button in `audience.html`: *Fullscreen*, *Speaker cockpit* and *Print view*
+  with their keys (`W`, `S`, `P`), for someone who does not know the keys
+  yet. It is only there on the first slide of a freshly opened page, and the
+  first move from either window, `W` or fullscreen takes it away until the
+  page is opened again. The `‹` beside it puts it away for good on this
+  browser. Whenever it is gone – by a move or by `‹` – a small `›` beside the
+  `?` button brings it back on any slide and forgets the `‹`. It is never in the cockpit, the two
+  documents, a PDF or the `--frames` pictures. A projection built without
+  `speaker.html` or `print.html` beside it offers no entry for the missing
+  view, and `S` or `P` then says the file is not there instead of opening a
+  broken window – whether the build found it missing (`--audience-only` into
+  an empty folder) or the page does when it is opened: an `audience.html`
+  sent on alone, opened from disk in Chrome, Firefox or Safari, or served.
+  The page's answer wins over the build's: a view a later partial build put
+  beside it (`--speaker-only`, `--print-only`) is found and offered.
+- **The `?` panel in both live views has a search field.** It has the focus
+  when the panel opens, and typing filters the rows by key and by what the key
+  does: every word has to match, case and accents are ignored, and a single
+  character finds keys only, so `b` finds the `B` row. While the field has the
+  focus, letters typed there do not reach the slide keys – `b` does not blank
+  the projection. `Esc` empties the field, a second `Esc` closes the panel.
+  The placeholder and the line shown when nothing matches follow `lang:`
+  (English and German; `labels:` keys `help-search` and `help-none`).
+- **Every key the live views answer is now listed in the `?` panel.** Missing
+  until now: `N` (an annotation) in the audience view, `Shift-W` (fullscreen
+  for the cockpit's own window) in the cockpit, `Backspace` in the `G` prompt,
+  clicking the column bar along the top of the cockpit, and in the diagram
+  editor's section `Backspace` (delete), `Shift-F` (the frames the other way
+  round) and `?`. A new gate, `help-keys`, reads the key handlers and fails on
+  a key with no row.
+- **`.` blanks the projection, as `B` does**, in both live views. It is the
+  key many presenter remotes send for their black-screen button. Nothing else
+  in the two views answered it; the diagram editor's `.` (next figure) is
+  unchanged, because the editor handles its keys before the slide's.
+
+- **`--slides-pdf`: a PDF slide deck, one page per presentation state.** The
+  export drives `audience.html` through every state a lecturer would step
+  through and prints each one as a page, so a figure that arrives in four beats
+  is four pages and a chunk with no beats is one. Section dividers, the cover
+  and the closing slide are in it; expansions, annotations, the QR buttons and
+  every piece of live chrome are not. It is the fallback for a room where the
+  HTML will not run, and a classic deck to hand on – it does not replace
+  `print.html` and `print-notes.html`, which are documents.
+
+  ```
+  node build.js <source.md> --slides-pdf
+  node build.js <source.md> --slides-pdf --pdf-beats=final   # one page per chunk
+  node build.js <source.md> --slides-pdf --pdf-size=16:10    # default 16:9
+  node build.js <source.md> --slides-pdf --pdf-out=<path>
+  ```
+
+  **The order of the beats is not reimplemented.** It has one definition, in the
+  audience runtime, and the export calls it through a ten-line `window.psiExport`
+  hook that ships in the two live views and changes no behaviour. The export can
+  therefore not be wrong about the order – only about the rendering.
+
+  **Every chunk is sized to the page, and never enlarged past 1.35.** In a hall
+  a chunk taller than the frame is *panned*, the camera pinning its head and
+  following its foot down, and a sheet of paper cannot pan; auto-fit is the
+  mechanism that already forces a chunk into the frame, so the export turns it
+  on whatever the frontmatter says. But the live view's ceiling of 2.2 is right
+  for a room and wrong for a document: a slide holding four words should fill
+  the hall, and printed it makes the type jump by a factor of 3.7 between
+  neighbouring pages. Measured over the five lectures, 75% of `python-intro`'s
+  states and 63% of `decoration`'s sat above 1.6 while `network-security`'s
+  median was 0.95. The ceiling is now 1.35 – the runtime's own default zoom, so
+  the rule states itself: a page is at most as large as a slide nobody fitted,
+  and smaller when it has to be. Where even the 0.6 floor is not enough the page
+  is printed anyway, visibly cut, and the export names the chunk and the beat.
+
+  **`--pdf-zoom-max=<n>` moves that ceiling**, because the two things an author
+  wants of it pull against each other and neither is wrong: a low ceiling keeps
+  the type even across the whole document, a high one fills each page. Measured
+  on `network-security` under `--pdf-collapse=topic-bold`, the median page fill
+  is 85% at 1.35, 90% at 1.6 and 92% at 2.2.
+
+  **`--pdf-zoom=<n>` turns the fitting off** and holds every page at one zoom,
+  reporting what runs off it. It is an option and not the default because the
+  measurement says so: at a fixed 1.35, 85% of `network-security`'s pages and
+  67% of the diagram lecture's would be cut. For a deck whose slides are alike
+  it is the better answer, and for one whose slides are not it tells you, once,
+  rather than page by page.
+
+  **The export reaches no network.** HTTP(S) is routed to nothing before the
+  page is even opened, because arriving at a chunk sets a hosted player's
+  `iframe.src` and the live view only intercepts YouTube under `file://`. What
+  was refused is counted and reported by origin. A hosted embed prints as a card
+  carrying the address the lecture already writes out; a video prints its frame
+  0, or a placeholder when the codec or the origin will not allow the grab.
+
+  Text, code and `::: draw` stay vectors – selectable, searchable, and
+  extractable with `pdftotext`; no page is a raster. The bundled variable fonts
+  embed as Type 3 rather than as a shared subset, which is accepted for this
+  version: measured over the five lectures in the repository the decks run 31 to
+  50 KB a page, 1.7 to 4.8 MB in total, in 3.7 to 37 seconds.
+
+  `playwright-core` moves to **optional** dependencies and `build.js` loads the
+  exporter through one `await import()` behind the flag, so an install without a
+  browser binding builds every HTML target exactly as before and refuses only
+  this one, by name.
+
+- **`--print-pdf` and `--print-notes-pdf`: the two documents as PDF.**
+  `print.html` becomes `print.pdf` and `print-notes.html` becomes
+  `print-notes.pdf`, beside `source.md`. What they add over printing from a
+  browser is what the slide export already promises: the same file on each
+  machine with the same build, no print dialog, no browser header or footer,
+  and no network. The page is the view's own: A4, its margins and its page
+  number, printed on `print` media. The export waits for the fonts and for
+  every picture to decode, and reports a picture that did not load, a link to
+  a chunk that is not in the document and any request it refused, as the slide
+  export does.
+
+  ```
+  node build.js <source.md> --print-pdf
+  node build.js <source.md> --print-notes-pdf
+  node build.js <source.md> --slides-pdf --print-pdf --print-notes-pdf   # one browser
+  ```
+
+  Any of the three PDF flags combine, and Chromium starts once for all of
+  them. Each rebuilds the view it prints and ignores `--print-only` and its
+  siblings, because an export of a stale view is worse than none. The page
+  count is read out of the finished file, since a document's pagination is
+  the browser's and no page script knows it.
+
+  **A `::: pulse` question prints with its answer**, as it does when a reader
+  prints the document from a browser, and without the widget's buttons or the
+  reader's standing. The export sends nothing to the Pulse server: it starts
+  from empty browser storage, so there is no sign-in to send with. A self-test
+  sheet without answers is not an export option; if it comes, it comes as a
+  setting of the document, so a browser's print gets it too.
+
+- **The PDF export's policy is a module of its own, `pdf-core.mjs`.** Which
+  states become pages, what the print DOM is, every diagnostic, the option
+  checks and the order in which a browser is asked for anything moved out of
+  `pdf-export.mjs` into a file with no imports, so that a second browser can
+  drive the same text: the desktop builder prints with Electron's own
+  Chromium, and the command line keeps Playwright. `pdf-export.mjs` is now the
+  Playwright half – finding a browser, launching it once, writing the file.
+  The output of `--slides-pdf` did not change: page count, text and messages
+  were compared before and after on the test deck and on `network-security`.
+  A new gate, `pdf-core`, holds the order with a fake browser that records
+  what it is asked, and `--pdf-size=constructor`, which used to be accepted
+  with no size, is refused. Both drivers now refuse WebSockets as well as
+  http(s), because a page built under `--watch` carries the reload socket and
+  would otherwise reload in the middle of an export; that socket, refused, is
+  not reported.
+
+- **The desktop builder exports the three PDFs** (builder 0.1.4,
+  a pre-release). “Export as PDF…”, beside the button that opens `source.md`
+  and in the File menu, opens a sheet: the presentation, the handout or the
+  handout with notes, and for the presentation whether the slides carry the
+  slide text or the full text. The save dialog proposes the name the command
+  line uses, beside `source.md`, and the file is the one the command line
+  would write – the app drives `pdf-core.mjs` through its own Chromium, so it
+  needs no Chrome and no `playwright-core` and adds nothing to the package
+  beyond two small files. The slide export defaults to the slide text, where
+  `--slides-pdf` follows the lecture's own setting unless `--pdf-collapse`
+  says otherwise. The export uses the last build that worked; with automatic
+  building off and `source.md` changed, it builds first. It never runs on a
+  save, and it runs in a hidden, sandboxed window with empty storage that
+  refuses every network request and cannot navigate. The result stands on a
+  line of its own under the build's sentence, with the page count, *Open PDF*,
+  *Show in folder* and the export's diagnostics. The desktop smoke test now
+  ends by exporting the same lecture on the command line and comparing the
+  three PDFs page by page – page count, text and, for the slides, the chunk
+  and beat on every page.
+
+- **Self-test questions in the documents (`::: pulse`).** A block of a
+  question, a line that is exactly `---` and an answer, both Markdown, becomes
+  a question in `print.html` and `print-notes.html` that the reader answers by
+  revealing the answer and saying whether they knew it; the projection and the
+  cockpit never show it. The widget is Pulse Embed v2 of the University of
+  Bamberg, inlined into the two documents that carry a question
+  (`pulse-embed.js`, a verbatim copy), so a document still opens from disk and
+  sends nothing anywhere: answers stay in the browser until the reader signs
+  in with an email address, after which Pulse mails the questions back at
+  growing intervals. The key a question is filed under is the chunk's id, or
+  `::: pulse {#key}` for a second one on a chunk; the lecture's title is the
+  page. Two or more questions on one chunk are a deck: on screen one at a
+  time, "Question 2 of 3" above it and a button to the next, the ones due
+  first; printed, every question stands under the one before, answers
+  included. Printed on paper, question and answer stand one under the other. The
+  linter mirrors the build's refusals: `bad-pulse`, `bad-pulse-split`,
+  `directive-in-pulse`, `duplicate-pulse-key`, `note-in-pulse` and `pulse-on-cover`, plus the
+  aside rules `::: footnote` already has. A document without a question carries
+  neither the widget nor its stylesheet; the reader's highlights skip a
+  question, since its text changes as it is answered.
+- **`--frames [DIR]`** writes every state of the projection as a PNG at
+  1600x900 with contact sheets of eight – the review `--check-fit`
+  (geometry) and `--squint` (text) cannot do.
+- **`statement:`** – a chunk type for a slide that is a few lines of large
+  type: the heading is the first line, each paragraph another at the same
+  size in ink colour, `---` between them for beats.
+- **`G` goes to a slide by the number in its corner**: digits, Backspace,
+  Escape, Enter; a number the deck does not have shakes the prompt and
+  keeps the digits. The jump goes the way a contents click goes, so the
+  cockpit and the projection stay in step.
+- **Breaking: every `---` is a beat.** An empty segment used to be dropped silently,
+  so a question slide written heading, `---`, body opened with its body, a
+  `> note: from 1` never fired, and a `---` before a `::: footnote` or a
+  `> note:` bought no click. The source's count is the deck's count now;
+  an empty segment paints nothing new and a footnote, a note, a backdrop
+  place or an overlay `from` rides it. `lint.js` counts beats the way the
+  build does and warns `empty-beat` for a `---` nothing rides. A chunk
+  that ends with a `---` and nothing after it keeps its chunk notes on beat
+  1: the cue cards treat the notes of a chunk as the chunk's when they all
+  stand in its last segment **with words in it**, so the trailing empty
+  segment does not move them to the last click, while a note standing alone
+  behind a `---` is said on the beat that separator opens. A cover slide is
+  the one exception in both files: `renderTitleChunk` draws a `title:` or
+  `closing:` chunk from `body`, which is the segments joined, so a `---`
+  there leaves no rule, no segment and no click. `lint.js` counted its
+  position all the same and told an author a `> note: from 1` on a cover
+  would fire; a cover's beats are now what its composition draws with the
+  body – a `.beat-mark` below the top level, a figure's `step` blocks.
+- **A `[Klick …]` line in a speaker note is a beat.** A bracketed direction
+  whose first word is `Klick`, `Click` or `>` ends the cue card and files
+  what follows one press later, the arithmetic `> note: from N` does by
+  number; the words after its colon title the card. `[Pause …]` stays a
+  direction. `note-advance-beyond` warns when a block's clicks outrun the
+  chunk's beats.
+- **`W` puts the projection into fullscreen** (the browser's own, no
+  address bar); `Shift-W` fills the window the key is pressed in. A press in
+  the cockpit is forwarded, and because a browser refuses a fullscreen
+  request that no gesture in the receiving window started, the projection
+  arms and takes the next click anywhere, with a one-line hint that lapses
+  after 20 s. Leaving needs no gesture. Also on the touch palette.
+- **`transition: pan | cut | fade`** – a viewer default for what a slide
+  change looks like. `pan` is today's camera glide; `cut` lands with no
+  motion; `fade` dips through the paper over 260 ms. Under `cut` and `fade`
+  the neighbours are hidden unless the author wrote `dim`.
+- **`note-button: on | off`** hides the projection's `+ note` button
+  (`N` still opens an annotation), and `M` toggles it live from either
+  window. **`neighbours: dim | hidden`** takes the faint previous and next
+  slide off the frame for a keynote.
+- **Speaker notes under a `#` heading belong to that divider**; they used
+  to move silently to the next chunk. **`# Heading {.stack}`** puts a
+  divider's figure under the heading at full width instead of beside it.
+- **`::: draw`:** `anchor tl|top|tr|left|center|right|bl|bottom|br` on a
+  placement, `zone name at X,Y w W h H "Label"` for a fixed area children
+  stand in, `unheaded` on a `table`, a row height that follows `.large`,
+  `.bare` with `.dashed` refused (it drew nothing), and `_` / `^` inside a
+  word left literal so `hausarbeit_final.pdf` is drawn as typed.
+- **`--optimize-images` sees `::: backdrop`, `cover-image:` and
+  `closing-image:`**, downscales a photograph to 2560 px when WebP q92
+  alone leaves it over the cap, and reports per asset.
+- `lint.js`: `bad-section-stack`, and `oversized-asset` on frontmatter
+  images.
+- **`{.figure-type-60}` … `{.figure-type-160}`** answer `style: {figure-type}`
+  for one chunk. `--check-fit` prints the deck's median settled body type
+  and names every figure slide more than 15% under that, with what answers its
+  case: less in the drawing or `frame WxH` for a figure over its canvas,
+  `{.figure-type-N}` for one that has no canvas, and the rest of the slide
+  where the figure fits.
+- **`# Heading {.stack .bare}`**: a stacked divider gets the `.full` measure
+  and `.bare` takes its heading off the slide while TOC, outline, cockpit
+  and search keep it.
+- `--check-fit` lists every chunk taller than the frame by name.
+
+- **Inline code in running text is now spaced and sized against the prose
+  face, and `style: {code: plain}` is the way back.** A monospaced space is
+  about 0.55 em where the prose word space is about 0.25, so a span of more
+  than one token used to open a hole in the sentence – the gap inside
+  `async def` wider than the gaps around it, which reads to a room as three
+  words where two were written. And the mono's x-height is the larger of the
+  two – JetBrains Mono 0.550 against Literata's 0.507 – so at one font-size
+  the code shouted inside its own sentence. The new key answers both:
+  `spaced`, the default, widens the gaps around a multi-token span and pulls
+  the ones inside it in (a single token is left alone – it has no inner gap,
+  and a margin on one would indent the line it opens), and sizes the face at
+  `0.96 × xHeight(prose) / xHeight(mono)`, computed per deck from the
+  measured roster. `tint` puts a quiet ground behind every span instead,
+  padded left and right only. `plain` puts the span back to the flat `0.92em`
+  the tool drew before.
+
+  **This is the one `style:` default that moves an existing deck's
+  rendering**, which is why `plain` is listed in the 1.0.0 recipe in the
+  appearance skill. A face supplied from `fonts/`, and anything under
+  `fonts: none`, carries no measurement: that pairing keeps `0.92em` and the
+  build says so in one `[fonts]` line rather than guessing.
+
+- **`style: {print-neutrals: …}` answers for the page what `neutrals` answers
+  for the wall, and `light-orange` clears 4.5:1.** The two grounds are not the
+  same ground: print's palette is warm already (`#fafaf7` paper, `#8b2e00`
+  accent) where the live one is cool at chroma 0, so a deck can reasonably
+  want the page warm and the projection cool, or the reverse, and one key
+  could say only one of those. The new key takes the same four words and its
+  default is a deferral rather than a value – `''` is seeded and no written
+  value can produce it, so an unset key stays distinguishable from all four
+  and `printNeutrals()` is the one step that resolves it, exactly as
+  `printSlideNums()` does for the numbering. Writing `neutrals: warm` alone
+  therefore still warms both. Each stylesheet reads its own attribute, so
+  neither view can answer the other's key.
+
+  `light-orange` goes from `oklch(0.58 0.17 60)` to `0.54`. Measured against
+  the paper it was 4.23:1, the only one of the four accents under 4.5, and
+  the accent does land in prose because a bold phrase can be set in it – the
+  other three are 8.66, 5.99 and 4.67. 0.56 clears the line at 4.57 and 0.54
+  at 4.96; the wider margin is the one worth taking on a projector, where the
+  room's light is the variable nobody measured. `DG_THEMES` in
+  `diagram-core.mjs` mirrors the seven accents and moves with it, which is
+  what the gate that caught this exists for.
+
+- **A masthead cover with a presenter no longer sits at the auto-fit floor.**
+  One `presenter:` line took such a cover from zoom 2.2 to 0.6 – minimum type
+  on the opening slide – and nothing anywhere said why. `masthead` pins its
+  credits to the bottom with an auto top margin, which is also what lands its
+  folio rule at the top of them, inside a box `align-items: stretch` has
+  already stretched to the frame. The extent from the words at the top to the
+  words at the bottom is then the box's height at *every* type size, so the
+  fit's height test never comes true and it walks down to its floor.
+
+  The fix is the shape already in the file rather than a new idea: a band is
+  kept out of the span and its own height added back, exactly as `panelLevel`
+  does for a band overlay. The composition names its pinned block
+  (`FOOT_BAND_COVERS`) instead of the probe guessing from a measured gap.
+
+  This is the fifth construct to make the same mistake – the dock's reserved
+  track, the overlay layer, a band panel, this, and the stretched
+  `.chunk-content` under all of them. **A stretched or bottom-pinned box is
+  not content**, and every one of the five was found by something bottoming
+  out rather than by anybody reading the code, which is why `test/auto-fit.mjs`
+  now watches the floor itself.
+
+- **A built view is the same bytes whichever flags wrote it, a row's terms
+  line up with the words beside them, and shadows are one ladder.** Four
+  findings from reading what the live views draw rather than what the
+  stylesheet says. `inlineSvgCounter` reset once per *build* rather than once
+  per view, so the same figure came out `psi-fig-6-` under `--audience-only`
+  and `psi-fig-8-` under a full build: content identical, bytes different,
+  and a tracked view rebuilt with a partial flag read as stale to
+  `release.yml` for a diff of pure id churn. The floor a view restarts from
+  is not zero, because `parseLecture` splices vector assets into `::: draw`
+  blocks through the same counter and that markup is shared by all four
+  views. `test/reproducible.mjs` is the check, wired into `npm test` and into
+  `release.yml` immediately before the staleness check it makes meaningful.
+  It is not a `test/gates/` entry: that suite runs on a bare checkout with no
+  `npm ci`, and this one spawns the build.
+
+  On a `::: rows` block the anchor word did not reach the term, which *is*
+  the card, so `{.top}` moved the body and left the term centred. And the
+  anchor a row defaults to now follows the ground rather than being a second
+  question about it: on a fill, an outline or the accent it stays `middle`,
+  because a visible slab beside a longer body wants placing; with `.clear`,
+  which also zeroes the padding, it is the new `baseline`, because bare words
+  centred against a four-line body read as misaligned where on the baseline
+  they read as the hanging indent this construction has always been.
+  Measured either way: 66px of offset on a four-line body. `.baseline` on a
+  `::: cards` block is refused in both files (`cards-baseline-no-body`) – a
+  card has no body beside it to line up with.
+
+  The four shadow recipes for three jobs, in two different shadow colours and
+  all in absolute pixels, are now `--shadow-rest`, `--shadow-float` and
+  `--shadow-quiet`, in em and following `--accent-h`. The shadow under a
+  heading standing on a photograph deliberately stays outside the ladder and
+  neutral, the line `ov-glass` and the invert backdrop's text-shadow are also
+  on: a surface that exists to keep type legible stays outside the palette,
+  a surface that groups or separates follows it.
+
+- **Trackpad zoom follows the fingers rather than the event count, and it
+  zooms where the pointer is.** The board and the focus card each answered a
+  wheel event with a fixed factor picked off the sign of `deltaY` – 8 % for
+  the overview, 10 % for the card – which made the zoom a function of how many
+  events arrived rather than of how far the hand had moved. Measured on a
+  macOS trackpad in Chrome: an event every 8.4 ms, each carrying between 0.012
+  and 6 px. Twenty-two of them crossed the card's whole 1×–8× range, so 183 ms
+  of contact stood it at the ceiling, and thirty-three crossed the board's
+  0.08×–1× in 276 ms. Worse, macOS keeps sending an inertia tail once the
+  fingers lift – `deltaY` around 0.2, gaps widening past 100 ms, the sign
+  flipping as it dies out – and each of those was another full step in
+  whichever direction, so the zoom went on bouncing after the gesture was
+  over. The step is now `exp(-deltaY · k)` with `k` at 0.01, which is about
+  208 px of finger travel for the card's full range, and the per-event delta
+  is clamped at 12 px: the largest the trackpad produced was 6, so no trackpad
+  event is touched, while a mouse wheel's 100–120 px notch becomes 13 % rather
+  than 3.3×. Scaling by `exp()` also composes, which is what makes it safe to
+  coalesce several events into one frame – two events of 1 px land exactly
+  where one of 2 px does.
+
+  The judder on top of that was a second defect and it was CSS. An event every
+  8.4 ms restarted the camera's 250 ms transition from its own interpolated
+  midpoint about thirty times before it could ever complete; the focus card's
+  80 ms curve was re-aimed roughly ten times per frame. Dragging has had
+  `transition: none` since it was written – `body.overview-zooming` and
+  `body.figure-zooming` now give the wheel path the same treatment, held for
+  the length of the gesture and dropped after a quiet period, since a wheel
+  stream has no end event. The receiving window needed it too: a peer zooming
+  with a trackpad streams `figure-view` at frame rate, and the projection is
+  the half the room is looking at. Style writes and that broadcast are both
+  coalesced to one per frame.
+
+  Zoom now anchors to the pointer instead of the centre. For the card the
+  correction is `pan' = pan + (1 - r) · (Q - visibleCentre)`; for the board,
+  where the camera frames an anchor chunk and then adds `manualPan`, both the
+  anchor and the scale cancel out and one step on `manualPan` is all that is
+  left. Two things that are easy to get wrong and are worth keeping: `r` has
+  to be the ratio actually achieved rather than the one requested, or at the
+  8× ceiling the card goes on sliding under a cursor that is no longer zooming
+  anything; and the board's arithmetic has to happen in layout space, because
+  in the cockpit `#stage-viewport` is itself drawn through
+  `scale(--stage-scale)`, so a `clientX` there is a shrunken pixel while
+  `manualPan` and the chunk offsets are full-size ones. The `+` and `-` keys
+  still zoom from the centre, because a keypress carries no pointer.
+
+- **`style: {neutrals: …}` says what hue the greys carry, and the corner
+  radius is one em ladder.** Two findings from a look at what the `A` key
+  actually produces. In the four light themes that key moves `--emph` and
+  nothing else – `--ink` is fixed at chroma 0.01 on hue 260, `--paper` and
+  `--rule` at chroma 0 – and every quiet fill is mixed out of `--ink`, so a
+  card under a warm accent is a cool grey under a warm word; `light-blue` is
+  the only one where the two agree, and there by coincidence. The new key
+  takes `neutral` (the default, and today's rendering byte for byte),
+  `tinted` (the greys take the accent's own hue and the fills are mixed from
+  `--emph`), `warm` and `cool` (a fixed hue), the last two held off the
+  terminal themes because a single phosphor tone is what those are. Second,
+  the corner radii were four absolute values that had accumulated (2, 3, 6,
+  10 px) and a card's font-size is set per slide by auto-fit, so the same
+  `::: cards` row rounded at 0.23em on one slide and 0.33em on the next; they
+  are now `--radius-card` (0.3em) and `--radius-tight` (0.1em) in both
+  stylesheets. The cockpit's own chrome keeps its pixels, being fixed-size UI
+  at one scale.
+
+- **A `::: dock` column is a share of the frame, and it keeps the frame's
+  air.** Its track was a measure of type multiplied out against `var(--zoom)`,
+  which is auto-fit's zoom rather than the lecturer's, so the same inherited
+  `{.left .every}` dock stood 406, 350 and 294 px wide on three consecutive
+  slides of one part and its running list walked sideways on every advance;
+  the air was an em for the same reason and shrank with it, so the words
+  crowded the frame and the seam hardest on the slides carrying the most
+  text. A dock is part of the frame, so the widths are now `narrow` 28%,
+  `standard` 37% and `wide` 46% of the slide, and `--dock-gap` is 3.5% of it,
+  standing both inside the column and between the column and the words. The
+  text measure a dock leaves is unchanged at the widest the old ems reached;
+  what is gone is that the track grew when the lecturer zoomed, so a large
+  manual zoom now wraps a dock's items instead of widening its column, the
+  way a `::: overlay {.panel}` already did. `lint.js` mirrors the shares as
+  `DOCK_SHARE` / `DOCK_GAP_SHARE`, where the same arithmetic was a third too
+  optimistic: it read the dock's own em as the chunk's, so
+  `dock-narrows-measure` now fires on a `standard` dock beside a `standard`
+  chunk, which really does leave about 31em.
+
+- **The build refuses four things it used to accept and mis-render, so it no
+  longer draws what `lint.js` calls an error.** A `word:` heading prefix that
+  is not one of the ten types (`## principl:`) used to fall through to a
+  literal heading with no `data-tag`, leaving the search index and the speaker
+  lists an untyped chunk; a duplicate `{#id}` (on two chunks, or a chunk and a
+  column) shipped as invalid HTML with the two sharing one reveal/sync/
+  localStorage slot; a `:::` that closes nothing rendered as a literal `:::`
+  paragraph on the slide; and a `::: cards {.photo}` or a scrim with no card
+  carrying a picture, or a `detail:` with no nested level, was a word the
+  drawing ignored. All four now fail the build with a message, congruent with
+  the linter. An intentional `:::` as content still goes in a code fence, and
+  a chunk's `{#id}` is still optional in the build (`--allow-missing-ids`
+  silences the linter's `missing-id` while a talk is being sketched).
+
+- **A reveal reserves its space, everywhere.** A top-level `---` used to
+  close up so the chunk grew a block per press, while a `---` inside a pane,
+  a card row or an overlay kept its box – so one mark meant two things
+  depending on how deep it sat. Reserving is now what a reveal is: the chunk
+  stands at its final height from beat 0 and the words fade in where they
+  were going to be. `style: {reveal: hold}`, which bought this for one deck
+  while the question was open, never reached a release; a deck that writes
+  it is refused by the build and by `lint.js`, with a message saying to
+  delete the key. Measured over seven lectures before the change, the set of
+  chunks taller than the frame is identical either way, because the last beat
+  shows every segment under both rules – so no slide that fitted stopped
+  fitting. What does change is that a slide whose later beats are long now
+  stands at that height from the start.
+
+- **A live prompter in the cockpit (`--prompter`), landing with 2.0.0.** While
+  the talk runs, the cockpit listens to the room, and the running `--watch`
+  program asks a language model whether anything needs saying: behind time,
+  an example missing, a probable factual slip, a word about delivery, the
+  tempo of the talk, or something the speaker's own notes planned and the
+  talk has walked past. When something does, a short hint
+  appears on a strip across the bottom of the cockpit's copy of the slide, and
+  most calls produce none. `Shift`-`S` is the switch, and switching on the
+  microphone is the speaker's consent: nothing listens until the switch is
+  pressed. The prompter sends text to openrouter.ai – the transcript plus the
+  lecture's text including the speaker notes – and openrouter.ai passes it to
+  the company that runs the model. The prompter sends no audio, but the speech
+  recognition is Chrome's, and Chrome sends the audio to Google unless it can
+  run the recognition on the device; the cockpit says which.
+  `node build.js` reads `OPENROUTER_API_KEY` and never writes it into the
+  HTML, nothing reaches the projection, and nothing is written back into
+  `source.md`.
+
+  **The limits are enforced in code, whatever the model answers.** A hint
+  longer than twelve words is discarded unread, one hint stands at a time,
+  each hint is followed by a quiet interval overall and a separate one for its
+  own kind, the first minute after the switch stays quiet, and a hint the
+  speaker sent away does not come back in other words. A test checks each of
+  these rules without a key, a network connection or a microphone.
+
+  The prompter can also add a **cue card to a slide that is still to come**.
+  The cockpit's `K` mode shows the speaker notes as cue cards, and an added
+  card turns up there dashed. In the cockpit's ordinary layout, which shows no
+  cards, it appears on the strip when you walk onto that slide, so you do not
+  have to present in card mode to see it. The lecture's last slide is always
+  among the slides it may add a card to, however far away it is.
+
+  **psi-slides measures the tempo, and the model only decides whether it is
+  worth a hint.** A transcript carries no speaking rate, no hesitation and no
+  silence, so the running program counts them over the stretch of transcript
+  it sends anyway – words a minute over the seconds actually spoken, filler
+  sounds, the longest pause – and sends the figures as one line beside it.
+  Each stretch of speech is timed from where the speaking started, so a pause
+  counts as silence and never lowers the rate: a speaker who thinks for a
+  minute and then says a sentence is counted as saying one sentence. The
+  model is told that speech recognition often drops filler sounds, so a count
+  of zero is not evidence that none were said.
+
+  `duration: 45` at the top level of the frontmatter, the settings at the top
+  of `source.md`, gives the clock a planned length in minutes to measure the
+  talk against. A `prompter:` block sets the model, how much new speech it
+  waits for before asking again (`cadence`), the quiet interval after a hint
+  (`cooldown`) and whether cue cards are allowed (`cues`). Each run writes one
+  log beside `source.md` (`prompter-<date>.jsonl`): every call, what came
+  back, and every hint the rules stopped, with the rule. The log holds the
+  spoken words verbatim; this repository's `.gitignore` covers it, and a
+  lecture in a repository of its own needs the same pattern.
+  `--prompter-replay` reads a log back through today's rules, and logs written
+  before the prompter had its public name, called `souffleuse-*.jsonl`,
+  replay the same way. It works in Chrome only, because the listening is
+  Chrome's Web Speech API, and only together with `--watch`, because the
+  cockpit reaches the model through that running program. A lecture that does
+  not use it is untouched: without the flag none of the prompter's controls
+  are written into the HTML, nothing of it enters the state the two windows
+  keep in step, and the four HTML files are what they were before the flag
+  existed.
+
 - **A fourth font role: `fonts: {display: …}` gives the cover, the closing
   slide and the section dividers a typeface nothing else in the deck wears.**
   Those three are the one place where a loud face is not a mistake – nobody
@@ -1084,8 +1771,7 @@ from building the same way is a major version.
   one segment, so no `---` can be written between two of them. Built for a
   45-minute keynote with a written-out script and minimal slides.
   `cue-cards.mjs` is the grammar, spliced into the cockpit as text;
-  `note-in-empty-beat` and `note-from-beyond` are the linter's two new
-  warnings.
+  `note-from-beyond` is the linter's new warning.
 - **The clock is a button over the stage,** large and tabular, and a click
   restarts it at 0:00 – the word RESET appears in it on hover, because a
   clock that jumps to zero under a stray click reads as a fault unless the
@@ -1105,204 +1791,6 @@ from building the same way is a major version.
   while macOS asks for screen-recording rights – press `D` again. Ungated like `B`, outside the snapshot, and
   blank hides it like everything else. Chrome's own "stop sharing" bar ends it
   too. macOS asks once for screen-recording rights for the browser.
-
-### Fixed
-
-- **Under auto-fit the cockpit's thumbnails are drawn at their own slide's
-  size, not at the current slide's.** A thumbnail is a clone of its slide and
-  inherited `--zoom` from the document, which under auto-fit is the answer for
-  whichever slide is current - so on a cover every thumbnail shrank with it,
-  and on a short slide a tall slide's thumbnail ran out of its slot. Each clone
-  now carries a zoom of its own, solved by the same fit as the live slide
-  (`solveFitZoom`, lifted out of `fitZoomToChunk` for the purpose) and cached
-  under the slide and the settings that size it, so it is re-solved only when
-  the mode, the ceiling, the collapse, the face or the frame changes. Two
-  things the first cut got wrong are written beside the code: a clone cut to
-  its slot's height measures as fitting at any zoom, so it is measured at its
-  own height; and `populatePreviewStrip` runs twice while the cockpit loads,
-  so a frame callback can fire on a clone already replaced, whose zero height
-  must not reach the cache. With auto-fit off nothing changes: the lecturer's
-  zoom is one value for every slide and the clones keep inheriting it.
-
-- **A masthead cover with a lede, and a masthead closing slide, are no longer
-  fitted to the 0.6 floor.** The pinned credits were already kept out of the
-  fit's span (`data-foot`), but the field between the nameplate and the
-  credits is stretched to the frame as well, so with words in it the extent
-  was the frame at every type size - measured on a cover with one sentence of
-  lede, zoom 0.6 where the same cover without it reaches 2.2. The field now
-  carries `data-grow` and is measured by what it holds, and the closing
-  slide's words, which masthead pins to the foot with an auto top margin,
-  carry `data-foot`. `test/auto-fit.mjs` gives its cover fixture a lede and a
-  closing slide, and checks the thumbnails; both fail against the old code.
-
-- **Recorded, not fixed: `--shadow-rest` reaches further below a card than
-  `--shadow-float` does, and leaves the slide at a large `body-scale`.** Its second layer is
-  `0 0.26em 0.85em` - a much larger y-offset under a slightly smaller blur -
-  so the *resting* step of the ladder reaches 1.11 em where the *floating* one
-  reaches 1.04. At 900 px and `body-scale: 1.8` that is 46.8 px of reach into
-  44.1 px of padding, and no probe in this repository can see it. Pre-existing
-  and unrelated to `style: {elevation}` - `.cards.cg-paper` has carried
-  `--shadow-rest` since the ladder was built - so it is a **pending entry** in
-  `test/gates/elevation.mjs` rather than a change: both fixes (pulling that
-  y-offset to 0.2 em, or raising `--slide-pad-y`) move the look of every deck
-  that exists, which is not a gate's decision to make.
-
-- **Nothing held `KNOWN_FRONTMATTER_KEYS` against what `build.js` reads, and
-  the shape of that failure is a false warning on a valid deck.** The list is
-  `lint.js`'s closed set of top-level frontmatter keys some renderer reads;
-  anything else earns `unknown-frontmatter-key`, and exit 2 under `--strict`.
-  A key the build reads and validates in its own pre-flight, missing from the
-  list, is therefore the linter refusing a correct deck. It happened rather
-  than being imagined: one branch added two top-level keys while another
-  added the warning, the two edits never touch as text, git merged both
-  cleanly, and it was found by building a deck that used both – not by any
-  test. `node test/gates/run.mjs frontmatter` now holds the two files
-  together, in milliseconds, where `gates.yml` runs it on push and PR, which
-  is where a merge happens.
-
-  The scan is the work, not the comparison. `build.js` reads a key three
-  structurally different ways – `frontmatter.cover`, `frontmatter['cover-image']`,
-  and `frontmatter[fmKey]` inside `viewDefaults()`'s loop – and the third is a
-  *computed* read, so no grep at the read site can ever see those seven names.
-  A fourth path is not a read at all: the cover spreads the whole block into
-  `renderTitleBlock`'s destructured parameter list, the only place `subtitle`
-  is named. The check the list's own comment used to recommend finds 23 of the
-  31 and would report a correct `build.js` as carrying a dead key; that comment
-  now points at the gate instead. The gate asserts the size of what it found
-  before comparing anything, because a scan that silently finds nothing passes
-  every comparison and guards nothing – and it earned that on its first run,
-  reporting `bodyHtml` as a frontmatter key because the call site writes that
-  argument in shorthand. The milder direction, a key the linter knows and no
-  renderer reads, is asserted too, with an allowlist that is empty today: a
-  key read by a tool rather than a renderer widens the list's own definition,
-  which is a decision worth making in one place with a reason attached.
-
-- **The packaged desktop builder staged an engine that could not build**
-  (builder 0.1.2).
-  `build.js` reads four files relative to itself at run time, and
-  `cue-cards.mjs` – the note-to-cards grammar the cockpit is spliced from –
-  was not on the hand-written list in `desktop/scripts/stage-engine.mjs`. The
-  read is unconditional, inside `renderSpeaker`, with a bare `readFileSync`
-  and no fallback, so the packaged app did not ship three good views and a
-  broken cockpit: it threw `ENOENT` inside the render map before any view
-  reached disk, and **every build in builder 0.1.0 and 0.1.1 failed** with a
-  stack trace. Adding the one name is the whole fix.
-
-  What let it happen is the shape, not the name. `tails.mjs` is missing from
-  a staged engine in exactly the same way and is safe for a reason that does
-  not generalise – it is a static `import`, so its absence fails at module
-  load, loudly, on the first run of anything. A lazy `readFileSync` five
-  thousand lines into a renderer fails only on a real build of a real deck,
-  which `desktop/test/` never did. `desktop/test/stage-engine.test.mjs` now
-  reads both files as text and holds every `new URL('./x', import.meta.url)`
-  and every relative `import` in `build.js` against `FILES`, in both
-  directions; it asserts the count of run-time reads before their membership,
-  because a scan that silently finds nothing passes every comparison and
-  guards nothing.
-
-  `FILES` turned out to be the second of *three* hand-written copies of that
-  list, not the second of two. `desktop.yml` is path-filtered on the engine
-  files by hand as well, and `cue-cards.mjs` was on none of the three – so a
-  commit touching only that file ran no desktop job at all. The packaging
-  script and the workflow that would have exercised it were blind to the same
-  file for the same reason, which is the other half of why this shipped
-  twice. The filter now names every file the app stages, `LICENSE` included,
-  and the test holds it against `FILES` exactly: a matrix run on a licence
-  edit is the price of a rule with no exceptions, and that file changes about
-  never.
-
-- **The packaged engine catches up with running-text code** (builder 0.1.3).
-  A re-stage rather than a defect: the app had not shipped since `style:
-  {code}` landed on main, so a lecture built through the window still got the
-  flat `0.92em` span the engine no longer draws by default. The staged
-  engine now carries the spacing and the x-height sizing against the prose
-  face, so the window and the CLI build the same running text from the same
-  source.
-
-
-### Changed
-
-- **A `question:` chunk is no longer centred on the projection.** It was the
-  one chunk type whose treatment set an alignment axis, and the axis reached
-  half the slide: `.chunk-body` resets to left, so a question with a paragraph
-  under it drew a centred heading over left-aligned prose, and the printed
-  document never centred it at all, so the two views disagreed. The heading now
-  sits where every other type's does. Where the axis is wanted, `{.center}` on
-  the chunk sets its own paragraphs on a centre line, and
-  `style: {headings: center}` sets every heading in the deck – which is the same
-  split the format already makes everywhere else: centring reads well for one
-  or two lines and badly for a paragraph, and only the author knows which chunk
-  is which. A deck that wants exactly the old look writes
-  `style: {headings: center}`. Nothing about the source format changes, and no
-  deck stops building; a question slide with prose on it comes out on one axis
-  instead of two.
-
-- **The `::: draw` opener has no braces: `::: draw 150x56 autoplay 1200 cycle`.**
-  It was the one block line whose tail held `key=value` options
-  (`{unit=150x56 autoplay=1200 cycle}`) where every other `{…}` in the format
-  holds sigil tokens – `.word`, `#word`, and inside a draw body `@word` and
-  `!word`. Now the grid is positional, as the ratio is on `::: side 2:1`,
-  and playback is two keywords after it. The old form is refused with the new
-  spelling of that very line in the message; `tools/migrate-draw-opener.mjs`
-  rewrites a whole repository (`--check` reports without writing). The
-  opener's `{#id}` is gone with the braces – it was stored and used for
-  nothing but the compiler's error prefix, which now names the chunk, or for a
-  divider figure the column, instead of "a chunk with no id". The compiler is
-  handed `unit=WxH` alone and refuses anything else; `DG_HOST_OPTS` no
-  longer exists. The figure's source payload carries the whole opener as one
-  formatted line, which is what the editor's clipboard tier writes – it used
-  to rebuild the opener from the compiler's attributes and so dropped
-  `autoplay` and `cycle` on every copy.
-- **One `{…}` tail parser for build.js and lint.js**, in the new zero-dependency
-  `tails.mjs`, together with the slot tables that were declared in both
-  files. A word from no slot is `unknown-class` on every tail (it was
-  `unknown-width` on a heading and `bad-side-class`, `bad-cards-class`,
-  `bad-rows-class`, `bad-overlay-class`, `bad-backdrop-class` on the
-  directives); two words from one slot are `same-slot`; a token without its
-  sigil, an `#id` on a directive, or an empty `{}` is `stray-attribute`. The
-  directive is named in the message, never in the code. Inside a draw body
-  `bad-diagram-attribute` is split into what it meant: `name-in-tail`,
-  `empty-tag`, `stray-attribute`, `duplicate-removal` and the previously
-  missing `conflicting-class`. No lecture ignored any of the old codes.
-- **A written default is now known to be written.** `::: rows` anchors
-  `middle` unless the author wrote an anchor, and a scrim with no photo is
-  refused even when the scrim word is the default – both used to re-split the
-  raw tail by hand; the parser's `written` flag answers them.
-- **A directive line the build cannot read is refused, never left as
-  prose.** `::: backdrop {.blur}` (no picture), `::: cols 4` and
-  `::: overlay {.ink} junk` printed themselves on the slide with exit 0
-  while `lint.js` refused them; the build now says which line it could not
-  read and what the directive takes, the guard `::: side`, `::: cards` and
-  `::: rows` already had. `lint.js` gains `bad-cols` and `bad-overlay`. `autoplay N` on a figure
-  with no `step` block is refused in both files – it was a number the
-  drawing ignored. A source with Windows line endings used to build to a
-  deck with no chunks and exit 0, because every matcher anchors on `$`;
-  build and lint normalise to LF on read, and the watch server splices an
-  editor patch in the same coordinates.
-- **Two new gates.** `tails` holds the shared parser to its contract without a
-  build; `legacy-draw-syntax` keeps the old opener out of every `source.md`
-  and inventories every other survivor against a reviewed allowlist. The
-  corpus gate now asserts how many blocks each file holds, and covers
-  `lectures/decoration/` too.
-- **`--watch` watches the folder and filters on the file name.** An editor
-  that saves atomically – vim, gedit, VS Code by default – writes a temporary
-  file and renames it over the original, which gives the name a new inode. On
-  Linux inotify follows the inode, so a watch on `source.md` itself went quiet
-  after the first such save and every later one built nothing. A directory
-  watch survives the rename. The 80 ms debounce and the one rebuild per save
-  are unchanged, and an event for any other name in the folder is ignored.
-- **A build renders all four views before it writes any of them.** The
-  pre-flights refuse what can be seen before a renderer runs, but a defect
-  that only one renderer trips over used to leave two new files and two old
-  ones side by side – a projection that had moved on from its handout, with
-  nothing on disk saying so. Now either all four files are the new build or
-  none of them is, and a failed rebuild leaves the last good one whole.
-- **`ws` is a dependency, not a devDependency.** `--watch` is a documented
-  command and loads `ws` through `import('ws')`, so an installation made with
-  `npm ci --omit=dev` – which is what a packaged copy of the engine gets – had
-  everything it needed except the one module the watch server starts with.
-
-### Added
 
 - **The live annotation is the slide while it is typed.** `N` used to pan the
   camera a third of the way right and open a 21vw column beside the text – a
@@ -1372,17 +1860,11 @@ from building the same way is a major version.
   through two panes and a card row; rows one at a time) – and the dock part
   grew a `.wide` chunk with two columns beside the dock, a band at the head
   and the slot card; the overlay slot card names `shape` and `height`.
-  `lectures/frame-lab/` stays as the untracked edge-case deck, now built
-  with `style: {reveal: hold}`.
-- **`style: {reveal: hold}`.** A top-level `---` segment keeps its box
-  before its beat, so the chunk stands at its final height from beat 0 and
-  the words fade in where they were going to be – deck-wide what a beat
-  below the top level does anyway. `grow`, the default, is what 1.0.0 did:
-  the segment takes no room and the chunk grows by a block per press. A
-  default it is not, because it moves every existing deck's slides. lint.js
-  now reads the flow form of the block too, `style: {bold: accent, reveal:
-  hold}`, which the documentation writes everywhere and the linter never
-  looked at - a typo in it passed the gate and failed the build.
+  `lectures/frame-lab/` stays as the edge-case deck, its source tracked and its views not.
+- **`lint.js` reads the flow form of the `style:` block**, `style: {bold:
+  accent, wrap: none}`, which the documentation writes everywhere and the
+  linter never looked at - a typo in it passed the gate and failed the
+  build.
 - **`text-on-picture` (lint, warning).** A `::: backdrop {.clear}` under
   words that stand on the bare picture: the heading unless the chunk is
   `.bare`, prose outside an overlay or a dock, and a divider's heading or
@@ -1409,7 +1891,8 @@ from building the same way is a major version.
   height from beat 0 and the words fade in where they were always going to
   be, so a row that grew a line per beat, or three cards that changed
   height when the tallest arrived, no longer make the slide jump (a
-  top-level `---` still closes up, as since 1.0.0). Print shows every
+  top-level `---` reserves its box too – see *A reveal reserves its space,
+  everywhere*). Print shows every
   beat at once; an `::: expand` and a `::: script` keep the rule, since
   neither is on the projection. **One meaning changes:** a `---` under a
   `# Heading`, before the first chunk, used to render a rule in the divider
@@ -1449,7 +1932,7 @@ from building the same way is a major version.
   `.column-lede`. The two places a figure still does not go are a text flow
   (`::: cols`, measured: it breaks the column count) and a caption
   (`::: embed`).
-- **What may open inside what is now a rule, in the build and in the linter.**
+- **Breaking: what may open inside what is now a rule, in the build and in the linter.**
   The directives combined freely in the grammar and did not in the output: a
   `::: expand` inside `::: cols` handed its closer to the columns
   and folded the prose after it into the expansion; a `::: cols` inside
@@ -1913,7 +2396,530 @@ from building the same way is a major version.
 
 ### Changed
 
-- **Every setting in a `{…}` tail is written with its dot, and the parsers
+- **Breaking: a code fence is what CommonMark says it is, in every reader.**
+  Three or more backticks or three or more tildes, indented at most three
+  spaces, closed by a run of the same character at least as long. The
+  parser and the reveal split knew only three backticks at the start of a
+  line, so a `---` inside a `~~~yaml` block, or inside a four-backtick block
+  that shows a three-backtick one, was cut into two beats, while the image
+  readers knew `~~~` and any indent. One rule now lives in `tails.mjs`
+  (`fenceTracker`) and build.js and lint.js both read through it. A deck that
+  wrote a `---` inside such a block has one beat fewer, and its code block is
+  whole again. A fence-looking line inside a multi-line HTML comment is the
+  comment's text, as marked reads it, so a draft commented out together with
+  its code no longer opens a fence that swallows the slides below it.
+- **Breaking: a code fence still open at the end of the file is refused.**
+  Every slide after the opener was read as one listing and the build
+  exited 0, while the linter said only `orphan-column`. The build names the
+  line the fence opened on; the linter reports `unclosed-fence`.
+- **Breaking: a `::: cols`, `::: side`, `::: slide`, `::: script`,
+  `::: marginalia` or `::: embed` left open is refused.** The build closed it
+  at the next heading without a word while the linter reported
+  `unclosed-directive`; it now stops with the same words and names the slide.
+- **Breaking: a trailing `---` is a beat whether or not a blank line follows
+  it.** Written straight above the next heading it was dropped, and a
+  `::: footnote` after it arrived a beat early; with a blank line it was kept.
+  The linter counted it either way. A deck with a `---` directly above a
+  heading has one click more on that slide, which is what the linter already
+  said it had.
+- **Breaking: every Markdown spelling of a picture is weighed against the
+  2 MB cap.** `![a][ref]` with a `[ref]:` definition in the same chunk and
+  `![a](<path with spaces>)` were inlined by the Markdown renderer but never
+  seen by the reader that applies the cap, so an oversized one shipped as an
+  external path; it now fails the build like any other, and
+  `--optimize-images` converts it. A path with `?v=2` or `#frag` after it is
+  read and inlined as the file it names – it used to be found and then left
+  external. A picture inside a code fence or a code span is no longer counted
+  at all.
+- **Breaking: `fonts:` takes the four roles or the word `none`.**
+  `fonts: off` shipped the whole bundle and `fonts: {heading: Anton}`
+  embedded nothing, both without a word. The build now refuses either; the
+  linter reports `unknown-font-role`.
+- **Breaking: an `{#id}` may not be the key a chunk without an id gets by
+  position** (`c<column>-<chunk>`). The two articles shared one reveal slot
+  and one sync target; the build refuses the pair as a duplicate id, and the
+  linter reports it as `duplicate-id` on the chunk without one, under
+  `--allow-missing-ids` too.
+- **Breaking: building needs Node 22 or newer.** Node 20 reached its end of
+  life in April 2026; `engines` in `package.json` now says `>=22`, and every
+  workflow in `.github/workflows/` runs on 22, which the desktop app's jobs
+  already did. No code changed for it: the change is what the project tests
+  on and says it supports. The
+  built HTML is unaffected: it needs a browser, not Node.
+
+- **The live views' keys are bound in one table, `commands.mjs`.** Internal:
+  the `?` panel is rendered from it and the key map looks every press up in
+  it, where both used to be written by hand beside each other. No key changes
+  meaning – a fixture of every press the old key map answered, per view, is
+  held by the `commands` gate, which replaces `help-keys` and keeps its check
+  that every answered key has a row. The table reaches both live views as
+  `window.PSI_COMMANDS`, and the desktop app stages `commands.mjs` with the
+  engine.
+- **Breaking, strictly: an `{#id}` may not start with `psiINT-`.** Every id
+  the build invents now starts with it – the cockpit's and the projection's
+  chrome (`psiINT-clock`, `psiINT-stage`, `psiINT-toc`, the prompter's
+  `psiINT-souffleuse-*`), the editor's `psiINT-dge-*`, the ids inside an
+  inlined SVG asset (`psiINT-fig-N-`) and a figure (`psiINT-dgN-`), and a
+  `::: pulse` question's element (`psiINT-pulse-<key>`, where it was
+  `pulse-<key>`; the key the Pulse server files it under is unchanged). A
+  chunk with an id such as `#clock`, `#stage` or `#toc` used to be the element
+  the chrome's code found, so the chrome acted on the slide and the build
+  exited 0; the tutorial's own `#toc` chunk needed a workaround. An author id
+  in the reserved range is refused on a `##` chunk and a `#` column heading,
+  by the build and by the linter as `reserved-id`. The match is
+  case-sensitive, as the browser's is, so `psiint-` and `psi-` stay free. No
+  lecture in this repository or in the content repository uses such an id.
+- **A `--pdf-*` option that would do nothing is refused.** `--pdf-beats`,
+  `--pdf-size`, `--pdf-zoom`, `--pdf-zoom-max` and `--pdf-collapse` without
+  `--slides-pdf`, and `--pdf-out` without any PDF flag, used to be ignored by
+  a plain build; they now stop it and say which flag they belong to. With
+  `--print-pdf` or `--print-notes-pdf` alone the slide options are refused as
+  well, since a document takes none, and `--pdf-out` is refused when more than
+  one PDF is asked for, since it names one file. A command that used
+  `--slides-pdf` refuses the same things it did, in the same order.
+- **The two documents read at a screen size in a browser.** `print.html`
+  and `print-notes.html` set their text at 10pt on screen, so the measure
+  came out at 560 px and a figure at 450 px. On screen the root size now
+  follows the window, from 15 px on a phone to 18 px on a large monitor
+  (16.3 px at 1440 wide, a 685 px measure). Paper keeps its 9pt.
+- **The documents have a lightbox.** Click a figure, a diagram, a code
+  block or a display formula in `print.html` or `print-notes.html` and it
+  opens over the page, sized to the window: the wheel or a pinch zooms under
+  the pointer, a drag pans, `+` / `-` / `0` zoom from the keyboard, Esc or a
+  click closes. It is the documents' first script, a few KB; without
+  JavaScript the page is what it was, and none of it reaches paper.
+- **The documents carry tools for the person reading them.**
+  `print.html` and `print-notes.html` are read on a screen after the
+  lecture as much as on paper, and both now give that reader a contents sidebar, highlights with notes, a way
+  through them, an export, and highlights that print. All of it is theirs:
+  it stays in their browser and nobody else sees it. It is separate from the
+  lecturer's `> annot:` annotations, and the live views carry none of it.
+  `reader: off` in the frontmatter ships the plain document (the lightbox
+  stays); an unknown value fails the build and lints as
+  `unknown-view-default`. The words it adds are 42 new label keys, all
+  beginning `reader-`, so `labels:` reaches each one.
+- **Contents sidebar.** The slides are listed down the left, grouped by part
+  and numbered with the numbers the page prints, and the one the reader is
+  in is marked as they scroll. Each part folds to its heading: the one
+  being read opens by itself and closes again when the reader moves on, a
+  chevron beside a heading opens any other by hand, and a folded part shows
+  the sum of its highlights. From 1216 px wide it stands beside the text;
+  narrower, it folds to a button top left that opens it over the page. From
+  920 px the layout keeps a margin free on the right for notes. The printed
+  contents page stays as it was.
+- **Highlights and notes.** Select words in a slide, press the button at the
+  end of the selection, and they turn yellow with a card for an optional
+  note – in the right margin at the height of the highlight, or under its
+  paragraph in a narrow window. A click on a highlight opens its card again,
+  whose one action, *Remove*, takes the highlight and its note, acts at once
+  and leaves five seconds to undo; emptying the field deletes the note
+  alone. A selection that overlaps a highlight grows it. The words of a code
+  block take a highlight as prose does, and only their ground turns yellow.
+  A figure – a picture, an inlined vector or a `::: draw` diagram –, a code
+  block and a display formula carry a *Highlight* button in the corner that
+  marks them whole, without opening the lightbox. In the lightbox, *Mark a
+  spot* (also `m`) sets a small yellow dot on a figure; on a diagram it
+  snaps to the part under the pointer and follows that part through a
+  rebuild. Speaker notes cannot be highlighted.
+- **Going through them.** Once there is a highlight, a small bar at the foot
+  of the window shows `‹ 3 / 12 ›` with a switch between *all* and *with
+  note*; the arrows, or `n` and `p`, go to the next and previous one in page
+  order and open its card, stopping at the first and the last. The contents
+  sidebar shows each slide's count. With a mouse, the lightbox's *Mark a
+  spot* shows `m` faintly and the *?* names the keys; a touch screen shows
+  neither.
+- **A finger reaches every control.** Under a coarse pointer each of the
+  reader's controls takes at least 44 by 44 CSS px to the touch – the
+  sidebar's entries and chevrons, the menu, the bar, the buttons on figures
+  and in the lightbox, a card's field and action – while the small glyphs
+  stay small.
+- **Export and import.** The foot of the sidebar holds *Export highlights
+  (.md)*, *Import* and *Delete all*, and a small *?* that opens a few short
+  lines: what can be highlighted and how, the keys (only where a keyboard is
+  likely), and why the export is the backup – the browser's storage is lost
+  with its site data, in a private window, and to the browser's own
+  clean-up, which in Safari follows seven days of use without this page.
+  The export, `<lecture folder>-highlights.md`
+  (`-markierungen.md` under `lang: de`), reads as it stands – a heading per
+  slide with its number, each quote with its note under it, a figure or a
+  formula named in words – so a student can send it to the lecturer. Each
+  entry also rides in an HTML comment, which is all *Import* reads: it
+  merges by entry, the later edit winning, and says how many were new,
+  updated and not found.
+- **Highlights print.** On paper a highlight stays yellow, also with the
+  print dialog's background graphics switched off. One with a note ends in a
+  small number, and the note stands under that number in the outer margin
+  the printed page keeps free, at the height of its line. A figure's frame
+  or dot prints with it. The sidebar, the bar and the buttons do not print.
+- **Where highlights are kept, and what a rebuild does to them.** They are
+  filed in the browser under the lecture's folder name. Opened from disk,
+  Chrome and Safari share them between the two documents; Firefox keeps one
+  store per file, and the export carries them across. Under `--serve` all
+  three share. A rebuild that moves the words carries a highlight with
+  them; one that removes them lists it with its note at the foot of the
+  sidebar, and nothing is dropped. Where the browser refuses storage, the
+  highlights last as long as the tab and the sidebar says so.
+- **A drag on a picture in the lightbox pans.** The browser's own drag of
+  the image used to end it after the first move.
+
+- **A figure's labels are set at the size of the words beside them.** In
+  the live views a `::: draw` figure used to fill its column whatever that
+  did to its type, and auto-fit then grew the slide's words up to 2.2x while
+  the drawing stayed put – measured on a keynote at 1600x900: body 51 px,
+  footnote 40 px, figure labels 16–27 px. A figure's base label now lands at
+  body size, on the fixed canvas described under *A figure is drawn on a
+  canvas* below; a drawing too large for its canvas is a stop for auto-fit
+  and takes its own slide's type down with it, `style: {figure-type:
+  0.6–1.6}` scales the relation for a deck and `{.figure-type-N}` for one
+  chunk, and the build and `--check-fit` say when a drawing is too dense for
+  a room: `figure-overflows-canvas`, `figure-type-small` where the labels
+  land under what a back row reads, and a label-to-body report and a
+  body-type median in `--check-fit`. **This moves what an existing
+  deck renders**: figures that were larger than the running text shrink to
+  it, and the words on a slide with a dense figure come down to the figure.
+- **`.full` is wider than `.wide`.** The 14% frame padding clipped both to
+  the same 1152 px at 1600x900; an author-written `.full` chunk now pads 6%
+  and reaches 1408 px. The cover, the closing slide and dividers keep the
+  14% frame.
+- **`.center` on a chunk centres its heading and its footnote** with the
+  paragraphs, and `style: {labels: off}` hides the footnote's eyebrow in the
+  live views (print keeps it).
+- **`::: rows` sizes its term column to the longest term** rather than a
+  share of the width, and a term in `rows` or `cards` never hyphenates.
+- **A `::: footnote` written after a `---` arrives with that segment**
+  instead of standing from beat 0.
+- **A `[diagram]` warning names its source line**, and an edge's two
+  endpoints.
+- **German `+ Anmerkung` is `+ Notiz`.**
+- **A figure set `style: {blocks: left}` puts its ink on the text edge**, not
+  its box: diagram-core emits the reserve as `--dg-ink-x` and the stylesheet
+  shifts by it. Measured on a keynote, the gap between heading and first box
+  went from 20–43 px to 0. Centre stays the default, because a deck without
+  `headings: left` centres its headings too.
+- **One block gap** under the heading, between reveal segments and between
+  paragraphs (`--block-gap`); a beat boundary used to be tighter than a
+  paragraph break. Live views only, and it moves existing decks by some tens
+  of px vertically.
+- **A `::: rows {.clear}` stack keeps its own row gap**: the clear ground's
+  `gap` shorthand tripled it (93 px between 61 px rows).
+- **`emph` on a `.bare` element emphasises the ink and draws no outline**,
+  the correction `bars` already had; a lit table cell is accent ink, not a
+  red rectangle around one word.
+- **A footnote stops following the zoom up**: `.margin-note` is clamped at
+  what it measures at the opening zoom.
+- **`::: expand` chips wear the author's label** instead of a three-letter
+  abbreviation.
+- **`--frames` and `--check-fit` wait for the slide to stop animating**
+  before a screenshot; a backdrop's 620 ms reveal used to be caught halfway.
+- **In the cue cards, the press on a beat's last card is the click.** It used
+  to move the cursor onto the rail's entry for the click, and only the press
+  after that reached the projection – one press per beat on which the room
+  saw nothing. Walked on `lectures/spoken-talk`, the talk from its first
+  card to its last took 34 presses and takes 25. Backspace is the mirror
+  image: on a beat's first card it takes the click back and lands on the
+  last card of the beat before, so each press back still undoes exactly one
+  press forward. The entry the next press brings up is now drawn as the
+  next one, which on a last card is the click itself.
+- **A stage direction in a speaker note costs no press.** A paragraph that
+  is only `[Pause.]` or `[Lachen abwarten.]` used to be a cue card of its
+  own, and every card is a press. It now rides the card before it – a pause
+  after words – or, where the note opens with one or a `[Klick …]` came
+  between, leads the card after it; one at the head or foot of a paragraph
+  rides that paragraph's card instead of being dropped beside its bolds. It
+  is set as a direction, small and italic in the soft ink, with every word
+  as written. `lectures/spoken-talk` walks in 23 presses instead of 25.
+
+- **The editor writes a gap back in the unit its line wrote it in.** A drag
+  on `below ufw gap 5lh` used to come back `gap 4.4` – rows, the same
+  distance in a different ruler, which the next change of grid then moved.
+  Three paths were worse and moved the box at once: the `side` swatches, the
+  `of` field and the dock chip wrote the label-height count back with no
+  suffix, where it was read as rows. Every writer of a `gap` token now goes
+  through one helper that spells it the way the line does; the panel's `gap`
+  field shows `5lh` and takes `0.6lh`; and the sibling-gap guide offers a gap
+  written in label heights, which it used to skip as not a number, and writes
+  the sibling's own spelling. A gap nobody wrote is still written in rows.
+
+- **The overlap census compares ink, and a label is compared line by line.**
+  A `text`'s box is its block of line boxes – as tall as `DG_LINE_H` per line
+  where only `DG_INK_H` of it is glyphs, and as wide as its *widest* line –
+  so the check carried a 24 px floor wherever either side was a text, and
+  24 px is more than a whole line of figure type. The geometry it exists for
+  crosses an outline by a fraction of one line by construction:
+  `lectures/network-security` `#ns-a41` shipped a three-line verification
+  block printed across the box above it, at 5.5 px, with a silent build, a
+  clean `--check-fit` and a clean lint. A text is now the rectangles it
+  actually inks, one per line, and everything meets at the same 2 px
+  `DG_OVERLAP_TOL`. Both false positives the floor was raised for stay
+  silent, and so does the shape that made them – a two-line value whose long
+  line is nowhere near the chevron standing beside its short one. No figure
+  in the repository gains a warning and no drawing moves.
+
+- **And it says the overlap in rows, with the drawing's own px beside it.**
+  "overlap by 76×15 px" described a thing the room sees as 145×28: a figure
+  is scaled to fill its canvas, by about 1.9 in the case the check was
+  written from, and the compiler cannot know that scale because the fit
+  happens in the page. So the number is named rather than guessed –
+  `overlap by 5.38×0.06 rows (215×3 px of the drawing's own grid, which the
+  slide scales to fill its canvas)` – and the unit is the row, because a
+  `gap` is measured in rows on both axes and a `gap` is what the sentence
+  after the number tells the author to write.
+
+- **The reference decks stand on the figure defaults.** `network-security`,
+  `tutorial`, `python-intro`, `spoken-talk` and `diagrams` built with 44
+  canvas warnings between them and now build with one, the box in
+  `diagrams` `#typefit` that is there to show the warning. The figures were
+  redrawn rather than silenced: about ninety written sizes left
+  `network-security` alone (`h` 76 → 41, `same as` 69 → 29) because a chain
+  of peers now settles them, its smallest base labels went from 10 px to the
+  deck's 28 px body type, and its slides taller than the frame from 23 to 12.
+  Four figures in the five decks carry a `frame` of their own, each a
+  specimen beside its own source or a listing no arrangement folds, each
+  with a comment saying so. Wording is unchanged in `network-security`;
+  line breaks inside labels moved.
+
+- **The canvas reports say how far off a figure is in px as well as in
+  labels.** `figure-overflows-canvas` decides at half a pixel and reported
+  the overshoot in base labels to one decimal, so "over by 0.2 across" was
+  anything from 2.3 px to 3.7 px and an author shortening a label against it
+  built three times to find out which. Both the complaint and
+  `--check-fit`'s per-figure room line now spell `<labels> <axis> (<px> px)`.
+- **An edge's `side` is judged on the beats the arrow is on screen.** Only
+  the pair of words lying across the routed line can move a label, and the
+  check that said so ran on every beat whether the edge was drawn in it or
+  not – so an arrow revealed by the very step that levels its two ends was
+  refused `side top` for a state nobody ever sees it in. It is a post-pass
+  now, over the beats at which the edge is visible and carries a label. An
+  edge that really does change axis while visible is still warned about, by
+  beat, because the word acts on one press and not on the next. No drawing
+  moves: the geometry was already per beat, only the sentence about it was
+  not.
+- **A brace's label hangs from the edge that faces its bar.** A label block
+  is drawn centred on its origin, and a brace puts that origin a fixed 9 px
+  clear of the tick end – so a two-line label on `side bottom` hung half its
+  height back up and printed its first line across the bar, with nothing the
+  source could do about it, because `pad` moves the brace and carries the
+  label with it. The first line of a `bottom` label now sits where a one-line
+  label sat and the rest grow downwards; a `top` label is the mirror. `left`
+  and `right` keep the centring, because there the label runs away from the
+  bar along its own anchor, and so does a `.turn`ed label. The shift is the
+  block's height less that one line's, so **every one-line label in the
+  corpus is byte-identical** – `lectures/spoken-talk`'s board figure carried
+  a comment saying its label had to stay one line, and it no longer does.
+- **A figure is drawn on a canvas.** Every `::: draw` in a chunk's own body
+  gets a fixed box: the column wide, sixteen label-heights tall, labels at
+  body size. A drawing inside it is never scaled and its slide settles at
+  the zoom every other figure slide gets – one heading size, one figure box
+  across a deck, where a box sized from the drawing's own extent made
+  every figure slide settle at a zoom of its own. A drawing
+  wider or taller than the canvas is scaled to fit and warned
+  (`figure-overflows-canvas`, with the overshoot per axis); one using less
+  than half the area is warned (`figure-underfills-canvas`).
+  `::: draw frame WxH` and a `frame WxH` / `frame none` line in
+  `draw-defaults` are the deliberate exceptions; `lectures/diagrams` and
+  the figure manual decline the canvas because they are catalogues. The
+  editor draws the canvas as a dashed rectangle. `figure-type` says how
+  many labels the canvas holds, since the canvas is the column at the
+  label size it sets.
+  A stacked divider (`# Heading {.stack}`) is on a canvas too – `.full`
+  wide and 20 labels tall, the 0.72 of the slide its rule allows.
+- **A cover's figure is not in a text column, so it is not on a canvas.**
+  A `title:` or `closing:` chunk's body is placed by the cover composition –
+  `beside` and `above` hand it to the art panel `cover-ratio` divides the
+  frame with, `masthead` and `quote` set it as a field beside the title pair
+  – so the chunk canvas was several times too wide and far too short for it.
+  Measured on `lectures/python-intro`, whose four stacked boxes stand
+  comfortably in a 34% panel: the build reserved a `.standard` column sixteen
+  labels tall and warned `figure-overflows-canvas`, and the deck answered
+  with `frame none` and a comment. A cover figure now keeps the box that hugs
+  it, like a figure in a card, and the workaround is gone. Two smaller
+  disagreements went with it: a title or closing chunk is stored as `.full`
+  wide, which is what both renderers emit and what `lint.js` already
+  resolved, so `--check-fit` and the figure warnings stop naming two
+  different columns for one slide; and a cover is left out of `--check-fit`'s
+  body-type median in both directions, because the type on it is the
+  composition's and measuring it reported "#title settles at 23 px, 26% under
+  the deck – its figure is what took the slide down" about a slide nothing
+  took down.
+- **A gap is measured in labels, and its default clears an arrow.** The
+  default `gap` on a relational placement was 0.25 rows – on a keynote's
+  grid a head with no shaft, which is why no tracked deck had an unwritten
+  one. It is now one label-height unjoined and about 1.6 between two
+  elements an edge joins; a written gap keeps its meaning; an exposed run
+  under 1.5 labels warns `edge-short`.
+- **Peers share one size.** Boxes joined by `right of` / `left of` share
+  width and height, boxes joined by `below` / `above` share width, both
+  measured over every label a step will give a member, so a row comes out
+  level and a cell never overflows a later label. `row a, b, c gap 0.8`
+  and `col` say it in one line and level members against everything else
+  they stand in; a written `w`/`h` on one member is the chain's number;
+  `{.own}` ends a chain; `same w as` / `same h as` take one axis, on a
+  `zone` too. A table row's height follows its tallest cell. A written
+  `h` under its label and a written table `row` under the type's line warn.
+- **A box's padding is measured in its own type**, so a `.large` box does
+  not sit tight and a `.small` one does not float; a written `pad` stays a
+  grid number. **`gap 1.5lh` / `pad 0.6lh`** write a spacing in label
+  heights, the unit the rules are stated in. **`table b … same as a`**
+  copies another table's columns and spacing. **A whole line of a label in
+  `~…~` is a second register** – smaller and muted, so a question over a
+  verb is one text centred as one block. **`--check-fit` prints one line
+  per figure** with canvas, drawing and room per axis.
+- **A size from a `default` layer is a chain's floor, not a pin**: a
+  member is at least the layer's size and takes the chain's maximum where a
+  peer needs more, so a `default box h 2.5` no longer keeps a row from
+  levelling; a number on the element's own line still pins.
+- **A zone reserves a band, and what stands in it is placed there.**
+  `z.inner.left` … `z.inner.cy` name the band under the caption;
+  `box a "…" in z` (with `gap N` and `left | right | top | bottom |
+  center`) places an element in it, `row a, b, c in z center` a whole
+  run; a zone written without `w` or `h` wraps what is placed in it, from
+  beat 0; a child too large for a written band warns, and a text hung off
+  a container member that lands inside the container's outline warns.
+- **A picture slide opens centred.** A chunk whose body is one drawing or
+  one image and nothing else, or a `statement:`, frames what it paints:
+  the camera centres what the beat on screen paints rather than the box the
+  reveals will fill, so a short first beat sits in the middle of the frame,
+  at the cost of a camera glide per press. Every other chunk keeps its head
+  at the top. `{.middle}` and `{.top}` on a chunk override that in either
+  direction; a `::: footnote`, `::: marginalia` or `::: expand` does not
+  count against the shape. A stacked divider keeps
+  its heading as a heading. A `statement:` paragraph set entirely in
+  italic is the quiet line. `hyphenate: all` leaves centred prose,
+  dividers and address-like tokens alone.
+- **A relabelled text keeps the edge its placement pinned.** A free text's
+  width is an estimate, and its words used to be centred on the estimated
+  box, so a `label` step that swapped in a longer string moved the words
+  although nothing in the source moved them. The placement's held side
+  (`anchor tl`, `right of`, `flush left`, `align x left`) is now the edge
+  the words hang from. `.turn` joins the anchors a `style` step may not
+  change.
+- **A table's columns take their alignment from a tag default**:
+  `default box @t-col-0 {.left}` ranges one column and leaves the others
+  centred; the alignment belongs on the columns that differ, never on the
+  table line, because a tail lands on every cell as its own class.
+- **An elbow's arrival run is long enough to read.** The rail sits halfway
+  across a roomy gap and slides toward the source in a tight one so the
+  run after it is a label-height plus the head; where the gap cannot give
+  both runs, `edge-short` names it.
+- **The dash patterns are multiples of the line they pattern**: `.dashed`
+  is 2.2 line-widths of ink to 1.5 of paper (half the old period, so a
+  dashed box stops out-shouting a solid one), and `.dotted` is a disc a
+  line-width across every 2.5 – it reads as dots for the first time.
+- **A muted dot is a plain dot in the muted ink.** `.muted` thins a line
+  to 1.05 and `.dotted` draws a disc one line-width across, so the pair drew
+  dots of about 1.9 px on a slide – anti-aliased below their own colour
+  (2.56:1 at the darkest pixel on the light themes, where a solid muted line
+  reaches 2.76) and carrying a quarter of a muted line's ink or less on all
+  seven themes. The pair is now floored at the plain weight, 1.4, with the
+  gap stated against the floor, so it is `.dotted`'s pattern in `.muted`'s
+  ink; a `.thick` or `.emph` line keeps its 2.6. A `plot`'s grid is this
+  pair, written by the compiler, so every grid reads again. No SVG byte
+  moves; the 79 strokes in `diagrams`, `tutorial` and `network-security`
+  that carry the pair are the only computed styles that change.
+- **`.left` / `.right` on a free text at a coordinate anchors it on that
+  edge.** It used to centre the block on the point and the author wrote
+  `anchor left` 37 times in one deck. A block that means the centring says
+  `anchor center`.
+- **The ink edge is what a reader can see.** `blocks: left` aligns a figure
+  by its leftmost painted element, skipping frames that draw neither
+  outline nor fill (a `.bare .clear` table), and `flush left` on a relative
+  placement aligns ink to ink the same way.
+- **`.muted` and `.dim` keep their contrast on a toned ground**: a muted
+  word is mixed against the ink rather than a fixed token, and a dim
+  element's ink alpha is separated from its ground alpha. Measured 4.1:1
+  or better for dim labels on every tone.
+- **A zone's caption is inset by a third of a row** (`zone … pad n` sets
+  it), at the foot as at the head.
+- **An edge label its own line runs through gets a paper halo.**
+- **A `::: footnote` never hyphenates on the projection** and wraps
+  `pretty`, or `balance` on a `.center` chunk; print keeps its hyphens.
+- **An elbow rail running along the side of a box** is a compiler warning
+  naming the fix. `edge 0,1.5 -> box`, an edge from a free coordinate, is documented –
+  it always worked and no document said so.
+- `--check-fit` measures what the camera framed (a `.middle` chunk no
+  longer reports a phantom overflow) and reports each figure's canvas fill.
+
+- **A `question:` chunk is no longer centred on the projection.** It was the
+  one chunk type whose treatment set an alignment axis, and the axis reached
+  half the slide: `.chunk-body` resets to left, so a question with a paragraph
+  under it drew a centred heading over left-aligned prose, and the printed
+  document never centred it at all, so the two views disagreed. The heading now
+  sits where every other type's does. Where the axis is wanted, `{.center}` on
+  the chunk sets its own paragraphs on a centre line, and
+  `style: {headings: center}` sets every heading in the deck – which is the same
+  split the format already makes everywhere else: centring reads well for one
+  or two lines and badly for a paragraph, and only the author knows which chunk
+  is which. A deck that wants exactly the old look writes
+  `style: {headings: center}`. Nothing about the source format changes, and no
+  deck stops building; a question slide with prose on it comes out on one axis
+  instead of two.
+
+- **The `::: draw` opener has no braces: `::: draw 150x56 autoplay 1200 cycle`.**
+  It was the one block line whose tail held `key=value` options
+  (`{unit=150x56 autoplay=1200 cycle}`) where every other `{…}` in the format
+  holds sigil tokens – `.word`, `#word`, and inside a draw body `@word` and
+  `!word`. Now the grid is positional, as the ratio is on `::: side 2:1`,
+  and playback is two keywords after it. The old form is refused with the new
+  spelling of that very line in the message; `tools/migrate-draw-opener.mjs`
+  rewrites a whole repository (`--check` reports without writing). The
+  opener's `{#id}` is gone with the braces – it was stored and used for
+  nothing but the compiler's error prefix, which now names the chunk, or for a
+  divider figure the column, instead of "a chunk with no id". The compiler is
+  handed `unit=WxH` alone and refuses anything else; `DG_HOST_OPTS` no
+  longer exists. The figure's source payload carries the whole opener as one
+  formatted line, which is what the editor's clipboard tier writes – it used
+  to rebuild the opener from the compiler's attributes and so dropped
+  `autoplay` and `cycle` on every copy.
+- **One `{…}` tail parser for build.js and lint.js**, in the new zero-dependency
+  `tails.mjs`, together with the slot tables that were declared in both
+  files. A word from no slot is `unknown-class` on every tail (it was
+  `unknown-width` on a heading and `bad-side-class`, `bad-cards-class`,
+  `bad-rows-class`, `bad-overlay-class`, `bad-backdrop-class` on the
+  directives); two words from one slot are `same-slot`; a token without its
+  sigil, an `#id` on a directive, or an empty `{}` is `stray-attribute`. The
+  directive is named in the message, never in the code. Inside a draw body
+  `bad-diagram-attribute` is split into what it meant: `name-in-tail`,
+  `empty-tag`, `stray-attribute`, `duplicate-removal` and the previously
+  missing `conflicting-class`. No lecture ignored any of the old codes.
+- **A written default is now known to be written.** `::: rows` anchors
+  `middle` unless the author wrote an anchor, and a scrim with no photo is
+  refused even when the scrim word is the default – both used to re-split the
+  raw tail by hand; the parser's `written` flag answers them.
+- **A directive line the build cannot read is refused, never left as
+  prose.** `::: backdrop {.blur}` (no picture), `::: cols 4` and
+  `::: overlay {.ink} junk` printed themselves on the slide with exit 0
+  while `lint.js` refused them; the build now says which line it could not
+  read and what the directive takes, the guard `::: side`, `::: cards` and
+  `::: rows` already had. `lint.js` gains `bad-cols` and `bad-overlay`. `autoplay N` on a figure
+  with no `step` block is refused in both files – it was a number the
+  drawing ignored. A source with Windows line endings used to build to a
+  deck with no chunks and exit 0, because every matcher anchors on `$`;
+  build and lint normalise to LF on read, and the watch server splices an
+  editor patch in the same coordinates.
+- **Two new gates.** `tails` holds the shared parser to its contract without a
+  build; `legacy-draw-syntax` keeps the old opener out of every `source.md`
+  and inventories every other survivor against a reviewed allowlist. The
+  corpus gate now asserts how many blocks each file holds, and covers
+  `lectures/decoration/` too.
+- **`--watch` watches the folder and filters on the file name.** An editor
+  that saves atomically – vim, gedit, VS Code by default – writes a temporary
+  file and renames it over the original, which gives the name a new inode. On
+  Linux inotify follows the inode, so a watch on `source.md` itself went quiet
+  after the first such save and every later one built nothing. A directory
+  watch survives the rename. The 80 ms debounce and the one rebuild per save
+  are unchanged, and an event for any other name in the folder is ignored.
+- **A build renders all four views before it writes any of them.** The
+  pre-flights refuse what can be seen before a renderer runs, but a defect
+  that only one renderer trips over used to leave two new files and two old
+  ones side by side – a projection that had moved on from its handout, with
+  nothing on disk saying so. Now either all four files are the new build or
+  none of them is, and a failed rebuild leaves the last good one whole.
+- **`ws` is a dependency, not a devDependency.** `--watch` is a documented
+  command and loads `ws` through `import('ws')`, so an installation made with
+  `npm ci --omit=dev` – which is what a packaged copy of the engine gets – had
+  everything it needed except the one module the watch server starts with.
+
+- **Breaking: every setting in a `{…}` tail is written with its dot, and the parsers
   refuse anything else.** `::: cards`, `::: rows`, `::: overlay`, `::: backdrop`
   and `::: side` accepted `{outline middle}` and `{.outline .middle}` alike –
   the dot was stripped – while a chunk heading and a `::: draw` box took the
@@ -1968,7 +2974,7 @@ from building the same way is a major version.
   promoted bullets then weigh 600 like its other bolds rather than the old
   fixed 500.
 
-- **Slide numbers are now drawn in a row by default, where they used to be
+- **Breaking: slide numbers are now drawn in a row by default, where they used to be
   stacked.** This one moves what an existing deck renders: `slide-numbers` is
   a viewer default, so every lecture that does not set the key changes from
   the stacked markers to the horizontal ones. Nothing stops building and no
@@ -2207,9 +3213,10 @@ from building the same way is a major version.
   it is the chunk's own heading, so leaving it out of the source leaves it off
   the slide, at the cost of the TOC entry and the search text.
 
-- **Four more covers, and two of them draw.** `stack` centres the title block
-  on both axes, `rule` holds it between two hairlines - both for the talk that
-  wants a quiet opening rather than an asymmetric one. `beside` and `above`
+- **Three more covers, and two of them draw.** `stack` centres the title
+  block on both axes, for the talk that wants a quiet opening rather than an
+  asymmetric one (a `rule` variant beside it was withdrawn – see *Removed*).
+  `beside` and `above`
   take their art from the **title chunk's own body**, which is what lets a
   `::: draw` be the cover: a diagram is not a file, so `cover-image` could
   never name one. `beside` insets the art beside the title and `above` puts it
@@ -2792,8 +3799,10 @@ from building the same way is a major version.
   Inside a label, `_sub` / `^sup` shift a run and `*accent*` / `~muted~`
   colour one. Free `text` honours `.left` / `.right`, and its anchor
   moves with them. A diagram is click-to-zoom like any other figure, and
-  keeps stepping while focused. How large it lands is the chunk's width
-  class; `unit` sets only the proportions inside the picture.
+  keeps stepping while focused. How large it lands is decided by its type –
+  labels at the size of the words beside them, on a canvas the chunk's
+  column wide (see *A figure is drawn on a canvas*); `unit` sets only
+  the proportions inside the picture.
 
   Fixed before it ever shipped, from a review of the branch: a `label`
   step never switched variants live (the runtime looked labels up by the
@@ -2907,9 +3916,10 @@ from building the same way is a major version.
   The canvas is a **frame**, not a canvas size: the chunk's own width class
   on a slide, one pane of a `::: side` at that class, or the print measure
   where the height cap does not apply. Switching between them changes nothing
-  in the source. It says out loud two things that are otherwise invisible
-  until you look at the built page – the measure the figure lands in, and how
-  much of it stays empty when the 62vh cap binds first.
+  in the source. It says out loud what is otherwise invisible until you look
+  at the built page – the measure the figure lands in, how large its labels
+  land there against the body type, which cap decides its width, and how much
+  of the slide's canvas it fills, which it also draws as a dashed rectangle.
 
   Because a figure here is held together by *relations* rather than
   coordinates, and that structure is completely invisible in the picture, the
@@ -2988,9 +3998,8 @@ from building the same way is a major version.
   when there is none left, move to the next chunk – across column boundaries,
   so a whole lecture is one key. `↑`, `PageUp` and `Backspace` are the exact
   mirror: **they take a reveal back**, and only leave the chunk once it is at
-  its opening state. `→` / `←` are that same pair *except on the first chunk
-  of a column*, where they change column – the only chunk where a second
-  dimension exists to move in.
+  its opening state. `→` / `←` are that same pair, and with `Shift` they
+  change column (see *The sideways arrows now mean one thing*).
 
   Reveal used to be forward-only, on the reasoning that a revisited slide
   should simply show everything. That is still what happens when you arrive
@@ -3002,8 +4011,7 @@ from building the same way is a major version.
   Presenter remotes work now – `PageUp`/`PageDown` were unbound, so a
   clicker's back button did nothing at all.
 
-  Two marks at the edge of the viewport say which situation the current slide
-  is in: `‹ ›` where sideways changes column, `⌄` where forward will leave the
+  A mark at the foot of the viewport, `⌄`, says where forward will leave the
   column next. Quiet enough for a projection, absent on the overview board and
   behind a blanked screen.
 
@@ -3021,6 +4029,21 @@ from building the same way is a major version.
   in `lectures/diagrams` now land exactly on the margin on both sides; what is
   left is the generosity of the text-width estimate, which is about
   11% on the bundled faces and never clips.
+- **The desktop builder ships on the engine's release, at the engine's
+  version.** Up to 2.0.0 it had a 0.x version of its own and went out as a
+  pre-release under a `builder-<version>` tag. From 2.0.0
+  `desktop/package.json` carries the engine's version, and a `v*` tag builds
+  the three platforms' packages with the same jobs that test the app on every
+  push and attaches them to the release beside `psi-slides.tar.gz` and
+  `psi-slides.zip`, whose names do not change. The release is published by
+  one job that needs both halves, so a failure on either side publishes
+  nothing rather than an engine without its app; the job also refuses a tag
+  that `desktop/package.json` disagrees with. `desktop-release.yml` and the
+  `builder-*` tags are retired; a package between two releases is the
+  artefact of a `desktop.yml` run. The macOS package CI attaches is still
+  unsigned until the signed and notarised one is uploaded over it, and the
+  Windows and Linux packages are still experimental; the release notes say
+  both.
 
 ### Removed
 
@@ -3039,6 +4062,313 @@ from building the same way is a major version.
   unreleased, so this is not a source-format break.
 
 ### Fixed
+
+- **The release job can publish 2.0.0.** Two things would have failed it.
+  The tracked views of `lectures/diagrams` inline a PNG, which a build turns
+  into WebP with whatever `cwebp` or `magick` the machine has; the runner has
+  neither, so its rebuild never matched the committed bytes. The three
+  tracked lectures are now built with `--no-optimize-images`, through one
+  command for the maintainer and for `release.yml` alike, `npm run
+  build:tracked`, and a stale view fails with that command in the message.
+  And the release body was the whole changelog section, over twice the
+  125,000 characters GitHub accepts. The section now opens with a
+  `### Breaking` list and a `### Highlights` list, the body is those two plus
+  a link to `CHANGELOG.md` at the tag, and its size is checked right after
+  checkout, before anything is built.
+- **`npm test` no longer leaves the tracked views modified.** The browser
+  suite builds `lectures/tutorial` and `lectures/diagrams` in place, and with
+  the default flags a machine with `cwebp` or `magick` re-encoded their
+  inlined PNG as WebP, so every test run left the four diagrams views
+  changed. It now builds with `--no-optimize-images`, as `npm run
+  build:tracked` does, and the views come out the bytes that are committed.
+- **The desktop builder no longer exports a PDF a save behind.** With
+  auto-build turned off, a save, auto-build turned back on (which builds
+  nothing) and an export, the PDF was printed from the build before the
+  save. The export now builds first whenever a save has not been built,
+  whatever the switch says at that moment.
+- **A link the slide PDF cannot follow no longer stops or corrupts it.** A
+  link to `#50%`, which is not valid percent-encoding, ended
+  `--slides-pdf` (and the app's slide export) with an error, and a link to
+  `#constructor` pointed at a page named after the text of a JavaScript
+  function. Both are now reported as links that go nowhere and printed as
+  text, as any other such link is.
+- **Two lectures in folders of the same name keep their highlights apart.**
+  The reader's highlights were kept in the browser under the lecture
+  folder's name alone, and a browser that keeps one store for every page
+  opened from disk gave two `week1/` lectures of two courses one store. The
+  name of the folder above now goes into the key, as a hash, so the
+  document does not name it. Highlights made before are carried across the
+  first time a document is opened, each lecture taking those on its own
+  slides; it took the whole old store, so two `week1/` lectures each
+  listed the other's highlights as not found. A lecture moved under
+  another folder starts its readers with no highlights there; the export
+  carries them across. The figure edits a reader keeps in the diagram
+  editor are filed under the same key, which they shared the same way;
+  edits kept before are not carried across, as they never were.
+- **A highlights file someone sent can no longer stop the reader for good.**
+  An entry whose type was `constructor`, or whose block kind was
+  `__proto__`, was stored on import and then failed on every later load of
+  the document, so none of the lecture's highlights were shown again. Such
+  an entry, and one whose words, note, figure name or part name are not
+  text, is now refused and counted among the entries that could not be
+  read; an entry that still cannot be placed is listed as not found and the
+  rest are shown.
+- **`--prompter-replay` reads the hints the speaker sent away.** It skipped
+  the `dismiss` lines of the log, so a hint dismissed live still held the
+  one place on the strip in the replay, and every quieter hint after it was
+  reported as held back.
+- **The live prompter measures the clock against a part's own `@mm:ss`.** A
+  `> note:` under a `#` heading belongs to that part's divider slide, and the
+  cockpit counted its time mark; the prompter did not see the note at all, so
+  the drift it was told differed from the one on the cockpit's clock.
+- **A figure focused from the cockpit stays focused on the projection.** Any
+  key in the cockpit that sent a snapshot – a zoom, a theme – closed the
+  card on the projection alone, and the cockpit's `+`, `−` and `0` then went
+  nowhere. Only a slide change closes it now, as it does in the cockpit.
+- **A figure's `step` blocks inside a container held to a beat wait for
+  it.** In an `::: overlay … from N`, a `::: dock … from N` or a
+  `--- from N` segment they were counted in the slide's own order, so they
+  played while the card was still hidden. They now count from the
+  container's beat, interleaved with its `---` markers as written.
+- **Every way onto a slide lands the same way.** A figure with `autoplay`
+  never played when the cockpit drove the projection onto it; it now starts
+  wherever a slide is arrived at, and a press in the cockpit takes it over as
+  a key on the projection does. Leaving the overview onto a slide (`O`,
+  `Enter`, a click on the board, `G`) skipped auto-fit, the closing of an open
+  expansion and autoplay; it now goes through the same jump as an arrow key.
+  Under `transition: fade` a second press within the dip read the slide being
+  left, so two forward presses moved one slide and forward then back moved
+  two back; a press now acts on the slide being arrived at – and so do
+  `Shift`-arrows, a click in the contents, the scrubber or the preview
+  strip, a search hit, `G` and an address. An `autoplay` figure kept its
+  clock through the dip, and a tick there, on a slide the cockpit had just
+  left, put the cockpit back on it while the projection went on; the clock
+  now stops as the slide change starts.
+- **A second `S` on the projection brings the cockpit forward instead of
+  reloading it.** `window.open` with the address re-navigated the open
+  cockpit, which lost its freeze, its clock and its cue cursor. From
+  `file://`, where one page cannot read another's address, the window it
+  finds is asked which deck it shows, and only this deck's cockpit is kept;
+  a tab that had gone from one deck's projection to another's used to drive
+  the first deck's cockpit. Messages between the two windows now carry the
+  deck, and a window of another deck is not listened to.
+- **A frozen cockpit stays where the lecturer took it.** Every snapshot from
+  the projection used to be applied in full, so an `autoplay` tick there, or
+  `B` pressed on its keyboard, dragged the look-ahead back to the room's
+  slide and overwrote its reveals and annotation drafts. Frozen, the cockpit
+  now takes only the blank and the projection's size, ignores the
+  projection's drag-pan, and sends no laser pointer. A projection reloaded
+  under a freeze booted onto the cockpit's look-ahead, because both windows
+  share the stored position; the cockpit no longer writes it while frozen,
+  and thawing does. Thawing also hands over the focus card and a brought-in
+  aside – open, closed, and at the cockpit's zoom – which a frozen cockpit
+  did not send: a card closed while frozen stayed on the projection.
+- **The linter reports what the build refuses in the frontmatter.** A
+  byte-order mark before the opening `---` and a closing `--- ` with a
+  trailing blank hid the whole block from it; a value on the line under its
+  key, a quoted key, a block scalar and a flow map over two lines hid one
+  value. `cover: split` and `cover: hero` without a `cover-image`,
+  `cover: beside` and `above` with neither a picture nor a title-chunk body,
+  `cover-align` on a cover that places its type itself, `lang: 123`,
+  `cover-ground` and `closing-credits` out of their lists, a single value
+  where `style:`, `labels:` or `draw-defaults:` takes a block, and a
+  `prompter:` number out of its bounds all built nothing and linted clean.
+  The other way round, `auto-fit: True` (YAML's spelling of `true`) and
+  `theme: >-` were refused by the linter and accepted by the build. New
+  codes: `bad-lang`, `bad-cover-align`, `bad-frontmatter`. And a title chunk
+  whose only body is a speaker note running over several lines, a
+  `::: footnote` or a `::: expand` is no body to the linter either, under
+  `cover: quote` as under `beside` and `above`: it counted their words as
+  the claim and passed a deck the build refused.
+- **A frontmatter block YAML cannot read stops the build with its line.**
+  `title: Security: an intro` and a key written twice ended in a
+  `YAMLException` stack trace; the message now names the line and says to
+  quote the value or drop the second key. The linter reports both as
+  `bad-frontmatter`.
+- **A clip named by its path is staged into `videos/` like a shorthand
+  one.** One over the 12 MB cap kept the path it was written with, while
+  the build reported it as staged. A deck whose only media are clips counted
+  as a deck with nothing to inline, turned inlining off and staged a 20 KB
+  clip as “too large to inline (0.0 MB)”; it now inlines what fits, and with
+  inlining off the line says that is why. What fits is measured against the
+  10 MB auto-inline budget the pictures are held to, which the clips share:
+  each clip was inlined up to its own 12 MB cap with no total, so three 8 MB
+  clips wrote about 32 MB into every view; a clip that does not fit what the
+  pictures leave now plays from `videos/`, and `--inline-images` still
+  inlines each one up to the cap. And two clips with one file name –
+  `a/intro.mp4` and `b/intro.mp4`, or `![](intro)` and
+  `../shared/intro.mp4` – were both staged as `videos/intro.mp4`, so one
+  slide played the other's clip; each now gets a short hash of its path in
+  its name, the same on every build.
+- **The linter's `oversized-asset` warning says the build refuses the
+  deck.** It said the picture would stay an external path, which stopped
+  being true when the cap became a build failure.
+- **`--serve` answers `Range: bytes=-500` with the last 500 bytes**, not the
+  first 501, and serves a picture, clip or font the deck reads from the
+  folder one level up (`../shared/logo.png`, asked for as
+  `/shared/logo.png`), which was a 404 under `--no-inline-images`.
+
+- **`--integrate-annotations` deleted every slide after a pasted snippet
+  whose end marker was missing.** A `<!-- annotations:start -->` with no
+  `<!-- annotations:end -->` after it was read as a block running to the end
+  of the file, and the block is removed from `source.md`, so the lecture
+  below it went with it. It is now refused, exit 1, with `source.md`
+  untouched and a message saying where the end marker goes.
+- **`--optimize-images` turned two pictures with one name into one.**
+  `logo.png` and `logo.jpg` both became `logo.webp`, the second overwriting
+  the first, and both originals were deleted; a `logo.webp` the lecture
+  showed as a picture of its own was overwritten by the converted
+  `logo.png`; and a shorthand `![](logo)` that found the PNG found the JPEG
+  once the PNG was gone. A picture with another picture or clip of the same
+  name beside it is now skipped before anything is encoded, and its row in
+  the report names the file in the way. Every other picture is converted as
+  before.
+- **`--watch` kept showing the old pixels of a picture replaced under the
+  same name** – by hand, or by the diagram editor's upload with `replace` –
+  for as long as the watch ran, because the WebP that PNG and JPEG are
+  inlined as was cached by path. The cache now also checks the file's
+  bytes, so an unchanged picture is still encoded once a session.
+
+- **The diagram editor's structured edits do what they say, and only when
+  they did it.** The defects from the reviews before 2.0.0, each reproduced
+  by driving `editor.mjs` against the compiler and now held by a gate of its
+  own (`node test/gates/run.mjs editor`):
+
+  - *Renaming* an element moved only what it named. Renaming `a` to `c` used
+    to rewrite `emph a-b-0` – a column of a sibling `bars a-b` – to
+    `emph c-b-0`, rename a step called `a` along with it, and turn the width
+    keyword in `w 2` into `c 2`, so an element called `w`, `at` or `left`
+    could not be renamed at all. A generated name now follows only the
+    statement that generated it, a step's name is never an element's, a
+    port (`a.left`) is never the name, and a word that spells the name is
+    checked against the parser, in source order, before it is rewritten – so
+    an actor or a chart called `at` is renamed in the message or the `series
+    of` that names it. Where no rewrite can be shown safe the rename is
+    refused; it no longer falls back to rewriting the keyword too.
+  - *Resizing* a box written `same w as a` (or `same h as a`) was always
+    refused: the span table took the `w` of `same w as` for the width keyword
+    and handed the drag the token `as` to overwrite. The drag now drops the
+    relation for the axis it moves and writes the number, the way it already
+    did for `same as` – and a `w` after an element called `same` is still the
+    width.
+  - *Paste in place* of a copy holding the figure's first element pasted an
+    element with no placement and was refused; it now gets the `at` it was
+    drawn at.
+  - *Delete, paste and adding a step op* said "deleted", "pasted" and
+    "written" after the edit had been refused and rolled back.
+  - *Deleting* an element with a chain of dependents – `b right of a`,
+    `c right of b` – was always refused, because only direct dependents went
+    with it. Whatever goes is now asked in turn what names it, coordinate
+    endpoints, waypoints, a step's `move … to` and generated tags such as
+    `@t-row-1` included. A member list (`over a,b,d`, `align`, a step's
+    `show a, b`) loses the member and keeps its line unless too few are
+    left; an actor goes with its messages; and the messages after a deleted
+    one, named by their place, are renumbered in every line that names
+    them rather than handing `s-1` to the next message along. The
+    confirmation says what goes, what only loses a member and what moves.
+  - *A `table` or a `sequence`* was handled by its first line: deleting a
+    table was refused, duplicating one dropped its rows, and a sequence could
+    be neither duplicated nor pasted. The compiler records where such a
+    statement ends (`endLine`), and delete, duplicate, copy and paste take the
+    whole statement – a sequence's actors renamed with it. Duplicating a
+    table cell, a lane or a lifeline duplicates the statement that drew it,
+    and an actor, a message or a note is copied into the run after itself.
+  - *Pasting into another figure* could write one name twice: a clipboard
+    holding `a` and `a2`, pasted where `a` exists, renamed `a` to `a2`. A
+    fresh name is now fresh from the other pasted names too, and a generated
+    name on the clipboard (`t-0-0`, a message's `s-1`) follows its renamed
+    maker (`t2-0-0`, `s2-1`).
+
+- **A reader's kept figure edits are filed per lecture.** The editor kept them
+  in `localStorage` under the chunk id alone, and Chrome gives every page
+  opened from `file://` one store – so an edit to `#fig` in one lecture was
+  drawn in another lecture's `#fig`. The key is now
+  `psi-diagram:v1:<source folder>:<chunk>#<n>`, the folder name the reader's
+  highlights are filed under. Edits kept under the old key are not read,
+  because nothing in that key says which lecture wrote them.
+
+- **A `::: draw` grid with an enormous side is refused rather than crashing
+  the build.** `::: draw 1000000000000000000000x5` passed the opener check,
+  and the canonical opener formatted from it read `1e+21x5`, failed its own
+  check and threw with a stack; `lint.js` passed the line. A grid side is now
+  1 to 2000 px, refused as `bad-unit` by the build and the linter alike.
+
+- **A name a chart generates that collides with an element is reported once.**
+  `box a-0` beside `bars a … right of a-0` reported the duplicate name and a
+  placement cycle `a-0 → a → a-0` the author never wrote; the cycle through a
+  name two elements answer to is now left to the duplicate's message.
+
+- **Nothing held `KNOWN_FRONTMATTER_KEYS` against what `build.js` reads, and
+  the shape of that failure is a false warning on a valid deck.** The list is
+  `lint.js`'s closed set of top-level frontmatter keys some renderer reads;
+  anything else earns `unknown-frontmatter-key`, and exit 2 under `--strict`.
+  A key the build reads and validates in its own pre-flight, missing from the
+  list, is therefore the linter refusing a correct deck. It happened rather
+  than being imagined: one branch added two top-level keys while another
+  added the warning, the two edits never touch as text, git merged both
+  cleanly, and it was found by building a deck that used both – not by any
+  test. `node test/gates/run.mjs frontmatter` now holds the two files
+  together, in milliseconds, where `gates.yml` runs it on push and PR, which
+  is where a merge happens.
+
+  The scan is the work, not the comparison. `build.js` reads a key three
+  structurally different ways – `frontmatter.cover`, `frontmatter['cover-image']`,
+  and `frontmatter[fmKey]` inside `viewDefaults()`'s loop – and the third is a
+  *computed* read, so no grep at the read site can ever see those seven names.
+  A fourth path is not a read at all: the cover spreads the whole block into
+  `renderTitleBlock`'s destructured parameter list, the only place `subtitle`
+  is named. The check the list's own comment used to recommend finds 23 of the
+  31 and would report a correct `build.js` as carrying a dead key; that comment
+  now points at the gate instead. The gate asserts the size of what it found
+  before comparing anything, because a scan that silently finds nothing passes
+  every comparison and guards nothing – and it earned that on its first run,
+  reporting `bodyHtml` as a frontmatter key because the call site writes that
+  argument in shorthand. The milder direction, a key the linter knows and no
+  renderer reads, is asserted too, with an allowlist that is empty today: a
+  key read by a tool rather than a renderer widens the list's own definition,
+  which is a decision worth making in one place with a reason attached.
+
+- **The packaged desktop builder staged an engine that could not build**
+  (builder 0.1.2).
+  `build.js` reads four files relative to itself at run time, and
+  `cue-cards.mjs` – the note-to-cards grammar the cockpit is spliced from –
+  was not on the hand-written list in `desktop/scripts/stage-engine.mjs`. The
+  read is unconditional, inside `renderSpeaker`, with a bare `readFileSync`
+  and no fallback, so the packaged app did not ship three good views and a
+  broken cockpit: it threw `ENOENT` inside the render map before any view
+  reached disk, and **every build in builder 0.1.0 and 0.1.1 failed** with a
+  stack trace. Adding the one name is the whole fix.
+
+  What let it happen is the shape, not the name. `tails.mjs` is missing from
+  a staged engine in exactly the same way and is safe for a reason that does
+  not generalise – it is a static `import`, so its absence fails at module
+  load, loudly, on the first run of anything. A lazy `readFileSync` five
+  thousand lines into a renderer fails only on a real build of a real deck,
+  which `desktop/test/` never did. `desktop/test/stage-engine.test.mjs` now
+  reads both files as text and holds every `new URL('./x', import.meta.url)`
+  and every relative `import` in `build.js` against `FILES`, in both
+  directions; it asserts the count of run-time reads before their membership,
+  because a scan that silently finds nothing passes every comparison and
+  guards nothing.
+
+  `FILES` turned out to be the second of *three* hand-written copies of that
+  list, not the second of two. `desktop.yml` is path-filtered on the engine
+  files by hand as well, and `cue-cards.mjs` was on none of the three – so a
+  commit touching only that file ran no desktop job at all. The packaging
+  script and the workflow that would have exercised it were blind to the same
+  file for the same reason, which is the other half of why this shipped
+  twice. The filter now names every file the app stages, `LICENSE` included,
+  and the test holds it against `FILES` exactly: a matrix run on a licence
+  edit is the price of a rule with no exceptions, and that file changes about
+  never.
+
+- **The packaged engine catches up with running-text code** (builder 0.1.3).
+  A re-stage rather than a defect: the app had not shipped since `style:
+  {code}` landed on main, so a lecture built through the window still got the
+  flat `0.92em` span the engine no longer draws by default. The staged
+  engine now carries the spacing and the x-height sizing against the prose
+  face, so the window and the CLI build the same running text from the same
+  source.
 
 - **A figure in a printed document can no longer be taller than the page.**
   The two documents answered how *wide* a figure may be – the measure – and
@@ -3146,7 +4476,9 @@ from building the same way is a major version.
   Multiplying the first by `--dg-fig-size` gives the width at which a base
   label lands at exactly that size; the second turns the height budget into a
   width so a tall figure shrinks proportionally instead of sitting letterboxed.
-  Both are inert unless a rule reads them, and only `PRINT_CSS` does. The box
+  Both are inert unless a rule reads them; `PRINT_CSS` was the first reader,
+  and the live views read them too since figure labels there are set at
+  body type. The box
   now hugs the drawing rather than spanning the measure, which is also what
   finally lets `style: {blocks}` reach a diagram – it was the one figure kind
   that could not honour the key, because its box was always full width.
@@ -3482,7 +4814,7 @@ from building the same way is a major version.
   chunk, with nothing on either screen saying so.
 
   In **both** modes the camera held still while the chunk grew downwards. A
-  hidden segment takes no space, so a chunk already taller than the frame put
+  hidden segment took no space then, so a chunk already taller than the frame put
   each new segment further below the bottom edge – on the tutorial's own
   reveal chunk the third beat landed 430px below a 900px viewport. The
   lecturer pressed forward and the room saw nothing change. A chunk taller
@@ -3934,5 +5266,6 @@ Read [When *not* to use this](README.md#when-not-to-use-this) and
 [the comparison](docs/comparison.md) before committing a semester to it.
 There is no test suite, one author, and the format is still moving.
 
-[Unreleased]: https://github.com/UBA-PSI/psi-slides/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/UBA-PSI/psi-slides/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/UBA-PSI/psi-slides/releases/tag/v2.0.0
 [1.0.0]: https://github.com/UBA-PSI/psi-slides/releases/tag/v1.0.0

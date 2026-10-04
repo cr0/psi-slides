@@ -47,6 +47,11 @@ function classifyLine(line) {
   return { kind: 'log', line };
 }
 
+function loopbackServeUrl(url) {
+  return typeof url === 'string'
+    && /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]):\d{1,5}$/.test(url) ? url : null;
+}
+
 function initialState() {
   return {
     phase: 'closed',
@@ -79,15 +84,21 @@ function initialState() {
 function reduceState(state, event, now = Date.now()) {
   switch (event.type) {
     case 'watching':
+      // The app chose the source and set it in open(); an event names one
+      // only for a state that has none. The two things done with it are
+      // shell.openPath and the folder the views are opened from, so a line
+      // that only looks like an event must not be able to move them.
       return {
         ...state,
-        source: event.source || state.source,
-        dir: event.dir || state.dir,
-        name: event.dir ? path.basename(event.dir) : state.name,
+        source: state.source || event.source || null,
+        dir: state.dir || event.dir || null,
+        name: state.dir ? state.name : (event.dir ? path.basename(event.dir) : state.name),
         auto: typeof event.auto === 'boolean' ? event.auto : state.auto,
       };
     case 'serving':
-      return { ...state, serve: { enabled: true, url: event.url || null } };
+      // The views are opened at this address, so it is taken only when it is
+      // what --serve binds: http on loopback, a port and nothing else.
+      return { ...state, serve: { enabled: true, url: loopbackServeUrl(event.url) } };
     case 'build-start':
       return { ...state, phase: 'building' };
     case 'build-success':
@@ -169,6 +180,24 @@ class Builder {
     this.desiredAuto = true;
     this.outBuf = '';
     this.errBuf = '';
+    // Whoever needs the next event rather than the next state – the PDF
+    // export, which waits for the build it asked for. Called after the state
+    // has taken the event.
+    this.listeners = new Set();
+  }
+
+  // Returns the unsubscribe. A listener sees every event of every child,
+  // plus one of its own, `process-exit`, when a child ends that nobody
+  // asked to end.
+  onEvent(fn) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  notify(event) {
+    for (const fn of [...this.listeners]) {
+      try { fn(event, this.state); } catch { /* a listener's fault is its own */ }
+    }
   }
 
   getState() {
@@ -206,6 +235,7 @@ class Builder {
         if (c.event.type === 'watching' && this.desiredAuto === false) {
           this.send({ type: 'auto', enabled: false });
         }
+        this.notify(c.event);
       } else if (line.length) {
         this.addLog(line);
       }
@@ -273,6 +303,7 @@ class Builder {
         userFacing: false, stack: null, at: Date.now(),
       } };
       this.emit();
+      this.notify({ type: 'process-exit', code: -1 });
     });
     child.on('exit', (code, signal) => {
       if (this.child !== child) return;
@@ -287,6 +318,7 @@ class Builder {
         userFacing: false, stack: null, at: Date.now(),
       } };
       this.emit();
+      this.notify({ type: 'process-exit', code: code === null ? signal : code });
     });
   }
 

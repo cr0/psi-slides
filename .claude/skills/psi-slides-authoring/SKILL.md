@@ -65,6 +65,16 @@ fonts**. A top-level key that is none of these is a lint warning
 (`unknown-frontmatter-key`) rather than a build failure, so a lecture keeps
 building, but nothing reads the key either.
 
+The block is YAML, opened by a bare `---` (`---yaml` is accepted too). Any
+other word after the opening dashes – `---js`, `---coffee`, `---json` – fails
+the build and lints as `frontmatter-language`: the parser underneath would run
+a `---js` block as a program on the machine that builds the deck.
+
+A block that is not valid YAML fails the build with the line it stopped on,
+and lints as `bad-frontmatter`. The two ways to write one by accident: a plain
+value with `: ` in it (`title: Security: an intro` – quote it,
+`title: "Security: an intro"`) and a key written twice.
+
 ### Columns
 
 `# Column Heading {#column-id}` starts a column, the top-level horizontal unit
@@ -79,19 +89,25 @@ of the live deck. A chunk may appear before the first `#`; that is how the
 
 - `type:` is optional. Without one the whole line is the heading and the chunk
   renders and lints as `free`. A lowercase `word:` prefix that is *not* one of
-  the ten types is an `unknown-type` error, not a silent heading.
+  the eleven types is an `unknown-type` error, not a silent heading.
 - `|` splits the heading into a main line and a typographically quieter second
   line. Further `|` segments are joined into that second line.
-- The attribute tail recognises a width class, `#id`, and six other classes.
-  Two are the chunk's own: `.bare` (keep the heading in the document and off
-  the projection) and `.center` (set this chunk's prose on a centre axis, on
-  the projection only). Four answer a `style:` key for this one chunk and are
-  spelled key-value: `.blocks-left` / `.blocks-center` (where a code block, a
+- The attribute tail recognises a width class, `#id`, and eight other classes.
+  Four are the chunk's own: `.bare` (keep the heading in the document and off
+  the projection), `.center` (set this chunk's heading, prose and footnotes
+  on a centre axis, on the projection only) and the pair `.middle` / `.top`
+  (keep what the slide paints at this beat on the frame's vertical middle,
+  or at the top of the space the whole chunk will fill). The pair has no
+  default: a slide that is one drawing and a `statement:` open centred, every
+  other chunk opens at the top, and each word overrides that for one slide.
+  Four answer a `style:` key for
+  this one chunk and are spelled key-value: `.blocks-left` / `.blocks-center` (where a code block, a
   figure and a display formula sit across the measure) and `.wrap-none` /
   `.wrap-balance` (whether this chunk's headings are balanced and its prose
-  gets a protected last line). Any other class is an `unknown class` error in
-  both the build and `lint.js` – it is not silently ignored. Do not invent
-  classes.
+  gets a protected last line). Eleven more answer `style: {figure-type}` for
+  this one chunk, `.figure-type-60` … `.figure-type-160` in steps of ten, on
+  the projection only. Any other class is an `unknown class` error in both the
+  build and `lint.js` – it is not silently ignored. Do not invent classes.
 - **One sigil rule for every `{…}` tail in the format**, on a heading, on a
   `:::` directive and inside a `::: draw` block: `.word` is a setting, `#word`
   an id, and inside a draw body also `@word` a group and `!word` a removal.
@@ -116,8 +132,13 @@ of the live deck. A chunk may appear before the first `#`; that is how the
   **IDs are frozen once authored**: they anchor cross-references, the TOC,
   speaker-sync snapshots, exported annotations, and `localStorage`. Renaming a
   heading is free; renaming an id is not.
+- **An id may not start with `psiINT-`** (capitals as written; `psiint-` and
+  `psi-` are yours). That range is the build's own – every piece of the
+  chrome, the generated figure ids – so a chunk can never be the same element
+  as the cockpit's clock or the contents list. Build and linter refuse it
+  alike, as `reserved-id`, on a `##` chunk and a `#` column heading.
 
-Types (ten, exhaustive) and what they mean in practice:
+Types (eleven, exhaustive) and what they mean in practice:
 
 | Type | Use for | Word budget the linter enforces |
 |---|---|---|
@@ -125,6 +146,7 @@ Types (ten, exhaustive) and what they mean in practice:
 | `closing` | the last slide, drawn in the cover's composition with its own heading and body | 60 |
 | `outline` | the running agenda – the lecture's parts, none live before the first one | 40 |
 | `principle` | a claim, thesis, rule, takeaway | 80 |
+| `statement` | a slide that is a few lines of large type and nothing else | 80 |
 | `question` | a posed question or framing problem | 80 |
 | `definition` | a precise concept or formal statement | 200 |
 | `example` | a concrete walkthrough or applied case | 250 |
@@ -132,7 +154,64 @@ Types (ten, exhaustive) and what they mean in practice:
 | `exercise` | a student task | 350 |
 | `figure` | an image- or diagram-led chunk | unlimited |
 
-When in doubt, `free`.
+When in doubt, `free`. And **a slide that is three lines of large type is a
+`statement:`, not cards** – that is the whole of why the type exists.
+
+`statement:` is the keynote slide the vocabulary had no word for. The heading
+is the first line and every top-level paragraph in the body is another line
+at the same size, the same weight and in the ink colour; there is no eyebrow
+and no rule, in either view. A `---` between two paragraphs makes them arrive
+one press apart, like any reveal segment. `{.center}` puts the run on a centre
+axis, and on this type alone it moves the heading with the lines, because here
+the heading is one of them. The collapse never abridges them: these paragraphs
+are the slide, so nothing is derived from a first sentence.
+
+```markdown
+## statement: Nicht der Knall. {.wide #schluss}
+
+Das Knirschen.
+
+---
+
+In keinem Diagramm steht, wozu das Ganze einmal da war.
+```
+
+**One paragraph in the run can be quiet, and italic is how you say so.** A
+paragraph written *entirely* in `*italic*` – the asterisks around the whole of
+it, nothing outside them – steps back on all three axes at once: half the size,
+the body weight, the softer ink. It is the line that is not the utterance: the
+definition a claim answers, the source under it, the qualification that arrives
+one press later. Print carries the same two ranks. Everything else about the
+chunk is unchanged, `---` between two paragraphs still being one press.
+
+```markdown
+## statement: Derselbe Umweg, der uns heute trägt, verbraucht das, was wir morgen bräuchten. {.wide #der-satz}
+
+*Resilient: heute weiterarbeiten können, ohne die Fähigkeit zu verbrauchen, morgen anders zu arbeiten.*
+```
+
+**Entirely is the word that matters.** A statement line with one emphasised
+word in it is a loud line with a stress mark, which is what `*em*` means
+everywhere else in the format, and it stays loud. Before this register existed,
+a thesis slide that wanted a quiet definition over a loud claim had to be a
+`::: draw` of two `text` elements – a drawing, and it paid a drawing's price.
+
+The two ways this used to be faked both cost something. `::: cards 1 {.large
+.clear}` puts the words in the accent colour, because a card's term is a bold
+and `style: {bold: …}` decides what a bold looks like, and sets them smaller
+than a chunk heading. A `::: draw` of `.large` text buys the size and pays a
+drawing's price: no wrapping, no hyphenation dictionary, nothing in the search
+index, and a fixed grid to keep in step with the words.
+
+**`figure:` turns the heading into a caption, so it is the wrong type for a
+slide whose title should carry.** The live views set a `figure:` heading small,
+in capitals, in the quiet ink – a label for the artwork, not a line the room
+reads first – and a `::: footnote` on such a chunk sits under the picture,
+where a source line belongs. A slide where the *title* stands over a drawing is
+a `free:` chunk with the `::: draw` in its body: same picture, a heading at
+full weight. `lint.js` also warns (`figure-type-without-figure`) when a
+`figure:` chunk holds no artwork at all, because the overview board and the
+cockpit read the type and the deck then reports more figures than it has.
 
 `closing:` is the bookend and is the one exception to the rule that a
 cover-shaped slide renders from frontmatter: its heading is what it says,
@@ -155,7 +234,9 @@ Next week: certificates, and who you are actually trusting.
 ```
 
 Widths (four, exhaustive): `.narrow` (28em), `.standard` (36em, the default),
-`.wide` (52em), `.full` (72em).
+`.wide` (52em), `.full` (72em). The slide's frame pads 14% either side, so on
+the projection `.wide` stops at 1152 px at 1600×900; a `.full` chunk pads 6%
+and reaches 1408 px, which is the one reason to pick it over `.wide`.
 
 **The type never sets the width.** They are independent axes: the type decides
 treatment and budget, the width decides how much stage the chunk takes. In
@@ -165,8 +246,9 @@ anything longer than one sentence turns into a tall thin ribbon in `.narrow`.
 **A chunk with a top-level code block wants `.wide` or `.full`.** A `<pre>` that
 is not inside a `::: side` or `::: cols` breaks out of the text column to 72vw
 and centres on the slide. Measured at 1600×900 and the default zoom, that is
-1152 px – exactly the prose column of `.wide` and `.full`, and 310 px wider than
-`.standard`'s 842 px. So in a `.standard` chunk the listing sticks out past both
+1152 px – exactly the prose column of `.wide`, 310 px wider than `.standard`'s
+842 px, and 256 px narrower than `.full`'s 1408, where a long listing stands
+centred inside the prose. So in a `.standard` chunk the listing sticks out past both
 edges of the paragraph above it and reads as a rendering fault. The line-length
 budget is unaffected (it is 72vw at every width); this is about the block and
 its own prose lining up.
@@ -186,6 +268,13 @@ and the fix is to break the line rather than to make the runtime try harder.
 
 The live views do **not** print the type name on screen. Do not write prose that
 depends on the audience seeing the word DEFINITION.
+
+**The slide before and the slide after show through faintly, and that is
+deliberate, not a rendering bug.** The audience view is one long board that a
+camera pans across, and the dimmed neighbours are what make a column read as a
+column; a screenshot of it looks like a leak until you have seen the pan. A
+deck that wants a frame showing nothing but the slide – a keynote rather than a
+lecture – writes `neighbours: hidden` in the frontmatter.
 
 ## What lands on the slide
 
@@ -300,7 +389,16 @@ behave exactly as before.
 A line that is exactly `---` inside a chunk body, outside a code fence, is a
 **reveal boundary**, never a horizontal rule. `Space` uncovers one segment at a
 time in the audience view; print flattens them. Inside a fence, `---` is
-literal. Use `***` if you genuinely need a rule.
+literal. Use `***` if you genuinely need a rule. A fence is what CommonMark
+says it is: three or more backticks or three or more tildes, indented at most
+three spaces, closed by a run of the same character at least as long – so a
+`~~~yaml` block and a four-backtick block that shows a three-backtick one are
+both fences, and a `---` inside either is the code's. A fence still open at the
+end of the file would swallow every slide after it, so the build refuses it
+and the linter reports `unclosed-fence`.
+
+A trailing `---` is a beat whether or not a blank line follows it before the
+next heading.
 
 ```md
 Start with the setup.
@@ -313,6 +411,35 @@ Then show the complication.
 Use reveals for pacing, not per chunk. Over half the chunks using reveals
 raises a `reveal-overuse` warning, and a chunk needing many reveals is usually
 several chunks.
+
+**A `---` as the first line of the body means the heading stands alone on the
+opening beat.** It is how a question slide is written: the room reads the
+question, you let it sit, and one press paints the answer.
+
+```md
+## question: How many people have to be away before this stops? {.wide #bus}
+
+---
+
+One. Perhaps two.
+```
+
+Count the clicks off the source: a chunk has as many presses as it has `---`
+lines, and that holds whatever stands between two of them. **A segment with
+nothing in it is a beat too**, and writing one is a real move: the slide stands
+while you say the next thing, a `::: footnote` written under the `---` comes up
+with it (the source line for the claim just made), a `::: backdrop`'s reveal
+moves to its next place, an `::: overlay from N` or a `--- from N` arrives. An
+aside is lifted off the text column, so a segment holding only one of them is
+empty – and ships all the same.
+
+The one shape the linter still names is `empty-beat`: a `---` whose segment
+paints nothing *and* has nothing riding it – no aside written in it, no
+`> note:` filed on it, no backdrop place for the beat, nothing held to it by
+`from`. That is a press on which nothing whatever happens; give the beat its
+content or take the `---` out. A `title:` or `closing:` chunk is the exception
+to all of it: it wears a cover composition and has no reveal segments, so a
+`---` there buys nothing.
 
 ### Beats below the top level
 
@@ -412,7 +539,14 @@ lede; it is a beat now, and `***` is the spelling of a rule there.
 first non-blockquote line. A second `> note:` starts a **new** note, so never
 prefix continuation lines. Notes appear in the cockpit and in
 `print-notes.html`, never in the audience view or `print.html`. A note written
-before the first chunk attaches to the next chunk.
+before the very first heading attaches to the next chunk.
+
+**A note under a `# Heading`, before the first `##`, is the divider's own.**
+The divider is a slide you talk on – it is where the room is told what the
+part is for – so its notes are its own rather than the first chunk's. A
+divider has no reveal segments, so every block there is a card on the beat it
+opens with; `> note: from N` names a later one where the divider's body
+carries a `---`.
 
 Notes are the right home for reminders, caveats, timing, demo fallbacks, and
 anything you say aloud but would not project.
@@ -439,8 +573,12 @@ the corner of an eye:
   `---` belongs to the beat the slide opens on, a note after it to the beat
   that `---` opens. Only a top-level `---` counts; a `---` inside a pane or a
   card row is a beat marker, not a segment. A chunk whose notes all sit
-  after its last segment (the way every deck was written before this) shows
-  them all on the first beat, so nothing you have written moves.
+  after the last segment that has words in it (the way every deck was
+  written before this) shows them all on the first beat, so nothing you have
+  written moves – a trailing `---` behind them, holding the slide while you
+  say the next thing, does not move them either. A note written *alone*
+  under a `---`, with no words in that segment, is the one you said on that
+  beat, and it is shown there.
 
 ```md
 ## free: The process as it runs {#process}
@@ -459,9 +597,12 @@ the corner of an eye:
 > @4:00 The secretary **mails Ms K.**, who approves with **HR's rights**.
 ```
 
-The linter warns `note-in-empty-beat` when a note stands alone behind a
-`---` that is not the last one: the cards would show it a beat earlier than
-you probably meant.
+A note standing alone behind a `---`, with no slide text after it, is a
+supported shape rather than a warning: the press happens, the slide does not
+change, and the card is what you say over it. The linter used to report it as
+`note-in-empty-beat`, back when the build dropped that segment and the card
+slid a beat forward; it does not any more, because the segment ships (see
+*Reveal segments*).
 
 **`> note: from N` pins a note to an advance by number**, and it is what a
 chunk whose beats are a figure's steps needs: a `::: draw` block's `step`
@@ -497,16 +638,90 @@ step around
 The linter warns `note-from-beyond` when the number is past the chunk's last
 beat: the card would be filed on a press the slide never takes.
 
+**A `[Klick: …]` line inside a note is a press**, and it is the other way to
+say the same thing – the one for a talk written out word for word, where the
+stage directions are in the prose already and counting them out into `from N`
+would mean numbering every block by hand. A paragraph (or a line at a
+paragraph's head) that is a bracketed direction whose first word is `Klick`,
+`Click` or a bare `>` ends the card and files everything behind it one advance
+later. The words behind the direction's first colon title the card it brings
+up, unless a `####` heading stands nearer to that card.
+
+```md
+> note: #### The plan
+> The call for papers describes a resilient university in **three verbs**.
+>
+> [Klick: line 1 lights.]
+>
+> **Three questions, one per verb, and two cases.**
+>
+> [Pause. Wait for the laugh.]
+>
+> [Klick: line 2 lights.]
+>
+> I reported it. **Why did five years of knowing produce no fix?**
+```
+
+Three things follow from that, and each is a decision rather than an accident:
+
+- **Any other bracketed line is a stage direction and costs no press.**
+  `[Pause.]`, `[Dry, not pointed.]`, `[Wait for the laugh.]` stay as written,
+  in small italics, but on a card rather than as one: a paragraph that is
+  only a direction rides the card before it – a pause after words – and
+  leads the card after it where there is none on the same advance (a note
+  that opens with one, or one written just behind a `[Klick …]`). One at the
+  head or foot of a paragraph belongs to that paragraph's card. Only the
+  three words above count as a press, and the first word has to *be* one of
+  them – `[Klicken Sie auf den Link]` is prose.
+- **The word list is fixed, not localised by `lang:`.** The cards are derived
+  again in the browser when you rewrite a note in the cockpit's textarea
+  during a rehearsal, where the lecture's wording table is not in reach; `>`
+  is the spelling for every language the list has no word for.
+- **`from N` still wins, and the clicks count from it.** A block written
+  `> note: from 2` with one `[Klick]` line in it says its second half on
+  advance 3.
+
+The linter warns `note-advance-beyond` when a block asks for more advances
+than the slide takes – every card past the last beat is shown on it together,
+which is not what the clicks were written for. It counts a divider's blocks
+too, because a divider's beats are its figure's steps and a talk of this shape
+puts most of its clicks there.
+
 ## Images
 
 ```md
 ![](diagram-name)            # shorthand: assets/diagram-name.{svg,png,jpg,jpeg,gif,webp}
 ![Alt text](assets/pic.png)  # explicit path also works
+![Alt](<assets/my pic.png>)  # angle brackets for a path with spaces
+![Alt][logo]                 # by reference, with [logo]: assets/logo.png in the same chunk
 ```
+
+Every spelling is inlined, weighed against the 2 MB cap and seen by
+`--optimize-images` alike. A reference resolves only against a definition in
+its own chunk, because each chunk is rendered on its own. A `?v=2` or `#frag`
+after a local path is ignored when the file is read.
 
 The shorthand resolves a bare target with no slash and no extension against the
 lecture's `assets/` folder, first match wins; a missing file renders a visible
 placeholder.
+
+**A picture is read from the lecture's folder or the folder one level up, and
+from nowhere else.** `![](../shared/assets/logo.png)` works – a set of
+lectures side by side can share a folder of pictures – and
+`![](../../photos/x.png)` fails the build, naming the folder it may read from.
+A symbolic link counts as the file it points to, so a link in `assets/` that
+leads out of that folder fails the same way. Two narrowings: when the folder
+above the lecture is your home folder or the top of a disk, the lecture's own
+folder is the limit, and nothing is ever read from a folder whose name starts
+with a dot (`assets/.hidden/x.png`, `../.config/…`). The rule covers every way a deck
+names a file: `![](…)`, a `::: draw` `image`, a `::: backdrop`,
+`cover-image:`, `closing-image:`, `identity: {logo}`, the lecture a
+`::: recall <path>#<id>` reads, a clip and a face in `fonts/`. There is no
+exception for any of them: a house logo that lives two folders up or in a
+dot-folder is copied next to the `source.md` before the build. It is what
+keeps a deck someone sent you from copying a file from elsewhere on your
+machine into its output; the linter reports it as `asset-outside-root`. A path
+starting with `/` or a URL is not read at all and is not affected.
 
 In a `figure` chunk the heading is already the caption, and alt text becomes a
 `<figcaption>` stacked under it – three labels in a pile. Prefer `![](fig-id)`
@@ -516,17 +731,31 @@ warns about this).
 Assets are inlined into the outputs by default (auto-inline while the total is
 under 10 MB). **A single asset over 2 MB fails the build**, because the
 alternative is an HTML file that looks right on your machine and shows a broken
-figure everywhere it travels. Fix it by format, not resolution:
+figure everywhere it travels. Fix it by format first, and by resolution only
+where format is not enough:
 
 ```bash
 node build.js <source.md> --optimize-images --dry-run   # report, write nothing
 node build.js <source.md> --optimize-images              # convert rasters >= 512 KB to WebP q92 in place
+node build.js <source.md> --optimize-images --max-width 1920   # …and cap every width
 ```
 
-Needs `cwebp` or `magick` on `PATH`. Shorthand refs need no edit afterwards;
-explicit paths in `source.md` are rewritten for you. SVG is never touched: it
-is spliced inline as a real `<svg>` element so it inherits the theme colours.
-`--no-inline-images` is the escape hatch that ships external paths on purpose.
+Needs `cwebp` or `magick` on `PATH`. It sees a picture however you named it –
+`![](path)`, `![](fig-id)`, a `::: draw` `image` statement, a `::: backdrop`,
+`cover-image:` or `closing-image:`. Shorthand refs need no edit afterwards;
+explicit paths in `source.md` are rewritten for you, in the frontmatter and on
+a directive line too, and a path inside a code fence is left alone. It only
+converts files inside the lecture's own folder: a shared picture one level up
+is listed as skipped, because another lecture may name it by its path. SVG is
+never touched: it is spliced inline as a real `<svg>` element so it inherits
+the theme colours. `--no-inline-images` is the escape hatch that ships external
+paths on purpose.
+
+A photograph that WebP q92 alone does not bring under the 2 MB cap is
+**downscaled to 2560 px wide and re-encoded**, and the report says so per
+asset. If it is still over after that, the report names the size and the
+`--max-width N` worth trying next; a `.webp` already over the cap is re-encoded
+onto itself the same way.
 
 ## Icons
 
@@ -550,7 +779,7 @@ Rules that matter while authoring:
 - **A codespan wins.** `` `:fa-key:` `` in a sentence about the syntax stays literal, the same way a `$` pair inside backticks is never math - the codespan tokenizer consumes its interior first.
 - **Every icon carries a `<title>`,** so `--squint` and the live search read the word. `:fa-user-check:` is `user check` in both. That is the whole reason icons are inlined SVG rather than a webfont, where they would be a private-use codepoint in both.
 - **Not inside a `::: draw` block.** The graphical editor rewrites those by character span; a figure that wants a mark uses the `image` statement, which already takes an SVG.
-- The set is a **devDependency**, 41 MB unpacked for 2883 icons, and nothing reaches an output that does not name one. Font Awesome Free licenses its icons CC BY 4.0; the build emits the attribution into any view that carries one.
+- The set is a regular **dependency** (`@fortawesome/fontawesome-free`), 41 MB unpacked for 2883 icons, and nothing reaches an output that does not name one. Font Awesome Free licenses its icons CC BY 4.0; the build emits the attribution into any view that carries one.
 ## Activity boxes
 
 `::: activity <kind>` draws a box that says what the reader is to do. Five kinds: `link` (follow this), `info` (note this), `task` (do this), `example` (look at this), `takeaway` (remember this). The kind brings its colour and its mark; `takeaway` takes the deck's accent and is meant for the one sentence a slide wants remembered, so use it at most once per slide and keep it to one sentence – the collapsed projection shows only the first.
@@ -602,8 +831,8 @@ to make on your own: adding a language means editing `SHIKI_LANGS` in
 
 ## Directive vocabulary
 
-Two kinds of `:::` block exist. **Chunk-attached asides** (`expand`, `margin`)
-are lifted out of the body; **layout wrappers** (`cols`, `side`/`flip`,
+Two kinds of `:::` block exist. **Chunk-attached asides** (`expand`, `footnote`,
+`pulse`) are lifted out of the body; **layout wrappers** (`cols`, `side`/`flip`,
 `marginalia`, `slide`, `script`) stay inline in the body. A bare `:::` closes
 the innermost open layout wrapper, and if none is open, the enclosing `expand`
 or `margin`.
@@ -633,12 +862,81 @@ A quieter always-visible note attached to the chunk, set under the body with a
 small NOTE label over a dotted rule. Use for short context, not a second
 argument. It stays in the middle column, has nothing to click, and takes no
 label of its own – that is the whole of the difference from `::: marginalia`,
-which goes out into the slide margin and *is* clickable.
+which goes out into the slide margin and *is* clickable. On a `figure:` chunk
+it sits under the artwork.
+
+**A footnote written after a `---` arrives with that segment**, so a citation
+can come in with the sentence it supports rather than standing on the slide
+from the first beat. It rides the segment and adds no press of its own; before
+the first `---`, or in a chunk with no `---`, it is on the slide from the
+start, as it always was. Print shows every footnote at once either way. On
+a `.center` chunk it is centred with the prose; on the projection it never
+hyphenates, and `style: {labels: off}` takes its NOTE eyebrow off there (print
+keeps it).
+
+```md
+## definition: Loose coupling {.standard #loose}
+
+---
+
+Units that work largely independently of one another.
+
+::: footnote
+Weick, Educational Organizations as Loosely Coupled Systems, ASQ 1976
+:::
+```
 
 `::: margin` is the older spelling and still builds, so no existing
 `source.md` breaks. Do not write it in anything new: it was one keystroke from
 `::: marginalia`, a different construct in a different place, and it named the
 one place the block never sits.
+
+### `::: pulse`
+
+```md
+## definition: Digital signatures {.wide #signatures}
+
+A key pair: the private key signs, the public key verifies.
+
+::: pulse
+What does a signature guarantee that encryption alone does not?
+---
+**Authenticity and integrity**: only the key holder could have made it, and
+any change to the message breaks it.
+:::
+```
+
+A self-test question for the reader of the **documents only**: `print.html`
+and `print-notes.html` show it under the chunk (after the notes) with a
+button that reveals the answer and two that record whether the reader knew
+it; the projection and the cockpit never show it. Above the one line that is
+exactly `---` is the question, below it the answer, both ordinary Markdown –
+code, formulas, lists – and no directive. Printed on paper, question and
+answer stand one under the other.
+
+The widget is Pulse (pulse.psi.uni-bamberg.de): answers stay in the reader's
+browser until they sign in with an email address in the document, and from
+then on the questions come back by mail at growing intervals. A document with
+a question also gets one line of the reader's standing under the contents
+(only in a deck with `#` parts) and the full account at its end.
+
+**The key is the question's identity** – what the reader's progress is filed
+under, with the lecture's `title:` as the page. It is the chunk's id, which is
+frozen already; a second question on one chunk names itself,
+`::: pulse {#signatures-verify}`, and a key is unique across the lecture.
+Two or more questions on one chunk become a deck: the document shows one at
+a time ("Question 2 of 3", a button to the next, due ones first) and prints
+all of them, one under the other. There is no syntax for it – put the
+questions that belong together on one chunk. Correct a question's wording freely, but do not change its key or the
+lecture's title once students have answered, or their progress starts over.
+Two lectures with the same title share the page, so a chunk id used in both
+is one question to the reader. Refused: a question on the `title:` or
+`closing:` chunk (the documents draw the cover from the frontmatter), none or
+two `---`, an empty half, a `> note:` inside it (write it after the `:::`).
+
+Pulse mails the question's text back as plain text, so a formula arrives
+there as KaTeX's glyphs run together, in the answer too. Keep formulas out of
+a question where the mail should read well.
 
 ### `::: cols 2` / `::: cols 3`
 
@@ -752,6 +1050,7 @@ was a slide that rendered wrong with exit 0 before it was one.
 | inside …                    | may hold                                   | refused                                                  |
 |-----------------------------|--------------------------------------------|----------------------------------------------------------|
 | `expand` / `footnote`       | any wrapper, `draw`, prose                 | another aside, `overlay`, `cards` / `rows`               |
+| `pulse`                     | prose, lists, code, formulas, one `---`    | every directive (`directive-in-pulse`)                   |
 | `overlay`                   | prose, lists, an image, `draw`             | every other directive (`directive-in-overlay`, `cards-nested`) |
 | `cards` / `rows`            | prose, lists, an image – per item; `draw` as a card of its own | every other directive (`directive-in-cards`) |
 | `embed`                     | the caption's prose                        | every directive (`directive-in-embed`, `cards-nested`)   |
@@ -759,8 +1058,8 @@ was a slide that rendered wrong with exit 0 before it was one.
 | `side` (either pane)        | prose, `draw`, `cards` / `rows`, `cols`    | a second `flip`                                          |
 | `slide` / `script`          | any wrapper, `draw`, `cards` / `rows`      | `slide` or `script` again (`explicit-nested`)            |
 | `dock`                      | prose, lists, an image, `draw`, `---`      | every other directive (`directive-in-dock`, `cards-nested`) |
-| any wrapper                 | a `---` (a beat below the top level, see *Reveal segments*) | `expand`, `footnote`, `overlay`, `dock` (`aside-in-layout`, `overlay-in-layout`, `dock-in-layout`) |
-| a column heading (divider)  | prose, `backdrop`, `draw`, `cards` / `rows`, `overlay`, `dock`, `---` | everything else (`stray-directive`)          |
+| any wrapper                 | a `---` (a beat below the top level, see *Reveal segments*) | `expand`, `footnote`, `pulse`, `overlay`, `dock` (`aside-in-layout`, `overlay-in-layout`, `dock-in-layout`) |
+| a column heading (divider)  | prose, `backdrop`, `draw`, `cards` / `rows`, `overlay`, `dock`, `---`, `> note:` | everything else (`stray-directive`)          |
 
 `draw` is the one construct meant to go nearly everywhere – a pane, a card, an
 overlay card over a photograph, an expansion, a divider – because a figure is
@@ -916,6 +1215,21 @@ relative path, an https URL. Both class tails are **closed vocabularies, one
 word per slot**; two words from one slot fails the build, as does a word from
 no slot.
 
+**`reveal` is how a photograph arrives on a press.** After the tail, name one
+place per beat – a band against an edge (`left 45%`, `bottom 30%`), the whole
+slide (`full`), or nothing (`none`) – and the picture's window opens or closes
+between them. `reveal none, full` is the plain case: a slide that opens on its
+words and takes the picture on the first press. Turn it round,
+`reveal full, none`, and the picture retreats to free the paper the words are
+written on. Two places at least; one is refused, being a static crop written
+the long way. Place *i* is simply what the slide looks like at beat *i*: the
+list **rides** the chunk's beats rather than adding to them, and only a chunk
+with fewer beats than places – a title slide, typically – gains presses from it.
+
+```markdown
+::: backdrop harbour {.cover .invert} reveal none, full
+```
+
 | directive | slot | members (first is the default) |
 |---|---|---|
 | `backdrop` | fill | `.cover` `.contain` |
@@ -1031,7 +1345,7 @@ wrapper or an aside: each compiles to something of its own.
 - **`::: draw`** is a figure written as text - named boxes, arrows,
   containers, charts, tables, swimlanes and sequence diagrams, laid out at build
   time and steppable on the same key that advances a reveal segment. It has its
-  own grammar, seventeen statements and forty classes, and two documents:
+  own grammar, twenty statements and forty-two classes, and two documents:
   `figure-design.md` for how to lay one out so a room can read it, and the
   `#diagram` chunks of `lectures/tutorial/source.md` for the vocabulary. Read one
   of those before writing a block; do not guess at the syntax from a nearby
@@ -1039,7 +1353,13 @@ wrapper or an aside: each compiles to something of its own.
   `lanes` puts who down the side and lets the reading direction carry the time,
   `sequence` puts who across the top and makes the vertical axis the time
   itself - steps parcelled out to the people responsible for them is the first,
-  messages passing between them is the second.
+  messages passing between them is the second. An element is placed either
+  absolutely, `at 12,4`, or against another one, `right of a gap 1`; the two
+  take different options, and `flush` - which edge of the reference the new
+  element lines up with - is only legal on the relational form. `at 12,4 flush
+  left` is refused as an unexpected token, because there is no reference to be
+  flush with: move the element, or place it off the one you meant. The whole
+  vocabulary is in the `psi-slides-figures` skill.
 - **`::: embed <url>`** frames a hosted player, YouTube or Vimeo. It is the one
   construct that makes an output fetch from a third party while the lecture is
   being given, so reach for it only when a local clip - `![](clip-id)` - will
@@ -1050,21 +1370,46 @@ repository and not against a released psi-slides.
 
 ## Viewer defaults in frontmatter
 
-Seven optional keys pin how the lecture opens. A key that is present wins over
+Eleven optional keys pin how the lecture opens. A key that is present wins over
 the reader's stored preference; a key that is absent leaves that preference
 alone. A value outside the allowed set fails the build (and lints as
 `unknown-view-default`), because a typo here is otherwise silent.
 
 ```yaml
 font: serif            # serif | sans | mono
-theme: light-red       # light-red | light-teal | light-blue | light-orange | terminal-amber | terminal-green
+theme: light-red       # light-red | light-teal | light-blue | light-orange | dark | terminal-amber | terminal-green
 collapse: topic-bold   # topic-bold | none
 auto-fit: shrink       # true | false | shrink
 slide-numbers: horizontal    # vertical | horizontal | off   (default: horizontal)
 print-slide-numbers: vertical  # the same three, for print.html and print-notes.html
                                # left out, it follows slide-numbers
 editor: speaker        # both | speaker | none  - where the diagram editor ships
+note-button: off       # on | off  - the + note button in the slide's left gutter
+neighbours: hidden     # dim | hidden  - the slide before and after, faintly or not at all
+transition: cut        # pan | cut | fade  - what a slide change looks like
+reader: off            # on | off  - contents sidebar and highlights in print.html / print-notes.html
 ```
+
+`note-button`, `neighbours` and `transition` are what a keynote sets and a lecture does not. `note-button: off`
+takes the `+ note` hint out of the gutter without taking anything away - `N`
+still opens an annotation, and `M` shows or hides the hint at any time, in
+either window. `neighbours: hidden` takes the faint slide above and below off
+the projection; the default is on purpose (see *What lands on the slide*).
+`transition: cut` lands on the next slide with no camera glide and `fade` dips
+through the paper; both hide the neighbours unless you also write
+`neighbours: dim`. A reveal, a figure step and the walk down a tall chunk keep
+their motion under all three – only the change of slide is affected.
+
+`reader:` is about the two documents rather than the projection. Left at `on`,
+a reader who opens `print.html` on a screen gets a contents sidebar that marks
+the slide they are in, and can highlight words, code, a formula or a figure,
+keep a note on each, step through them with `n` / `p`, and export them to a
+Markdown file. The highlights stay in the reader's browser, filed under the
+lecture's folder name, and print yellow with their notes in the margin. `off`
+ships the plain document; the lightbox stays either way. Nothing here asks
+anything of the source – but a renamed `{#id}` leaves every highlight on that
+slide unplaced (listed at the sidebar's foot, not lost), one more reason ids
+are frozen.
 
 `auto-fit: shrink` is the mode to reach for first: it leaves the zoom where the
 lecturer set it and only ever makes a slide smaller, where `true` also grows a
@@ -1072,6 +1417,13 @@ short one to fill the screen. `#` cycles off → shrink → on.
 
 Pin only what you have actually designed for. A lecture that pins nothing keeps
 following whatever the reader last chose with `F`, `A`, `C`, `#` and `L`.
+
+Two keys the presenter needs have no frontmatter key, because they are about
+the room rather than the lecture. `W` puts the projection into fullscreen; from
+the cockpit it arms the projection, and the next click on that window enters,
+because a browser grants fullscreen only to a gesture in the window that asks.
+`G`, a slide number and Enter jumps to the slide with that number in its
+corner, which is the number a question from the room names.
 
 ## The cover, and lecture-wide type
 
@@ -1168,11 +1520,13 @@ photograph wants the edge, a drawing wants a margin. `cover-ratio: 42%`
 
 A column with a `# Heading` opens with a divider slide. `section:` picks how it
 is drawn, and every option is quieter than the cover on purpose - a divider
-that can be mistaken for the title slide has failed at its one job.
+that can be mistaken for the title slide has failed at its one job (`poster` is the deliberate exception).
 
 ```yaml
-section: tinted         # plain | tinted | rule | card | number
+section: tinted         # plain | tinted | rule | card | number | outline | poster
 section-mark: Teil      # any short word, or none (the default)
+section-caption: below  # below | item - on an outline divider, where the line under # Heading goes
+section-ink: auto       # auto | light | dark - the ink of a poster divider, overruling the measurement
 ```
 
 | | what it is |
@@ -1182,10 +1536,39 @@ section-mark: Teil      # any short word, or none (the default)
 | `rule` | the heading between two rules. The quietest, and it survives a monochrome print |
 | `card` | the heading on a panel |
 | `number` | a large counter above the heading, counting the columns that have one |
+| `outline` | the running agenda: every part listed, this one live |
+| `poster` | the accent edge to edge, the heading large in spaced capitals, the divider's own line as a caption under it, flat shapes in tints of the accent. The one divider that is not quiet; asked for, never the default |
 
 There is no paragraph sign over the heading any more - it read as a statute
 number to anyone outside a German law faculty. Put a word there with
 `section-mark:` if you want one.
+
+**A `#` line takes two classes, `.stack` and `.bare`.** `{.stack}` answers
+where the divider's own content stands. Written, the content goes **under**
+the heading at the `.full` measure, with the heading one step smaller than a
+plain divider's above it; left out, prose stays under the heading at the
+reading measure and a body that is nothing but a figure goes *beside* it.
+Reach for it when the drawing is the point of the divider – a plan with six
+cells and a label in each is unreadable at the half-frame the beside layout
+gives it. A figure under a stacked heading is on a canvas like a chunk's,
+`.full` wide and twenty labels tall, so its labels come out at the size of
+every other figure in the deck. `{.bare}` takes the heading off the slide and
+leaves it in the contents, a `section: outline` agenda, the cockpit and search
+– for the divider whose figure already says the part's name. Both are per
+divider and work under all seven `section:` variants; on a divider with nothing
+under its heading each is refused, because there is nothing to place.
+
+```md
+# Who keeps it green? {.stack #part-2}
+
+> note: The card for this slide: say what the part is for before slide one.
+
+::: draw 132x40
+box plan "Plan" at 0,0
+box run  "Operation" right of plan gap 0.6
+edge plan -> run
+:::
+```
 
 ## Typefaces, ligatures, and the 1.0 layout
 
@@ -1251,8 +1634,12 @@ style:
   print-bold: italic    # the same six - on paper; bold is the default
 ```
 
-Sixteen keys, and that YAML block is all of them – `STYLE_SPEC` in `build.js`,
-mirrored as `STYLE_ENUMS` in `lint.js` for everything but the two scales.
+Sixteen of the keys, and the commonest – `STYLE_SPEC` in `build.js` has twenty-eight,
+mirrored as `STYLE_ENUMS` / `STYLE_NUM_SPEC` in `lint.js`. The rest are `display-scale`,
+`code` and `figure-type` (upstream) and the fork's `elevation`, `edge`, `fill`, `line`,
+`edge-dark`, `ink-soft`, `question-body`, `slide-bold` and `print-pages`; the
+`psi-slides-appearance` skill describes each. `neighbours` is not a `style:` key –
+it is a top-level frontmatter key (above), and `style: {neighbours}` is refused.
 
 `hyphenate: print` is the default and is what the tool has always done: the two
 document views hyphenate their prose, the projection and the cockpit do not.
@@ -1295,15 +1682,56 @@ document, the contents list and the search - for a talk that is a run of
 figures with speaker notes. `{.bare}` in a chunk's attribute tail is the same
 switch for one chunk.
 
-`{.center}` sets one chunk's prose on a centre axis, on the projection and in
-the cockpit but not in the printed document. It reaches the chunk's own
-paragraphs and nothing nested, so a list, a table, a code block and the prose
-inside a `::: side` pane or a `::: cards` row all keep their left edge. Write
-it for the one or two lines under a figure, where a left-aligned caption
-starts at the far edge of a wide slide while the drawing sits in the middle.
+`{.center}` sets one chunk on a centre axis, on the projection and in the
+cockpit but not in the printed document. It reaches the chunk's heading, its
+own paragraphs and its `::: footnote` asides – everything the chunk says in its
+own voice – and nothing nested, so a list, a table, a code block and the prose
+inside a `::: side` pane or a `::: cards` row all keep their left edge. The
+heading follows even under `style: {headings: left}`: a class on one slide is
+the more specific decision than a key on the whole deck, and the alternative
+was three alignments on one slide. Write it for the one or two lines under a
+figure, where a left-aligned caption starts at the far edge of a wide slide
+while the drawing sits in the middle.
 Not for a paragraph of any length: centred prose loses the eye at the start of
 each line, which is why this is a class you write rather than something a
 `figure:` chunk gets by default.
+
+`{.middle}` is the same decision one axis over: it keeps what the slide is
+**painting right now** on the frame's vertical middle, rather than at the top
+of the space the whole chunk will eventually fill. Every chunk is already
+centred as a box – a reveal segment past the first keeps its box so the slide
+does not change height under the room – and that is exactly why a chunk whose
+material arrives downwards opens looking top-heavy: the first line is centred
+inside a reserve nobody can see yet. Measured on a keynote, a three-row
+timeline opened with one row 155 px from the ceiling and 698 px of paper under
+it, and only its last beat looked composed.
+
+**Two shapes get it without asking, and on those two you write nothing.** A
+slide that *is* a picture – one `::: draw`, or one image, and no prose on the
+slide beside it – and a `statement:`, whose heading and paragraphs are one size
+and arrive one per press. Both are slides where the first beat has to stand on
+its own, and a keynote wrote `{.middle}` on eleven chunks of which eight were
+one of those two shapes. A `::: footnote`, a `::: marginalia` and a `::: expand`
+do not count against a picture: they are asides lifted off the slide, so a
+drawing with a source line under it is still a drawing standing alone.
+
+A sentence under the drawing *is* prose, and that chunk keeps the old top
+anchoring – prose grows downwards and a reader expects the heading to stay
+where it was. So do the `figure:` chunks in `lectures/diagrams`, which are two
+paragraphs explaining a drawing. **It is the shape of the body that decides and
+not the type**, because the picture slide is written as `free:`, `figure:` and
+`example:` across the corpus.
+
+Write `{.middle}` yourself on a slide that is prose and still wants it – a
+short definition whose second line arrives on a press, a one-line caption over
+a photograph. Write `{.top}` on a picture slide that wants the old anchoring:
+a drawing that grows downwards and should be read against where its first row
+stood. The cost of the centring is that the frame glides a little on each
+press, the way it already does on a chunk taller than the screen; the type
+never changes size, because auto-fit still measures the whole chunk. Like
+`.bare` and `.center` both words stop at the live views, and like them both are
+refused on a `title` or `closing` chunk, where the cover composition and
+`cover-align` have already answered the question.
 
 `blocks: left` puts the three things on a slide that are not prose - a code
 block, a figure with its caption, a display formula - on the prose's own axis
@@ -1368,7 +1796,9 @@ node lint.js <source.md> --allow-missing-ids   # while prototyping, before ids a
 ```
 
 `--allow-missing-ids` silences `missing-id`. A chunk's `{#id}` is not required
-by the build – a missing one gets a positional key – so this is for a talk
+by the build – a missing one gets a positional key, `c<column>-<chunk>`, which
+no authored id may then also be (the build refuses the pair as a duplicate) –
+so this is for a talk
 still being sketched; add the ids before the deck is finished, because they are
 the anchor the TOC, cross-references and speaker sync all use, and a positional
 key shifts when a chunk is inserted above.
@@ -1378,14 +1808,23 @@ Rules you will meet while authoring: `unknown-type`, `unknown-class`,
 or directive – the message names which), `missing-id`, `duplicate-id`,
 `multiple-ids`, `title-count`, `density`,
 `duplicate-explicit-block`, `unclosed-directive`, `stray-directive`,
-`stray-directive-close`, `nested-directive`, `unclosed-math`, `reveal-overuse`,
+`stray-directive-close`, `nested-directive`, `unclosed-fence`, `unclosed-math`, `reveal-overuse`,
+`empty-beat` (a `---` that buys a press on which nothing at all happens – no
+words, no aside written in it, no note on it, nothing held to it by `from`),
 `orphan-column` (a column with fewer than two chunks),
 `figure-caption-redundant`, `single-word-bold`, `figure-type-without-figure`,
-`oversized-asset`, `unresolved-asset` (an explicit `![](path)` that names no
+`oversized-asset`, `asset-outside-root` (a picture, clip, backdrop, `identity: {logo}` or `::: recall` file that
+resolves – links followed – outside the lecture's folder and the one above it,
+outside the lecture's folder when the one above is home, or into a dot-folder,
+or is a link to a file that is not the kind its name says – `pic.png` pointing
+at a PDF; the build refuses the deck), `frontmatter-language` (frontmatter opened with
+anything but `---` or `---yaml`), `unresolved-asset` (an explicit `![](path)` that names no
 file, so the build renders a placeholder rather than a broken external `src` –
 usually the fix is dropping the extension so the `assets/` shorthand resolves
 it), `deprecated-margin` (the old `::: margin` spelling of `::: footnote`),
-`unknown-view-default`,
+`bad-frontmatter` (a block YAML cannot read), `bad-lang`, `bad-cover-align`,
+`unknown-font-role` (a `fonts:` key that is no role, or a single value other
+than `none`), `unknown-view-default`,
 `unknown-style-setting`, `unknown-frontmatter-key` (a top-level key no
 renderer reads; warning – see below), `unknown-label-key` (a word `labels:`
 does not name), `bad-backdrop`, `duplicate-backdrop`, `bad-overlay`,
@@ -1409,7 +1848,12 @@ outside an overlay or a dock, a divider's heading always; drop `.clear`, write
 `.invert`, or put the words in a `::: overlay {.panel}` or a `::: dock`;
 warning), `bad-cover-ratio`, `bad-unit`, `bad-autoplay` (a delay
 outside 200–60000 ms, `cycle` with no autoplay, or autoplay on a figure
-with no `step` block).
+with no `step` block), `bad-frame` (a `frame` on the `::: draw` opener that is
+not a `WxH` in grid units), `bad-section-stack` / `bad-section-bare` (a
+`{.stack}` or `{.bare}` divider with nothing under its heading),
+`reveal-from-beyond`, `note-from-beyond` and `note-advance-beyond` (a
+`--- from N`, a `> note: from N` or a note's `[Klick …]` lines asking for a
+beat the slide never takes).
 
 `unknown-frontmatter-key` names a top-level key that no renderer reads, and it
 is the layer above `unknown-view-default` and `unknown-style-setting`: those
@@ -1469,7 +1913,7 @@ node build.js <source.md> --check-fit [--viewport 1600x900]
 
 Walks the built `audience.html` state by state – pressing the key, so a figure
 step and a reveal each get measured – and compares each `.chunk-content` box
-against `#stage-viewport`. **1600x900 is the default because a projector is
+against `#psiINT-stage-viewport`. **1600x900 is the default because a projector is
 16:9**: `.wide` resolves through auto-fit, so the em and every wrapped card and
 row are functions of the viewport, and two chunks that measured inside the
 frame at a laptop's 1440x810 are 835 and 836 px tall in a 900 px 16:9 one.
@@ -1477,7 +1921,7 @@ frame at a laptop's 1440x810 are 835 and 836 px tall in a 900 px 16:9 one.
 **It reports two things and only one is a failure.** A chunk *taller* than the
 frame is read by scrolling – the stage is a continuous column and walks down it
 as reveals advance – and is reported as a note; `lectures/tutorial` has
-eighteen. A chunk that *fits* the frame and is still outside it cannot be
+several, each listed by id with its height. A chunk that *fits* the frame and is still outside it cannot be
 excused that way, and is the failure, with exit 2.
 
 **For a clipped chunk it also reports what the height is made of, because the
@@ -1489,6 +1933,14 @@ whole line box. Measured on a chunk 52 px over: cutting every hidden
 continuation to one word moved it 0 px; un-bolding a single fragment cleared it.
 A rewrite that shortens the words while folding two bolds into one long first
 sentence makes it worse, which is how this was found.
+
+**It reads every figure as well, and those readings are notes.** One line per
+figure gives its canvas, its drawing and the room left on each axis, in labels
+and in px, tightest axis first, with "past its canvas" or "reads empty" on the
+same line; one line gives the deck's median settled body type and names every
+slide a figure took more than 15% under it. A `.middle` chunk is measured as the
+camera frames it, so its centring is not reported as overflow, and every chunk
+taller than the frame is listed by id.
 
 Degrades rather than fails: with no `playwright-core` or no Chrome it says so
 and leaves the build's exit code alone. It reports the viewport it used, since a
@@ -1540,7 +1992,56 @@ on the wall. `--check-fit` answers the frame; your eyes answer the rest.
 Like `--check-fit` it degrades rather than fails, and it never fails a build:
 it is a description of the projection, not a verdict on it.
 
-A source file can silence checks with an HTML comment anywhere in the body:
+## `build.js --frames`
+
+The projection as pictures: one PNG per state, and a contact sheet of eight per
+page beside them.
+
+```bash
+node build.js <source.md> --frames                       # → frames/ beside the source
+node build.js <source.md> --frames shots                 # → shots/
+node build.js <source.md> --frames --viewport 1920x1080
+```
+
+It walks the built `audience.html` the way `--check-fit` and `--squint` do –
+pressing the key, so every reveal, every figure step and every backdrop place
+gets a frame – and writes each state as `NNN-<chunk-id>-b<beat>.png`. A press
+that paints the same pixels writes nothing, so the count is states and not
+presses. **The sheet is the thing to read**, because the defects this catches
+are visible at a quarter size and forty frames across five pages is a review
+while forty files is not.
+
+It exists because the other two answer narrow questions. `--check-fit` is
+geometry against the frame and `--squint` is text, and a deck goes wrong in
+ways neither asks about: type that is 12 px on a 1600 px slide, a source line
+standing over the figure it cites, a table cell that swallowed its own class, a
+row of cards where one is a third the height of its neighbours. Both probes
+were clean on the keynote that produced this command.
+
+Needs a Chromium and `playwright-core`; without either it says so and leaves
+the exit code alone. It never fails a build.
+
+**The sheet finds the slide; it does not judge a figure.** Read the last beat
+of every figure at full size, in its own PNG: a line struck through by the
+outline of the box above it is invisible at a quarter size and obvious at full
+size, and a pass over a whole deck's contact sheets once reported no such line
+in a deck that shipped one.
+
+**The four checks in order, and what each one cannot see:**
+
+| | sees | blind to |
+|---|---|---|
+| `node lint.js <source>` | the grammar, the budgets, the mirrors – no browser, milliseconds | anything that is a rendering |
+| `--check-fit` | whether a slide that fits the frame is inside it | colour, contrast, wording, everything that fits |
+| `--squint` | what the room reads, beat by beat, and what the collapse withholds | colour, contrast, overlap, size, the fold |
+| `--frames` | the slide as the room gets it, every state | nothing it can name for you – you are reading pictures |
+
+Run them in that order. The first three are cheap and specific; `--frames` is
+the one that needs your eyes, and it is the one that finds what the others were
+not asked about.
+
+A source file can silence warnings with an HTML comment anywhere in the body
+(an error is a deck the build refuses, and no comment silences it):
 
 ```md
 <!-- linter: ignore reveal-overuse, density -->
@@ -1567,14 +2068,22 @@ warning go away unread.
    to the projection. Then open `audience.html` and press `O` for the overview
    board – repeated sentence openers, type monotony and over-dense chunks show
    up there and nowhere else – and `C` on any chunk the file made you doubt.
+9. `node build.js <source.md> --frames`, then read the contact sheets.
+   **Look at the sheets before judging the wording.** A review that starts from
+   the source, or even from `squint.txt`, argues about sentences on slides that
+   are broken in ways no text can carry – a label at 12 px, a footnote standing
+   over the figure it cites, three cards at three heights. Fix what the
+   pictures show first; the wording is worth arguing about once the slide is.
 
 ## Gotchas
 
-- Only the ten types and four widths exist. Six non-width classes exist and no
-  others: `.bare`, `.center`, `.blocks-left`, `.blocks-center`, `.wrap-none`,
-  `.wrap-balance`; anything else is an `unknown class` error. `.bare` and
-  `.center` are not legal on a `title` or `closing` chunk, where the cover
-  composition decides all three questions; the four `style:` classes are, and
+- Only the eleven types and four widths exist. Eight non-width classes exist,
+  plus the eleven `.figure-type-60` … `.figure-type-160` steps, and no others:
+  `.bare`, `.center`, `.middle`, `.top`, `.blocks-left`, `.blocks-center`,
+  `.wrap-none`, `.wrap-balance`; anything else is an `unknown class` error.
+  `.bare`, `.center`, `.middle` and `.top` are not legal on a `title` or `closing`
+  chunk, where the cover composition decides all four questions; the four
+  `style:` classes are, and
   `.wrap-none` on a cover breaks its title greedily.
 - IDs unique across the file, and frozen once authored.
 - `::: flip` requires an enclosing `::: side`.

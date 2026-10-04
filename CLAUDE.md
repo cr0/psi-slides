@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 psi-slides is a **lecture medium**: one Markdown `source.md` per lecture produces four static HTML views – `print.html` (document), `print-notes.html` (document + speaker notes), `audience.html` (live projection), `speaker.html` (cockpit). All four are self-contained, `file://`-openable, no runtime server required.
 
-Status: released, 1.0.0, one maintainer, no test suite. **From 1.0.0 the source format is the interface** – a change that stops an existing `source.md` from building the same way is a major version. The internals carry no such promise. The `lectures/` folder holds the canonical examples of what the tool supports; the design rationale is in `PRD.md`. A separate content repo `../psi-slides-mylectures/` consumes this engine via `node ../psi-slides/build.js` and holds the lectures actively being authored.
+Status: released, 2.0.0, one maintainer. **From 1.0.0 the source format is the interface** – a change that stops an existing `source.md` from building the same way is a major version. The internals carry no such promise. The `lectures/` folder holds the canonical examples of what the tool supports; the design rationale is in `PRD.md`. A separate content repo `../psi-slides-mylectures/` consumes this engine via `node ../psi-slides/build.js` and holds the lectures actively being authored.
 
 ## Commands
 
@@ -17,6 +17,12 @@ npm install
 # build all four views next to source.md
 node build.js lectures/tutorial/source.md
 
+# rebuild the three lectures whose views are tracked (tutorial, diagrams,
+# decoration) exactly as release.yml checks them: with --no-optimize-images,
+# because an inlined PNG otherwise becomes whatever WebP the local cwebp or
+# magick makes, and the release runner has neither
+npm run build:tracked
+
 # live-reload authoring (WebSocket reload to open tabs on every save)
 node build.js lectures/tutorial/source.md --watch
 
@@ -25,8 +31,10 @@ node build.js lectures/tutorial/source.md --watch
 # build-success (carrying `stats`, the six figures lectureStats counts, and
 # `sourceModifiedMs`), build-error, watching, serving, changed (carrying
 # `modifiedMs`), patch, asset,
-# watch-error – and commands on stdin, {"type":"rebuild"} and
-# {"type":"auto","enabled":false}. The human log is untouched beside it; a
+# watch-error, prompter (under --prompter only, one per transition of the
+# live prompter) – and commands on stdin, {"type":"rebuild"},
+# {"type":"auto","enabled":false} and {"type":"prompter","enabled":false}.
+# The human log is untouched beside it; a
 # driver tells the two apart by the leading `{"type":`. Without the flag,
 # stdin is not read at all.
 node build.js <source.md> --watch --events
@@ -54,18 +62,34 @@ node build.js <source.md> --no-optimize-images  # inline the original bytes
 # shrink assets that blow the per-image cap: converts referenced PNG/JPEG to
 # WebP q92 in place, replacing the originals and rewriting explicit-path refs
 # in source.md – the markdown `](path)` form and the bare token a ::: draw
-# `image` statement carries, fenced code skipped (shorthand `![](fig-id)`
-# refs need no edit). Needs cwebp or magick on PATH; measured 12-18% of the
-# original on real lecture assets.
+# `image`, a ::: backdrop, a `cover-image:` or a `closing-image:` carries,
+# fenced code skipped (shorthand `![](fig-id)` refs need no edit). It sees
+# every reference the build inlines, through one collector the inline-cap scan
+# shares (`collectMarkdownImageRefs` for every Markdown spelling – inline,
+# angle-bracket, reference – and `collectDecorationImageRefs`, guarded by the
+# `image-refs` gate) –
+# before that a deck whose only oversized assets were a backdrop and a cover
+# photograph was refused by the build and told "nothing to do" by the verb
+# that refusal recommends. Needs cwebp or magick on PATH; measured 12-18% of
+# the original on real lecture assets.
+#
+# **A photograph that q92 alone does not bring under the 2 MB cap is
+# downscaled to 2560 px wide and re-encoded**, and the report says so per
+# asset; still over after that, it names the size and the --max-width N to try
+# next. A .webp is not a conversion candidate – it is already WebP – except
+# when it is over the cap, where it is re-encoded onto itself at that width.
 node build.js <source.md> --optimize-images --dry-run   # report, write nothing
 node build.js <source.md> --optimize-images              # apply (assets >= 512 KB)
 node build.js <source.md> --optimize-images --all        # every referenced raster
-node build.js <source.md> --optimize-images --max-width 2600   # also downscale
+node build.js <source.md> --optimize-images --max-width 2600   # cap every width
 
 # diagrams need no flag either: a ::: draw block compiles to inline SVG
 # at build time, and its `step` blocks become beats on the reveal counter.
-# The opener is `::: draw [WxH] [autoplay N [cycle]]` - the grid positional,
-# playback as keywords, no braces (braces hold sigil tokens only, everywhere).
+# The opener is `::: draw [WxH] [frame WxH|none] [autoplay N [cycle]]` - the
+# grid positional, the canvas and playback as keywords after it, no braces
+# (braces hold sigil tokens only, everywhere). Every figure in a chunk body is
+# laid out on a canvas the size of the slide's own figure box; `frame` is how
+# one figure or one deck says otherwise.
 # See the `psi-slides-figures` skill and lectures/diagrams/source.md.
 # The graphical editor for those blocks ships into the live views whenever
 # the lecture has one; `editor: none` in the frontmatter declines it, and
@@ -94,6 +118,94 @@ node build.js <source.md> --serve                 # build once, then serve
 node build.js <source.md> --serve --port 8080     # fixed port (default: free one)
 node build.js <source.md> --watch --serve         # live reload over http
 
+# a PDF slide deck – one page per presentation state, printed from the
+# audience view by a headless Chromium. The fallback for a room where the
+# HTML will not run, and a deck to hand on; it does not replace print.html,
+# which is a document. Needs a browser (playwright-core is an *optional*
+# dependency, so a checkout without it builds every HTML target and refuses
+# only the PDF flags, by name).
+#
+# --pdf-zoom=fit is the default and the reason: a chunk taller than the frame
+# is panned in the hall, and paper cannot pan, so auto-fit is the honest
+# translation. It is capped at PDF_FIT_CEILING (1.35, the runtime's own
+# default zoom) - the live view's 2.2 is right for a room and prints as type
+# jumping 3.7x between neighbouring pages. --pdf-zoom=<n> turns fitting off
+# and reports what runs off the page; measured, that costs 85% of
+# network-security's pages at 1.35, which is why it is an option and not the
+# default. --pdf-zoom-max moves the fit ceiling, because the two things an
+# author wants of it pull against each other: a low ceiling keeps the type even
+# across the deck, a high one fills each page. Measured on network-security
+# under --pdf-collapse=topic-bold, the median page fill is 85% at 1.35, 90% at
+# 1.6 and 92% at 2.2. --pdf-collapse overrides the lecture's own collapse for
+# the export -
+# a deck that opens in full prose exports the manuscript unless told otherwise,
+# and the two are different documents.
+node build.js <source.md> --slides-pdf                    # slides.pdf beside source.md
+node build.js <source.md> --slides-pdf --pdf-beats=final  # one page per chunk (default: all)
+node build.js <source.md> --slides-pdf --pdf-size=16:10   # 1600x1000 css px (default: 16:9)
+node build.js <source.md> --slides-pdf --pdf-zoom=1.2     # one zoom for every page
+node build.js <source.md> --slides-pdf --pdf-collapse=topic-bold   # slide text only
+node build.js <source.md> --slides-pdf --pdf-zoom-max=1.6 # let pages fill more
+node build.js <source.md> --slides-pdf --pdf-out=<path>
+
+# the two documents as PDF: print.html -> print.pdf, print-notes.html ->
+# print-notes.pdf, beside the source and named after the view. No state walk
+# and no options: the page is loaded, fonts and pictures awaited, and printed
+# on `print` media at the view's own @page (A4, its margins, its page number).
+# A ::: pulse question prints with its answer, as a reader's Cmd-P does. Any
+# of the three PDF flags combine and start Chromium once; each rebuilds the
+# view it prints and ignores the --*-only flags, because an export of a stale
+# view is worse than none. Every flag that would do nothing is refused by
+# name rather than ignored, as the --prompter-* ones are: a slide option
+# (--pdf-beats, --pdf-size, --pdf-zoom, --pdf-zoom-max, --pdf-collapse, the
+# hidden --pdf-dump-dom) without --slides-pdf – on a plain build too, where
+# it used to be silently dropped; --pdf-out without a PDF flag, and with more
+# than one, since it names one file; any PDF flag with --watch. All of them
+# refuse the network before the page loads – http(s) and ws(s), so a watch
+# build's reload socket cannot reload the page mid-export (a refused socket
+# to loopback is counted apart and not reported).
+node build.js <source.md> --print-pdf                     # print.pdf beside source.md
+node build.js <source.md> --print-notes-pdf               # print-notes.pdf
+node build.js <source.md> --slides-pdf --print-pdf --print-notes-pdf   # one browser
+
+# the live prompter, only together with --watch: the cockpit listens to the
+# room, a sidecar in Node sends the transcript plus the deck (speaker notes
+# included) to one model through OpenRouter, and at most twelve words come
+# back onto a strip in speaker.html - usually nothing. Shift-S in the cockpit
+# is the switch. OPENROUTER_API_KEY is required; without it the sidecar
+# starts disabled and only logs what it heard. OPENROUTER_BASE_URL points it
+# at another OpenAI-compatible endpoint (and is how the spec's fake is
+# reached). Cockpit-local throughout: no field of the sync snapshot moves and
+# the projection learns nothing of it. Chrome only (Web Speech). One log per
+# run, prompter-<YYYYMMDD-HHMM>.jsonl beside source.md, is the debrief:
+# every call, every hint, every hint the policy swallowed - and the spoken
+# words verbatim. Beside it, prompter-<prefix hash>.prompt.txt is the deck
+# as the model gets it, one file per build whose deck changed. This
+# repository's .gitignore covers both and nothing else, so a lecture living
+# in a content repo of its own needs the two patterns in that repo's
+# .gitignore; the sidecar prints the path and says so on start.
+# --prompter-model and --prompter-dry-run without --prompter are usage
+# errors, like --prompter without --watch: on their own they would build an
+# ordinary deck and say nothing. For the same reason a pre-rename
+# --souffleuse* flag is refused with its new name rather than ignored.
+# Vocabulary, protocol and failure modes: the `psi-slides-prompter` skill.
+node build.js <source.md> --watch --prompter
+node build.js <source.md> --watch --prompter --prompter-model MODEL_ID
+
+# the rehearsal mode: everything runs - the ear, the socket, the ticks, the
+# policy, the log - and the one call to the model is skipped and logged as
+# `answer {dryRun: true}`. It needs no OPENROUTER_API_KEY, so it is also the
+# way to read a tick message, with its state line and its window, on a
+# machine with no account.
+node build.js <source.md> --watch --prompter --prompter-dry-run
+
+# and the other half of a rehearsal: no watcher, no browser, no network.
+# Reads a finished run's JSONL back through today's parser and today's
+# policy and prints, per answer, what the model proposed and what the policy
+# would do with it now - which is how a threshold gets changed with evidence.
+# A log from before the rename, souffleuse-*.jsonl, is read the same way.
+node build.js <source.md> --prompter-replay prompter-YYYYMMDD-HHMM.jsonl
+
 # two questions only a rendered page can answer, so both drive the built
 # audience.html in a real browser with playwright-core and both degrade
 # rather than fail (no browser, or no playwright-core, says so and leaves the
@@ -104,6 +216,17 @@ node build.js <source.md> --watch --serve         # live reload over http
 # state at 1600x900 and reports any slide that fits the frame and is
 # positioned outside it. Exit 2 if one is; the density budgets are word
 # counts, so cards and rows overflow with a clean lint.
+# It also measures every figure's base label against the body type beside it
+# and reports the deck's spread in one line, naming any drawing that is
+# behind its own slide (under 0.8x, or under 18 px) – and, since the keynote
+# work, the deck's median settled body type with every slide whose figure took
+# it more than 15% under that, and – since the canvas – each figure's canvas
+# fill plus one line per figure giving its canvas, its drawing and the room
+# left per axis in base labels and in px, tightest axis first, with "past its canvas" or
+# "reads empty" riding that same line rather than a second one. Those are notes and
+# change no exit code; the static halves are the build's
+# `figure-overflows-canvas`, `figure-underfills-canvas` and
+# `figure-type-small`, all emitted once at the end of the parse.
 node build.js <source.md> --check-fit
 node build.js <source.md> --check-fit --viewport 1920x1080
 #
@@ -116,6 +239,16 @@ node build.js <source.md> --check-fit --viewport 1920x1080
 # the `psi-slides-authoring` skill.
 node build.js <source.md> --squint
 node build.js <source.md> --squint --squint-out -    # to stdout instead
+#
+# --frames writes every state of the projection as a PNG - one per press,
+# named by position, chunk id and beat - plus a contact sheet of eight per
+# page beside them, into frames/ next to the source (or into DIR). The sheet
+# is the thing to read: --check-fit is geometry against the frame and
+# --squint is text, and a deck goes wrong in ways neither asks about - type
+# that is 12 px on a 1600 px slide, a source line standing over the figure it
+# cites, a cell that swallowed its own class. Never fails a build.
+node build.js <source.md> --frames
+node build.js <source.md> --frames shots --viewport 1920x1080
 
 # static checks – run before committing
 node lint.js lectures/                         # all lectures
@@ -124,30 +257,50 @@ node lint.js lectures/ --strict                # warnings → exit 2
 
 # two test suites, split by one question: can this be decided without a
 # browser? test/gates/ is everything about the figure language and the {…}
-# tail grammar that can - eleven gates, under a second, no browser and no
-# `npm install` (diagram-core.mjs, tails.mjs and lint.js are all zero-dep).
+# tail grammar that can, plus the cue-card grammar, the prompter's policy and
+# the PDF export's - twenty-one gates, about three seconds, no browser and no
+# `npm install` (diagram-core.mjs, tails.mjs, cue-cards.mjs, souffleuse.mjs,
+# pdf-core.mjs, commands.mjs and lint.js are all zero-dep).
 # It is also where a hand-mirrored list one file keeps of another's belongs,
 # figures or not: `frontmatter` holds lint.js's KNOWN_FRONTMATTER_KEYS
-# against what build.js reads.
-# test/ is the things that only break in a built page - 34 specs, ~8 min,
-# one Chromium. `npm test` also runs test/reproducible.mjs, which needs
+# against what build.js reads, and `image-refs` holds the two readers of the
+# image-reference set against the one collector both go through.
+# test/ is the things that only break in a built page - 51 specs, ~12 min,
+# one Chromium; one of them, souffleuse, starts an engine of its own beside
+# that browser. `npm test` also runs test/reproducible.mjs, which needs
 # neither: it builds a lecture under a partial flag and under a full one and
 # asserts the shared view is the same bytes, because release.yml's
 # tracked-output check is only meaningful if a rebuild is a function of the
 # source alone.
-# `npm test` runs the gates first so a compiler regression fails in a second
-# rather than in four minutes; gates.yml runs them on push and PR.
+# `npm test` runs the gates first so a compiler regression fails in seconds
+# rather than in twelve minutes; gates.yml runs them on push and PR.
 #
-# Run the browser suite after touching AUDIENCE_JS, the key map, editor.mjs,
+# Run the browser suite after touching AUDIENCE_JS, the key map (commands.mjs, COMMAND_RUN), editor.mjs,
 # createSpanTable, or anything that moves a label or an extent. Anything
 # checkable without a browser belongs in lint.js or in test/gates/, never here.
 #
-# WHAT EACH GATE AND EACH SPEC FAMILY GUARDS, and the seven specs that build a
+# WHAT EACH GATE AND EACH SPEC FAMILY GUARDS, and the twenty specs that build a
 # deck of their own rather than hunting shapes in a real one: test/README.md.
 npm run gate                                   # all gates
 node test/gates/run.mjs semantics              # gates whose name matches
 node test/run.mjs                              # all specs
 node test/run.mjs nav                          # specs whose name matches
+
+# the PDF export, in the shape of test/settings.mjs and not of a spec: it
+# writes its fixtures into $TMPDIR, spawns build.js, and reads back the PDFs
+# and a dump of the slide export's print DOM (`--pdf-dump-dom=<path>`,
+# hidden, only for this and the desktop parity step).
+# It drives no browser and never imports playwright-core - Chromium runs in
+# build.js's subprocess - so the whole DOM half is text search in Node. Sits
+# between settings.mjs and the browser suite in `npm test`: it cannot pass
+# without a findable browser, so it goes after the checks that need none, and
+# it takes seconds rather than minutes, so it goes before the ones that do.
+# 139 assertions, including all four promised diagnostics, the page count of
+# the *file* rather than of the wrappers, the two documents (A4, the note in
+# print-notes.pdf and not in print.pdf, a fragment link that still resolves,
+# ::: pulse answers printed), the refusals, and one browser for three PDFs.
+node test/pdf-export.mjs                       # or npm run pdf
+PSI_PDF_KEEP=1 node test/pdf-export.mjs        # leave the fixture in $TMPDIR
 
 # project site (GitHub Pages). Assembling it also runs its two gates: every
 # link on every page it writes resolves (fragments included), and index.de.html
@@ -183,7 +336,7 @@ stylesheets plus the rig plus the Chromium that drew it; the trigger to
 re-shoot, the threshold for bothering, and the reason `refresh-figures --check`
 drifts whenever `img/editor.webp` moves are written out beside the shot table.
 
-A source file can silence specific lint warnings with an HTML comment anywhere in the body:
+A source file can silence specific lint warnings (never an error) with an HTML comment anywhere in the body:
 
 ```
 <!-- linter: ignore reveal-overuse, density -->
@@ -193,16 +346,73 @@ A source file can silence specific lint warnings with an HTML comment anywhere i
 
 ### Single-file build pipeline
 
-`build.js` holds the entire rendering stack: parser, three renderers, inlined audience/speaker runtime JS, inlined audience/speaker/print CSS, Shiki highlighter, image-shorthand resolver, WebSocket watch server, and the CLI. It is deliberately one file, and a large one – roughly two thirds of it is the embedded CSS and runtime JS, so the Node-side build logic is much smaller than the file size suggests.
+`build.js` holds the entire rendering stack: parser, three renderers, inlined audience/speaker/print runtime JS, inlined audience/speaker/print CSS, Shiki highlighter, image-shorthand resolver, WebSocket watch server, and the CLI. It is deliberately one file, and a large one – roughly two thirds of it is the embedded CSS and runtime JS, so the Node-side build logic is much smaller than the file size suggests.
 
-**`diagram-core.mjs` is the one documented exception** (with `tails.mjs`, the tail grammar shared with `lint.js`, as a much smaller second – see *lint.js is independent* below), and the reason is narrow: the graphical editor answers a drag by rewriting the source and re-running the compiler *in the browser*, so exactly one text has to compile a diagram in Node and in the page. Two copies of a 6,500-line compiler is not a duplication anyone can maintain. The file is pure JS with **zero imports and zero Node APIs**; the four leaves that were Node-only (asset resolution, aspect reading, the warning sink, `escapeHtml`) plus a fifth (`assetMarkup`, which splices a vector file inline) are injected by `createDiagramCompiler({…})`. build.js keeps those leaves, the diagram CSS and the step runtime. The move also *removes* a duplication: `lint.js` imports the vocabulary tables instead of mirroring them by hand – tables only, never a function, or the whole compiler comes in behind it and the linter stops being runnable without the Markdown/Shiki stack. See `editor.md` §8.1.
+**`diagram-core.mjs` is the first documented exception** (with `tails.mjs`, the tail grammar shared with `lint.js`, as a much smaller companion – see *lint.js is independent* below), and the reason is narrow: the graphical editor answers a drag by rewriting the source and re-running the compiler *in the browser*, so exactly one text has to compile a diagram in Node and in the page. Two copies of a 6,500-line compiler is not a duplication anyone can maintain. The file is pure JS with **zero imports and zero Node APIs**; the four leaves that were Node-only (asset resolution, aspect reading, the warning sink, `escapeHtml`) plus a fifth (`assetMarkup`, which splices a vector file inline) are injected by `createDiagramCompiler({…})`. build.js keeps those leaves, the diagram CSS and the step runtime. The move also *removes* a duplication: `lint.js` imports the vocabulary tables instead of mirroring them by hand – tables only, never a function, or the whole compiler comes in behind it and the linter stops being runnable without the Markdown/Shiki stack. See `editor.md` §8.1.
+
+**`pdf-export.mjs` is the other exception**, and the reason is a different one:
+it imports `playwright-core`, and `build.js` must keep building HTML on an
+install that has no browser binding at all. So `playwright-core` is an
+**optional** dependency, and `build.js` reaches the module through one
+`await import()` behind the three PDF flags. **What is left in it is
+mechanism**: `findChrome` (via `chrome-path.mjs`), one `chromium.launch` for
+every PDF of the run, the driver contract written in Playwright calls, the file
+written under a fresh name and renamed into place, and the report printed where
+it has always been printed.
+
+**The export's policy is `pdf-core.mjs`, the fifth zero-import, zero-Node-API
+module**, and the reason is the one `souffleuse.mjs` has plus a second driver:
+the desktop app prints the same three PDFs through Electron's own Chromium
+(`desktop/main/pdf.js`, `webContents` plus `webContents.debugger`), so what
+decides a page cannot live beside either browser binding. It holds `PDF_SIZES`,
+`PDF_FIT_CEILING`, the value checks (`resolvePdfOptions`, which `build.js`
+imports statically so both callers refuse in the same words, and which is why
+the file is on `stage-engine.mjs`'s list), `PDF_CSS`, the in-page functions,
+`exportSlides`, `exportDocument` and `formatReport` – which states become
+pages, what leaves the clone, what the print DOM is, every diagnostic, and
+**the order in which a driver is asked for anything**. A driver is `open({w, h,
+onBlocked, onPageError})` returning a page (`load`, `waitFor`, `evaluate`,
+`pdf`, `close`) plus `version`, `where` and `close`; it decides nothing, so it
+cannot get the order wrong, and the `pdf-core` gate holds that order with a
+fake driver that records its calls. The app therefore carries no
+playwright-core and `--omit=optional` in `stage-engine.mjs` stays.
+
+The order of the beats stays in `AUDIENCE_JS`, where it has always had its one
+definition; the slide export calls it through `window.psiExport`, eleven
+members of mechanism that ship in the two live views and change no behaviour –
+the last, `fitMeasure(el, zooms)`, hands parity the fit's own heights and limit
+so pdf-core never reads a runtime name directly. That is what
+makes the export unable to be wrong about the order – it can only be wrong
+about the rendering. Three things are load-bearing and none should be traded
+away: auto-fit is forced on regardless of the frontmatter (a chunk taller than
+the frame is *panned* in the hall, and paper cannot pan); the network – http(s)
+and ws(s) – is refused inside `open()`, **before** the first load, because
+`jumpTo` → `applyState` → `updateEmbedLoading` sets `iframe.src` and
+`wireEmbeds` only intercepts YouTube under `file://`, and because the app
+exports watch builds, whose reload socket would reload the page mid-walk on a
+save; and the print DOM is built by **inclusion**, so the eleven `position:
+fixed` chrome elements vanish without a strike list – in a paginated document
+a missed one repeats on every page. The document export is the short path:
+load, wait for fonts, open any `::: pulse` answer the widget left folded,
+decode the pictures, print on `print` media at the view's own `@page`; the page
+count is read out of the PDF's bytes (`pdfFacts`), because no DOM knows a
+document's pagination. The plan and its decisions per stage are in
+`docs/history/PLAN-desktop-pdf-export.md`.
+
+**“Souffleuse” is the live prompter's internal codename.** Every name an author types says *prompter* – the four `--prompter*` flags, the `prompter:` frontmatter block, the `prompter-*.jsonl` / `prompter-*.prompt.txt` files, the `prompter` `--events` type and the `unknown-prompter-setting` lint code – while the codename survives in file and identifier names nobody types: `souffleuse.mjs`, `SOUFFLEUSE_*`, `createSouffleuse`, the `souffleuse-*` socket messages and storage keys, the `psiINT-souffleuse-*` cockpit ids, and the two test files.
+
+**`souffleuse.mjs` is the fourth zero-dep module, and the one that never reaches a page** (`pdf-core.mjs`, the fifth, reaches one only as functions a driver hands to the browser). The other three (`diagram-core.mjs`, `tails.mjs`, `cue-cards.mjs`) are spliced into an output as text because one text has to run in Node *and* in the browser. The live prompter's pure half runs in Node alone – the deck payload, the system prefix, the tick message, the answer parser, the drift arithmetic and the restraint policy – and `build.js` imports it **dynamically, inside `createSouffleuse`**, so a build without `--prompter` never reads the file and nothing here has to survive a template literal. It is kept zero-import and zero-Node-API anyway, for the reason the gates are fast: `test/gates/souffleuse.mjs` decides every row of the policy – twelve words, one hint at a time, the cool-downs, the opening quiet – in milliseconds, without a key, a socket or a microphone, and restraint is the one requirement no rehearsal can show you. `notesToCards` is injected rather than imported (`deckPayload(lecture, {notesToCards})`), the way `createDiagramCompiler({…})` takes its Node leaves. **The desktop app is untouched in v1** – `desktop/scripts/stage-engine.mjs`'s file list is unchanged, because the packaged app has no network entitlement and never passes the flag. If it ever grows the feature, three things move in one commit: `souffleuse.mjs` onto that list, a reducer arm for the `prompter` `--events` type in `desktop/main/builder.js`, and the entitlement plus a rewrite of the three published sentences promising that nothing leaves the machine.
+
+**The sidecar is one socket and nothing else.** `createSouffleuse` (section `// ── souffleuse (--prompter) ──`) holds the deck, the cockpit's clock and the transcript, calls one model when there is an occasion, and whispers back; the cockpit reaches it over the **existing** nonce-guarded watch socket, so the `souffleuse-*` family rides the same `<type>-result` pairing a patch does. One direction is new – the server may speak first, through `psiWatch.on(type, fn)`, the listener map consulted *after* the pairing, never instead of it. Hints and the prompter's cards are cockpit-local exactly like the cue cards: not one field of `snapshot()` moves, so a full `applyRemoteState` cannot drag them across and the projection stays ignorant. The key is read from `OPENROUTER_API_KEY` in Node and stays there – `test/souffleuse.mjs` asserts that a built `speaker.html` never contains the string `OPENROUTER`, an assertion that has already caught a *comment* inside `SPEAKER_JS` quoting a badge text. `--prompter` without `--watch` is a usage error, because that socket is the only channel there is, and `--prompter-model` without `--prompter` is one too. **The cockpit's half is `SOUFFLEUSE_CSS` and `SOUFFLEUSE_JS`, two literals spliced into `speaker.html` only under the flag** – into the *same* `<style>` and `<script>` the cockpit's own CSS and JS are in, because the runtime lives in `SPEAKER_JS`'s lexical scope. They used to be part of those two constants, which put 36 KB of prompter into every cockpit ever built; what an ordinary `speaker.html` still carries is one `const SOUFFLEUSE = null`, the `souffleuseCues` Map the cue rail is drawn from, the `viewHooks.escapePrompter` default the projection has as well, and a `prompter` entry in the command table with no run function behind it, so `Shift`-`S` is spent on nothing.
+
+**`commands.mjs` is the sixth zero-dep module, and the one place a key is bound.** One entry per row of the `?` panel: a *command* has `keys` and is dispatched, a *doc row* has none (a mouse gesture, or a key answered by a guard before the lookup – the overview board, the search field, a focused figure, the editor). `helpGroups` lists a view's commands first, section by section, and every doc row (and `?` itself) after them as a muted reference, so the palette's arrows, which walk the runnable rows, never pass over one they cannot select; there is no shared row any more (`Shift`-`C F A L` is four lines). `renderHelpOverlay` renders its rows through `helpGroups(view, {editor, prompter})`; the same text is spliced into both live views as `window.PSI_COMMANDS`, the `cue-cards.mjs` treatment, and the keydown listener in `AUDIENCE_JS` ends in `commandFor(keyMap(VIEW), e)` → `COMMAND_RUN[id](e)`. Each run function is the body of the `case` it replaced; `SPEAKER_JS` and `SOUFFLEUSE_JS` add the cockpit's commands by assigning into `COMMAND_RUN`, the way they set `viewHooks`. **The listener's head stays code** – text fields, the panel's and the search's own keys, the link mark, any Cmd/Ctrl/Alt chord, the go-to prompt, the overview board's arrows – because those are rules about *where* a key is pressed, not about what a command is; so does the editor's `E` and everything under `dgeKeydown`, a modal that runs in capture ahead of the map. **A shifted press with no binding of its own falls back to the plain key**, which is what the switch's `case 'b': case 'B':` meant: `Shift`-`B` blanks, and `?` and `#`, which arrive with Shift held, reach their commands. The module asserts at load that no key is bound twice in one view; the `commands` gate holds a fixture of every press the switch answered, a run function for every command a view answers, and a row for every key – see `test/README.md`. **The `?` panel is also the command palette in both views**: `Cmd`/`Ctrl`-`K` is answered at the listener's head, ahead of the chord guard, and a row `runsFromPanel` allows runs through `runCommand(id)` – `COMMAND_RUN[id]` with an event shaped like its first key, never a second code path. With text in the field the panel shows a ranked list instead (`paletteScore`), in which a row that lists several commands is one runnable line per command. The same helper runs the projection's start menu (`START_MENU`, `renderStartMenu`, audience only, opening by itself only before the talk starts and folding to a `›` beside the `?` circle that opens it again; probes set `window.PSI_NO_START_MENU`).
 
 Navigate build.js by the `// ── section ──` banners – `grep -n '^// ── ' build.js`
-lists all forty in order, which is the map that cannot go stale. Two of them carry
+lists all seventy-one in order, which is the map that cannot go stale. Two of them carry
 a decision the name does not:
 
 - `// ── math (KaTeX, rendered at build time) ──` – the family→class map is **parsed out of `katex.min.css`** (`node_modules/katex/dist/`, reached with `nodeRequire.resolve`), never hard-coded, so it survives a KaTeX upgrade; and the stylesheet is emitted only for views that actually contain a formula, because the inlined woff2 faces are 254 KB for the full set. The live views additionally carry `KATEX_TOGGLE_FAMS` (sans + typewriter, ~46 KB) so the maths can follow the `F` toggle; print passes no `fontToggle` flag and pays nothing extra.
-- `// ── audience rendering ──` – `renderHelpOverlay(view)` generates the `?` cheat sheet for **both** live views from one data structure – edit labels there, not in the per-view HTML.
+- `// ── audience rendering ──` – `renderHelpOverlay(view)` generates the `?` cheat sheet for **both** live views from `commands.mjs` – edit labels there, not in the per-view HTML. **Every key the key map answers has a row there**, held by the `commands` gate: a key is bound by an entry that is also its row, and a key a guard answers in code is a doc row in the same commit, or an entry with a reason on that gate's `NOT_A_ROW` list. The search field at the panel's head is shielded from the key map by the listener's input guard; its placeholder and empty line are `STRINGS` keys, the rows stay English.
 
 ### Parser
 
@@ -210,24 +420,24 @@ a decision the name does not:
 
 Design implications:
 
-- A line that is exactly `---` inside a chunk body but **outside a code fence** is a reveal-segment separator, not a thematic break. `***` is available if an author needs a true horizontal rule. **At the top level it splits the body into `.reveal-segment` divs; below it – inside a `::: side` pane, a captured `::: cards` / `::: rows` body, an `::: overlay` card or a divider's body – it becomes `BEAT_MARK`, an empty `.beat-mark` div, because a wrapper cannot straddle two segments.** `chunkBeats` in `AUDIENCE_JS` reads segments, diagram steps and markers in one document-order walk, so nested beats interleave with top-level ones in source order; a marker inside an `.overlay-card[data-from]` carries `at` and counts from the card's own `from`. The elements a marker governs get `data-beat-hidden`, which is `visibility: hidden` at three classes of specificity – **not** `display: none`: a nested beat keeps its box so the pane, the row or the card row stands at its final height from beat 0 and the slide does not jump per press, while a top-level segment still closes up. Print hides only the marker. `::: expand` keeps the `<hr>` – its body is off the projection.
-- `::: expand <label>` and `::: footnote` / `::: marginalia` become separate nodes attached to the chunk (`::: margin` is the older spelling of `::: footnote`, still accepted and documented nowhere); `::: cols N`, `::: side` / `::: flip`, `::: slide` / `::: script` are layout wrappers that stay inline in the body as `<div>`/`<aside>` elements and let `marked`'s html-block passthrough render the inner Markdown.
+- A line that is exactly `---` inside a chunk body but **outside a code fence** is a reveal-segment separator, not a thematic break. `***` is available if an author needs a true horizontal rule. **At the top level it splits the body into `.reveal-segment` divs; below it – inside a `::: side` pane, a captured `::: cards` / `::: rows` body, an `::: overlay` card or a divider's body – it becomes `BEAT_MARK`, an empty `.beat-mark` div, because a wrapper cannot straddle two segments.** `chunkBeats` in `AUDIENCE_JS` reads segments, diagram steps and markers in one document-order walk, so nested beats interleave with top-level ones in source order; a marker inside an `.overlay-card[data-from]` carries `at` and counts from the card's own `from`. The elements a marker governs get `data-beat-hidden`, which is `visibility: hidden` at three classes of specificity – **not** `display: none`: a nested beat keeps its box so the pane, the row or the card row stands at its final height from beat 0 and the slide does not jump per press – and a top-level segment does the same (`.reveal-segment[data-hidden]` is `visibility: hidden` too), so a reveal marker means one thing at any depth. Print hides only the marker. `::: expand` keeps the `<hr>` – its body is off the projection. **Every `---` is a beat: the source's count of separators is the deck's count of clicks** (`segmentsKept`, mirrored in `lint.js`). A segment with nothing between two separators ships all the same, as `.reveal-segment[data-empty]`, because an author writes one on purpose – the slide stands while the speaker says the next thing, a `::: footnote` written under it arrives with it, a backdrop's reveal moves to its next place, an overlay held by `from` comes up. `chunkBeats` already counted every rendered segment but the first, so nothing in the runtime had to change; the CSS is what did, because an empty box must take no block gap of its own. Two shapes are not a `---` and keep the old answer: a chunk with no separator and an empty body ships no segment, and a `title:` / `closing:` chunk is drawn from `body` with no segments at all. What `lint.js` reports is `empty-beat` – a `---` whose segment paints nothing *and* has nothing riding it: no aside written in it, no note filed on it, no backdrop place for the beat, nothing held to it by `from`. That is a press on which nothing whatever happens.
+- `::: expand <label>` and `::: footnote` / `::: marginalia` become separate nodes attached to the chunk (`::: margin` is the older spelling of `::: footnote`, still accepted and documented nowhere); `::: cols N`, `::: side` / `::: flip`, `::: slide` / `::: script` are layout wrappers that stay inline in the body as `<div>`/`<aside>` elements and let `marked`'s html-block passthrough render the inner Markdown. **A `::: footnote` remembers which reveal segment it was written in and arrives with it.** Lifted out of the body it can carry no `BEAT_MARK` – a marker governs the element siblings after it inside one parent, and the aside has left that parent – so `segmentIndexer` resolves the position it stood at into an index among the segments the renderer ships, the aside carries it as `data-seg`, and `applyReveal` mirrors that segment's own visibility onto it. It rides the segment rather than a beat number because the two are not the same count: a diagram step between two segments is a beat, so the second segment's number is not its index. It adds no beat, so `countSegments` knows nothing about it; written before the first `---`, `data-seg` is not emitted at all and the output is byte-identical to before.
 - `::: slide` / `::: script` are the **explicit slide-content** escape hatch from topic-sentence extraction (PRD §4.5). They add no runtime state and no sync field: the parser emits `.slide-explicit` / `.script-only` wrappers and the whole mode is CSS (`:has()` rules under `[data-collapse=topic-bold]`), plus a `closest()` guard in `splitSentencesIn` so explicit blocks are never abridged. The hiding selector must match at any depth (`*:not(.slide-explicit):not(:has(.slide-explicit)):not(.slide-explicit *)`) – matching only `.reveal-segment > *` breaks as soon as a `::: slide` sits inside a `::: side` or `::: cols` wrapper.
 - `::: cols N` **folds to a single column while collapsed** (`[data-collapse=topic-bold] .cols-2, .cols-3 { column-count: 1 }`). Collapsed content is one topic sentence per paragraph, and `.cols > *` sets `break-inside: avoid`, so the browser can only balance in whole paragraphs – a one-line and a five-line paragraph land as a stub beside a wall of text, and two short ones as two stubs with the full gutter between them. Print and the un-collapsed reading mode keep the author's columns, where there is enough content to balance.
-- Speaker notes are blockquotes whose first line matches `note:` exactly; they attach to the current chunk (or to the next one if they precede the first chunk).
+- Speaker notes are blockquotes whose first line matches `note:` exactly; they attach to the current chunk, to the **divider** when they stand under a `#` heading before the first `##` (a divider is a slide the speaker talks on, and `col.speakerNotes` is where they ride), or to the next chunk when they precede the first heading of all.
 
 ### lint.js is independent
 
-`lint.js` is a **zero-dep** linter – nothing from `node_modules`, so it runs as a pre-commit gate without the Markdown/Shiki stack. It deliberately does not import anything from `build.js`; it re-implements the parsing contract and mirrors the constants (`VALID_TAGS`, `DENSITY_BUDGET`, `VIEW_DEFAULTS`). When you change the parser vocabulary in `build.js`, update `lint.js` in the same commit – the duplication is the price paid for keeping the linter runnable without the Markdown/Shiki stack.
+`lint.js` is a **zero-dep** linter – nothing from `node_modules`, so it runs as a pre-commit gate without the Markdown/Shiki stack. It deliberately does not import anything from `build.js`; it re-implements the parsing contract and mirrors the constants (`VALID_TAGS`, `DENSITY_BUDGET`, `VIEW_DEFAULTS` for `VIEW_DEFAULT_SPEC`, `STYLE_ENUMS` / `STYLE_NUM_SPEC` for `STYLE_SPEC`, `STYLE_KEYS_REMOVED`, `IDENTITY_KEYS` for `IDENTITY_SPEC`, `ACTIVITY_KINDS`, `KNOWN_FRONTMATTER_KEYS`; the font-stack tails, the theme names and `ICON_RE` are mirrored inline). When you change the parser vocabulary in `build.js`, update `lint.js` in the same commit – the duplication is the price paid for keeping the linter runnable without the Markdown/Shiki stack.
 
-**Two exceptions to that no-imports rule, and both are the same kind of file.** The **diagram vocabulary** is imported from `diagram-core.mjs`, which has no dependencies of its own, so importing it costs nothing this file was protecting and removes every table that used to have to change in two places in one commit. **Tables only.** A function from that module would pull the whole compiler in behind it – with the one bend recorded in the `psi-slides-figures` skill, for rules that ARE the vocabulary. The **`{…}` tail grammar and the `::: draw` opener** are imported from `tails.mjs`: zero dependencies, under 400 lines, the slot tables (`CHUNK_SLOTS`, `CARDS_SLOTS`, `OVERLAY_SLOTS`, `BACKDROP_SLOTS`, `SIDE_SLOTS`) plus `splitTail`, `parseTail`, `parseDrawOpener` and `formatDrawOpener`, and nothing behind them – so the concern the tables-only rule guards against does not arise, and both files read every tail through one parser. Before it existed the grammar was implemented four times and lint.js reported the same refusal under six codes. `parseTail` never throws; it returns `problems: [{code, msg}]` under four codes – `stray-attribute`, `unknown-class`, `same-slot`, `multiple-ids` – and build.js throws the first as a `userFacing` error while lint.js reports each. **The four `::: draw` refusals live in the `psi-slides-figures` skill**, with the reasoning each one encodes.
+**Two exceptions to that no-imports rule, and both are the same kind of file.** (The code-fence rule is a third import from `tails.mjs`: `fenceTracker`, CommonMark's fence – backticks or tildes, three or more, at most three spaces in, closed by the same run or longer – and every fence-aware reader in both files goes through it; the `tails` gate fails on a hand-written fence regex in either.) The **diagram vocabulary** is imported from `diagram-core.mjs`, which has no dependencies of its own, so importing it costs nothing this file was protecting and removes every table that used to have to change in two places in one commit. **Tables only.** A function from that module would pull the whole compiler in behind it – with the one bend recorded in the `psi-slides-figures` skill, for rules that ARE the vocabulary. The **`{…}` tail grammar and the `::: draw` opener** are imported from `tails.mjs`: zero dependencies, under 400 lines, the slot tables (`CHUNK_SLOTS`, `COLUMN_SLOTS`, `CARDS_SLOTS`, `OVERLAY_SLOTS`, `BACKDROP_SLOTS`, `SIDE_SLOTS`) plus `splitTail`, `parseTail`, `parseDrawOpener` and `formatDrawOpener`, and nothing behind them – so the concern the tables-only rule guards against does not arise, and both files read every tail through one parser. Before it existed the grammar was implemented four times and lint.js reported the same refusal under six codes. `parseTail` never throws; it returns `problems: [{code, msg}]` under five codes – `stray-attribute`, `unknown-class`, `same-slot`, `multiple-ids`, `reserved-id` – and build.js throws the first as a `userFacing` error while lint.js reports each. A third file of the same kind, `colour.mjs` (the contrast arithmetic `identity:` measures with, zero dependencies, zero Node APIs), is imported by `build.js`, `lint.js` and the desktop engine stage. **The four `::: draw` refusals live in the `psi-slides-figures` skill**, with the reasoning each one encodes.
 
 Checks enforced:
 
 - Unknown type, unknown class (`unknown-class`, one code for a word from no slot of any `{…}` tail, the directive named in the message).
 - Duplicate or missing chunk IDs (required on every non-title chunk).
-- Unclosed `:::` directives and orphan `:::` closers.
-- Per-type word-count budgets (principle/question 80, definition 200, example 250, free 250, exercise 350; title/figure unlimited). Counted against the **on-screen** half only: the `::: slide` block if the chunk has one, otherwise everything outside `::: script`.
+- Unclosed `:::` directives and orphan `:::` closers, and a code fence still open at the end of the file (`unclosed-fence`). All three are build refusals too – a layout wrapper left open used to be closed silently by the build.
+- Per-type word-count budgets (outline 40, closing 60, principle/statement/question 80, definition 200, example 250, free 250, exercise 350; title/figure unlimited). Counted against the **on-screen** half only: the `::: slide` block if the chunk has one, otherwise everything outside `::: script`.
 - Duplicate `::: slide` / `::: script` blocks in one chunk (warning).
 - **What may open inside what.** Ten refusals the build mirrors line for line
   (`aside-in-layout`, `overlay-in-layout`,
@@ -251,8 +461,7 @@ Checks enforced:
   the columns, a `::: cols` inside `::: overlay` drew an empty column block
   – and the corpus nests exactly one thing, a figure in a pane, so none of
   them costs an existing lecture a build.
-- Unknown value for a viewer-default frontmatter key (`unknown-view-default`, error), for a `style:` key (`unknown-style-setting`, error) or for an `identity:` key (`unknown-identity-setting` and `bad-identity-colour`, errors; `accent-contrast`, a warning that mirrors no refusal – it is the one case the build cannot fix, a bold phrase in prose set in an accent with no ground to reverse against). Both mirror a build refusal that now runs in the `buildOnce` pre-flight, so `--print-only` refuses a typo in `auto-fit` and `--audience-only` refuses one in `print-slide-numbers`.
-- Unknown value for a viewer-default frontmatter key (`unknown-view-default`, error) or for a `style:` key (`unknown-style-setting`, error). Both mirror a build refusal that now runs in the `buildOnce` pre-flight, so `--print-only` refuses a typo in `auto-fit` and `--audience-only` refuses one in `print-slide-numbers`.
+- Unknown value for a viewer-default frontmatter key (`unknown-view-default`, error), for a `style:` key (`unknown-style-setting`, error; `style: {neighbours}` is refused with a pointer to the top-level `neighbours:` key) or for an `identity:` key (`unknown-identity-setting` and `bad-identity-colour`, errors; `accent-contrast`, a warning that mirrors no refusal – it is the one case the build cannot fix, a bold phrase in prose set in an accent with no ground to reverse against). Both mirror a build refusal that now runs in the `buildOnce` pre-flight, so `--print-only` refuses a typo in `auto-fit` and `--audience-only` refuses one in `print-slide-numbers`.
 - `::: activity <kind>` – `bad-activity` for a kind the build does not draw, `activity-nested` for a box inside `::: cols`, `::: marginalia` or another box, and `cards-nested` for a card row inside one. The kinds are `ACTIVITY_KINDS` in `build.js`, mirrored by name and held by `test/gates/activity.mjs`.
 - Assets over the 2 MB inline cap (`oversized-asset`, warning) – the pre-commit gate for the single-file property.
 - Unclosed display math (`unclosed-math`, warning). Fence-aware. Inline `$…$` is deliberately not checked: a lone dollar in prose is legitimate and the build leaves it alone.
@@ -273,23 +482,125 @@ Checks enforced:
 - Orphan columns (columns with <2 chunks).
 - Figure caption redundancy (`figure:` chunk opens with an image whose alt text becomes a `<figcaption>` stacked under the heading – discourages three-label pile-ups of heading + sub-heading + caption).
 
-**`build.js` and `lint.js` are a deliberate duplication, and keeping them congruent is the work.** A code review over the decoration family found eight defects, seven of which were places the two disagreed – four in the direction that matters, where the build *accepted* what the linter refuses. That direction merges green, because CI lints `lectures/network-security` and `lectures/diagrams` but never builds them. **When you add a refusal to one file, grep the other for the same key in the same commit.** And when a rule already exists – a pre-flight, a fallback refusal for an unreadable directive – the question is not whether to write it but which other constructs are still missing from it.
+**`build.js` and `lint.js` are a deliberate duplication, and keeping them congruent is the work.** A code review over the decoration family found eight defects, seven of which were places the two disagreed – four in the direction that matters, where the build *accepted* what the linter refuses. That direction merges green, because `gates.yml`, the CI job that runs on every push, lints `lectures/network-security` and `lectures/diagrams` but builds neither; only `pages.yml` on `main` and `release.yml` on a tag build them. **When you add a refusal to one file, grep the other for the same key in the same commit.** And when a rule already exists – a pre-flight, a fallback refusal for an unreadable directive – the question is not whether to write it but which other constructs are still missing from it.
 
 ### Four outputs, three renderers, one source
 
-The four HTML files are **self-contained outputs**. They ship with their runtime JS/CSS inlined from build.js template literals, so they open from `file://` without a server. They are gitignored (`lectures/*/print.html`, `lectures/*/print-notes.html`, `lectures/*/audience.html`, `lectures/*/speaker.html`) – rebuild instead of committing them. Three lectures are the exception: `lectures/tutorial/`, so readers can browse the self-referential tour straight from the repo; `lectures/diagrams/`, the only place every `::: draw` construct is drawn rather than described; and `lectures/decoration/`, the only place the cover, divider, card, backdrop and overlay constructions are shown rather than described. Rebuild and commit all four views whenever one of the three sources changes – the release workflow fails if they are stale.
+The four HTML files are **self-contained outputs**. They ship with their runtime JS/CSS inlined from build.js template literals, so they open from `file://` without a server. They are gitignored (`lectures/*/print.html`, `lectures/*/print-notes.html`, `lectures/*/audience.html`, `lectures/*/speaker.html`) – rebuild instead of committing them. Three lectures are the exception: `lectures/tutorial/`, so readers can browse the self-referential tour straight from the repo; `lectures/diagrams/`, the only place every `::: draw` construct is drawn rather than described; and `lectures/decoration/`, the only place the cover, divider, card, backdrop and overlay constructions are shown rather than described. Rebuild them with `npm run build:tracked` and commit the tracked views (all four for the first two, `audience.html` and `print.html` for the third – see *Conventions*) whenever one of the three sources changes – the release workflow fails if they are stale. A bare `node build.js` is not the same command: it transcodes an inlined PNG to WebP with the local encoder, so its bytes depend on the machine.
 
 `print-notes.html` is a second pass through the print renderer with `withNotes: true`; it embeds each chunk's `> note:` text as a `.speaker-note` aside under the chunk so a printed hand-out can show “what was on the slide + what the lecturer said”. Layout, CSS, and asset inlining are otherwise identical to `print.html`.
 
-The audience↔speaker sync is cross-`file://`-origin safe because it uses `window.postMessage` over the opener relationship. Chrome's per-file opaque-origin policy isolates `BroadcastChannel` between tabs loaded from disk, which is why postMessage is the load-bearing channel. See `speaker.md` §2 for the full state-ownership matrix (audience is state root; speaker holds a local shadow plus a `frozen` flag). Four message families deliberately bypass the freeze gate because they are commands to the projector rather than shared state: `blank` (so `B` still works while frozen), `slide-ref` (the audience's window dimensions after a resize), `link-show` / `link-hide` (the address overlay) and `demo` with its three `demo-*` handshake messages (the live demo, `D`: the cockpit captures a window or screen with `getDisplayMedia` and the projection shows it – directly as the cockpit's `MediaStream` when both windows are one origin under `--serve`, through an `RTCPeerConnection` on loopback from `file://`; the `psi-slides-media` skill has the whole of it). Resist the urge to fold either back into the state snapshot – `applyRemoteState` is a *full* apply, so a snapshot sent for one field drags the receiver's slide position with it.
+The audience↔speaker sync is cross-`file://`-origin safe because it uses `window.postMessage` over the opener relationship. Chrome's per-file opaque-origin policy isolates `BroadcastChannel` between tabs loaded from disk, which is why postMessage is the load-bearing channel. See `speaker.md` §2 for the full state-ownership matrix (audience is state root; speaker holds a local shadow plus a `frozen` flag). Six message families deliberately bypass the freeze gate because they are commands to the projector rather than shared state: `blank` (so `B` still works while frozen), `slide-ref` (the audience's window dimensions after a resize), `link-show` / `link-hide` (the address overlay), `note-button` (the `M` key, which shows or hides the `+ note` affordance on the projection from either window), `fullscreen` (the `W` key – and the one command the projection cannot simply obey, because a browser grants `requestFullscreen` only to a gesture in the window that makes the call, so the cockpit's press *arms* the projection and one click there spends it; leaving needs no gesture at all, and speaker.md §2 has the measurement) and `demo` with its three `demo-*` handshake messages (the live demo, `D`: the cockpit captures a window or screen with `getDisplayMedia` and the projection shows it – directly as the cockpit's `MediaStream` when both windows are one origin under `--serve`, through an `RTCPeerConnection` on loopback from `file://`; the `psi-slides-media` skill has the whole of it). Resist the urge to fold either back into the state snapshot – `applyRemoteState` is a *full* apply, so a snapshot sent for one field drags the receiver's slide position with it.
+
+### The documents' reader tools
+
+`print.html` and `print-notes.html` are read on screen after the lecture, and
+**under `reader: on` (the default, the eleventh viewer-default key) they carry
+tools for that reader**: a contents sidebar that marks where they are,
+highlights with an optional note each (words of prose or of a code block; a
+whole figure, code block or formula; a pin on a spot in a figure, set in the
+lightbox), `n` / `p` through them, a Markdown export and import, and print –
+yellow, the notes numbered in the outer margin. **Documents only, and nothing
+to do with `> annot:`**: an annotation is the lecturer's, integrated into
+`source.md` and shown to everyone; a highlight is the reader's, kept in their
+browser and seen by nobody else. No shared code path, no shared word. The
+lightbox (`PRINT_JS`) is not a reader tool and ships either way; it knows
+nothing of highlights and talks to the reader half through `lb:*` events. The
+reader half is `PRINT_READER_JS`, `PRINT_HIGHLIGHTS_JS`, `READER_EARLY_JS` and
+the `body[data-reader=on]` blocks of `PRINT_CSS`; `reader: off` emits none of
+it. Its words are `reader-*` keys in `STRINGS`, so `labels:` reaches them.
+
+Three anchoring decisions are not guessable from the code:
+
+- **A text highlight is chunk id + offsets + quote, with 32 characters of
+  context either side**, measured in the chunk's *reader text*, which skips
+  speaker notes, the build's labels and numbers, figures, formulas and `pre`.
+  Skipping the speaker notes is what makes one entry valid in both documents.
+  A rebuild re-anchors by the quote, then whitespace-normalised; what it
+  cannot place is listed at the sidebar's foot and never dropped. Frozen ids
+  are why the chunk, not the document, is the anchor.
+- **Code is anchored in its own block's text** (`type: 'code'`), never in the
+  slide's: adding `pre` to the reader text would have moved every highlight
+  on a slide with code.
+- **A diagram pin stores the part's author-given name with the `psiINT-dg<N>-`
+  prefix stripped**, because `<N>` is a per-document counter that moves when
+  a figure is added above. A name that is gone falls back to the stored x/y
+  and the card says the spot is approximate.
+
+Storage is `localStorage` under `psi-reader:v1:<source folder name>@<hash>` –
+per lecture, not per file. The hash is of the *name* of the folder above
+(`readerStoreKey`), so two `week1/` lectures of two courses no longer share
+one `file://` store, the page names no folder beyond its own, and the tracked
+views stay the same bytes on any machine; the old name-only key is copied
+across once on first load and left in place. A lecture moved under another
+folder starts its readers on a new, empty store – the export is the way
+across. Measured from `file://`: Chrome and Safari share one
+store between the two documents, Firefox keeps one per file (the export
+carries highlights across); under `--serve` all three share. `test/reader.mjs`
+guards it on fixture decks of its own. The decisions and the browser
+measurements, slice by slice, are in `docs/history/PLAN-reader-highlights.md`.
+
+### A source.md someone sent you
+
+Building a deck must not do more than read it, and three rules in build.js's
+`// ── a source.md someone sent you ──` section keep that – each mirrored in
+`lint.js` and held by the `untrusted` gate and the matching block at the end of
+`test/settings.mjs`:
+
+- **Frontmatter is YAML only.** gray-matter picks a parser from the word after
+  the opening `---`, and `---js` is `eval`. **Call gray-matter only through
+  `safeMatter()`**, which refuses any other word and passes refusing engines as
+  a second layer; the gate fails on a bare `matter(` anywhere else.
+- **An asset is read from the lecture's folder or the folder one level up, links
+  resolved** (`assetEscape`, `assetRootOf`). One level up is the maintainer's
+  decision, so lectures side by side can share a picture folder – **except when
+  that folder is the home folder or a disk's top** (`assetRootNarrowed`), where
+  the root is the lecture's folder alone; and **never from a folder whose name
+  starts with a dot**, anywhere below the root; and **a link only when its
+  target is the kind of file its name says** (`assetKindOf`: picture, clip or
+  face), so `assets/pic.png -> contract.pdf` is refused inside the root too.
+  The home folder is a parameter
+  so the gate can inject it; a build reads `os.homedir()`, i.e. `$HOME`. **Any new
+  reader of a file the source names goes through `assetAllowed()`** (`identity: {logo}` through `resolveAssetUrl`, a `::: recall <path>#<id>` through `loadRecall` – the fork's two readers, neither with an exception), which
+  records a refusal instead of reading; `assertAssetsConfined()` throws after
+  rendering and before any view is written – after rather than in the
+  pre-flight because only the renderers know which `![](…)` is an image and
+  which is an example in a code span. The two resolvers outside `marked`
+  (`resolveAssetUrl`, `dgResolveImage`) throw at once, or their own "resolves
+  to no file" message would be what the author reads.
+- **An output never follows a link.** Write a whole file with
+  `writeOutputFile()` (a fresh name, then a rename over the target), append
+  with `appendOutputFile()` (O_NOFOLLOW), and make a folder the build writes
+  into with `outputDir()` (refused when it is a link). `--optimize-images`
+  touches only the lecture's own folder, and `magick` is told its decoder.
+
+**The processes a watch leaves running are reachable from any page in the
+browser, on loopback**, so they carry rules of their own (`runServe`,
+`runWatch`, `createSouffleuse`; exercised in `test/souffleuse.mjs`):
+
+- **`--serve` answers only to its own `Host`** (`serveHostAllowed`: localhost,
+  127.0.0.1 or [::1] with its port – DNS rebinding sends another name) and only
+  for `servePathAllowed` paths: a `SERVE_MIME` kind, no dot-name, no
+  `prompter-*` / `souffleuse-*`. `source.md` is not served: no view reads it.
+  **A view that starts fetching a new kind of file needs it in `SERVE_MIME`.**
+- **The watch socket checks Origin before the nonce** (`watchOriginAllowed`:
+  `null` / `file://`, or the served origin via `servedPort`), caps messages at
+  `WATCH_MAX_PAYLOAD`, and keeps an `error` listener on every socket – without
+  one, an oversized message killed the watcher. `build-failed` goes only to
+  sockets that showed the nonce (`hello` on open, or any valid message).
+  **The documents' `reloadScript` is `receiveOnly`**: no nonce, no `psiWatch`.
+- **The prompter's strings go through `redact` and, for the terminal,
+  `terminalSafe`**; its log and prompt file are `0o600`; `clampSpan`,
+  `SEGMENT_MAX_CHARS` and `prompter: {calls-per-hour}` bound what a page can
+  make it spend. The `psi-slides-prompter` skill has the detail.
 
 ### Asset inlining
 
 Image assets are inlined into the single-file outputs by default (auto-inline budget: 10 MB total, per-file cap 2 MB; `--inline-images` / `--no-inline-images` overrides).
 
-An asset over the per-file cap **fails the build**. It used to be a warning, and the output then shipped with an external path: correct on the machine that built it, broken figure anywhere the HTML travelled alone. `assertInlinable()` runs as a pre-flight in `buildOnce` before any rendering, so a failed build leaves no half-written artefact, and its message branches on what the author can actually do – convert (raster), install an encoder first (no cwebp/magick), or simplify by hand (oversized SVG, which `--optimize-images` cannot help with). The escape hatch is `--no-inline-images`, which is an explicit choice to ship external paths. `lint.js` keeps a matching `oversized-asset` warning (pure `fs.statSync`, still zero-dep) so the problem surfaces before the build too.
+An asset over the per-file cap **fails the build**. It used to be a warning, and the output then shipped with an external path: correct on the machine that built it, broken figure anywhere the HTML travelled alone. `assertInlinable()` runs as a pre-flight in `buildOnce` before any rendering, so a failed build leaves no half-written artefact, and its message branches on what the author can actually do – convert (PNG, JPEG **or an oversized WebP**, all three of which that verb now handles), install an encoder first (no cwebp/magick), or simplify by hand, which is left for the formats it cannot touch and in practice means an oversized SVG. "Simplify by hand" was written for a diagram and was the wrong advice for a photograph of a room. The escape hatch is `--no-inline-images`, which is an explicit choice to ship external paths. `lint.js` keeps a matching `oversized-asset` warning (pure `fs.statSync`, still zero-dep) so the problem surfaces before the build too.
 
-Errors of this kind set `err.userFacing = true`; the top-level handler prints the message without a stack trace, because a stack only buries the instructions. Reserve the flag for things the author must act on, never for defects in the build. Note what that verb deliberately does **not** do: it does not downscale by default. The offenders measured in the content repo were not oversized in pixels (the worst was 3.03 MB at exactly 1920×1080) and figure focus zooms to `FIG_MAX_SCALE` (8×), so a 3968px-wide diagram is high-resolution on purpose. WebP q92 alone gets those files to 12–18% of their original size. `--max-width` exists for real outliers and only ever shrinks – `cwebp -resize` would happily enlarge a narrower image, so `imageSize()` (a zero-dep PNG/JPEG header reader) gates it. Raster formats become base64 `data:` URIs in `<img>` tags. **SVG assets are spliced inline as `<svg>` elements** (not `data:` URIs) so they inherit page CSS custom properties – `--ink`, `--paper`, `--ink-soft` – and re-color when the user cycles themes with the `A` hotkey. To keep multiple inlined SVGs from cross-contaminating each other, the inliner gives every instance a unique `psi-fig-N-` prefix and rewrites `id="…"`, `url(#…)`, `href="#…"`, and `xlink:href="#…"` accordingly; inline `<style>` blocks are wrapped in `@scope (svg#psi-fig-N-root) { … }` (with `@import` and `@font-face` hoisted out so they remain at top level). See `inlineSvg()` in `build.js`.
+Errors of this kind set `err.userFacing = true`; the top-level handler prints the message without a stack trace, because a stack only buries the instructions. Reserve the flag for things the author must act on, never for defects in the build. Note what that verb deliberately does **not** do: it does not downscale by default. The offenders measured in the content repo were not oversized in pixels (the worst was 3.03 MB at exactly 1920×1080) and figure focus zooms to `FIG_MAX_SCALE` (8×), so a 3968px-wide diagram is high-resolution on purpose. WebP q92 alone gets those files to 12–18% of their original size. The one exception is the asset the build would otherwise still refuse: when q92 leaves a file over the per-image cap, it is re-encoded once more at `CAP_RESCUE_WIDTH` (2560 px), because the author is running the command precisely because the build refused the deck, and answering with a smaller file that is still refused is the same dead end in fewer megabytes. `--max-width` exists for real outliers and only ever shrinks – `cwebp -resize` would happily enlarge a narrower image, so `imageSize()` (a zero-dep PNG/JPEG header reader) gates it. Raster formats become base64 `data:` URIs in `<img>` tags. **SVG assets are spliced inline as `<svg>` elements** (not `data:` URIs) so they inherit page CSS custom properties – `--ink`, `--paper`, `--ink-soft` – and re-color when the user cycles themes with the `A` hotkey. To keep multiple inlined SVGs from cross-contaminating each other, the inliner gives every instance a unique `psiINT-fig-N-` prefix and rewrites `id="…"`, `url(#…)`, `href="#…"`, and `xlink:href="#…"` accordingly; inline `<style>` blocks are wrapped in `@scope (svg#psiINT-fig-N-root) { … }` (with `@import` and `@font-face` hoisted out so they remain at top level). See `inlineSvg()` in `build.js`.
 
 ### Authoring contract
 
@@ -299,16 +610,39 @@ A chunk can opt out of that derivation with `::: slide` (this block is the scree
 
 ### Chunk grammar
 
-Chunk grammar: `## type: Heading | Sub-Heading {.width #id}` where `type` is one of `title`, `closing`, `outline`, `principle`, `definition`, `example`, `question`, `figure`, `exercise`, `free`, and width is one of `narrow` (28em), `standard` (36em), `wide` (52em), `full` (72em). The `|` sub-heading and the `{...}` attribute tail are both optional; width defaults to `standard`.
+Chunk grammar: `## type: Heading | Sub-Heading {.width #id}` where `type` is one of `title`, `closing`, `outline`, `principle`, `statement`, `definition`, `example`, `question`, `figure`, `exercise`, `free`, and width is one of `narrow` (28em), `standard` (36em), `wide` (52em), `full` (72em). The `|` sub-heading and the `{...}` attribute tail are both optional; width defaults to `standard`.
 
-An attribute tail may also carry six non-width classes: `.bare` and `.center`
-(audience-only) and `.wrap-none` / `.wrap-balance` / `.blocks-left` /
+An attribute tail may also carry the non-width classes: `.bare`, `.center`
+and the pair `.middle` / `.top` (audience-only), `.wrap-none` / `.wrap-balance` /
+`.blocks-left` /
 `.blocks-center` (`CHUNK_STYLE_CLASSES`, a `style:` key answered for one chunk,
-and these four reach print). The whole tail vocabulary is `CHUNK_SLOTS` in
+and these four reach print), and `.figure-type-60` … `.figure-type-160`, the
+same idea for a key whose value is a number – eleven steps spelled as per cent,
+generated from `FIGURE_TYPE_STEPS`, live-only because the key is. The whole tail
+vocabulary is `CHUNK_SLOTS` in
 `tails.mjs`, a slot table like the five directives': width is a slot of four,
-each style key a slot of two, `.bare` and `.center` flags with no writable
-default. All six are refused on a `title` or
-`closing` chunk except the `style:` four. **The vocabulary, what each one costs,
+each style key a slot of its own words, `.bare` and `.center` flags with no
+writable default. All are refused on a `title` or
+`closing` chunk except the `style:` ones. **`.middle` / `.top` is read by the camera and
+not by the stylesheet**: `focusCamera` frames `paintedSpan(.chunk-content)`
+rather than the content box, so the beat that is on the slide is centred
+instead of the box the reveals will fill. Every chunk-content box is centred
+already, which is why the class is about what is *painted*; the cost it buys
+the centring with is a camera glide per press.
+
+**That pair is the one slot with no default at all, because the answer is read
+off the chunk's shape.** `CHUNK_SLOTS.anchor` resolves to `null` when neither
+word is written, and `chunkOpensCentred` in the parser then decides: a slide
+that *is* a picture – one `::: draw`, or one image, and no prose on the slide
+beside it – and a `statement:`, whose heading and paragraphs are one size and
+arrive one per press, open centred; everything else keeps its head at the top,
+because prose grows downwards and a reader expects the heading to stay. It is a
+shape and not a type: `lectures/diagrams`' `figure:` chunks are two paragraphs
+explaining a drawing and stay top-anchored, while the picture slide is written
+as `free:`, `figure:` and `example:` across the corpus. An aside does not count
+against it – a `::: footnote`, a `::: marginalia` and a `::: expand` are lifted
+off the slide before `isPictureBody` sees the body. `.middle` and `.top` are the
+overrides in both directions, and `.middle .top` is `same-slot`. **The vocabulary, what each one costs,
 the character budget a code line has and why `.bare` hides rather than drops are
 in the `psi-slides-authoring` and `psi-slides-appearance` skills** – authoring
 for what to write, appearance for what the build does with it.
@@ -321,28 +655,45 @@ both were learned the hard way:
 
 ### Animated infographics (`::: draw`) and the diagram editor
 
-**Development state, not in any tagged release.** `package.json` still reports
-1.0.0 and the latest tag does not include the feature; the changelog entry stays
-under `## [Unreleased]`. Publishing `main` and cutting a release are separate
-events – `pages.yml` redeploys the project site on every push.
+**New in 2.0.0**, the first release that carries it; 1.0.0 does not.
+Publishing `main` and cutting a release are separate events – `pages.yml`
+redeploys the project site on every push.
 
 A boxes-and-arrows compiler: a line-oriented DSL inside the lecture markdown
 compiles to one inline `<svg>` plus, where the author wrote `step` blocks, a
 payload of per-beat geometries the live runtime tweens between. `renderDiagram()`
-is the entry point. **`diagram-core.mjs` is the one documented exception to the
-single-file build**, because the browser editor has to run the same compiler; it
+is the entry point. **`diagram-core.mjs` is the first of two documented exceptions to the
+single-file build** (`pdf-export.mjs` is the other), because the browser editor
+has to run the same compiler; it
 is pure JS with zero imports and zero Node APIs.
 
-**The whole vocabulary, the slot tables, the generated names, the four design
+**The whole vocabulary, the slot tables, the generated names, the three design
 decisions and the editor's contract are in the `psi-slides-figures` skill.** Read
 it before authoring a `::: draw` block or changing `diagram-core.mjs`,
 `editor.mjs`, or the diagram half of `lint.js`. `figure-design.md` is the craft
 that sits on top of it; `editor.md` §15 is the build log.
 
+**A figure is drawn on a fixed canvas.** Every `::: draw` in a chunk's own body
+gets one by default – the chunk's column wide (36 base labels on `.wide` at
+1600x900) and 16 label-heights tall – so the drawing's own extent stops
+deciding how big its slide is, which is what made a deck of twenty figures look
+like twenty decks. A `title:` or `closing:` chunk is the exception among
+chunks, because its body is placed by the cover composition and not by a
+column. It changes no drawing's rendered size: a figure that fits is
+drawn exactly as before and only the box round it grows. It is the **live
+views'** box – the documents keep the one that hugs the drawing – and it rides
+the channel a stepped figure's union box already rode, so anything measuring a
+live view reads `--dg-fit-w`, never `--dg-type-w`. Two warnings follow from it
+(`figure-overflows-canvas`, `figure-underfills-canvas`), neither mirrored in
+`lint.js` because both need the drawing laid out; `frame WxH` / `frame none` on
+the opener or in `draw-defaults` overrides it, and `lectures/diagrams` and
+`docs/artifact/figure-rules` take `frame none` because both are catalogues of
+specimens rather than talks.
+
 **What stays true here:** `lint.js` imports the diagram vocabulary from
 `diagram-core.mjs` – tables only, never a function, or the whole compiler comes
 in behind it and the linter stops being runnable without the Markdown/Shiki
-stack. The opener `::: draw [WxH] [autoplay N [cycle]]` is read by
+stack. The opener `::: draw [WxH] [frame WxH|none] [autoplay N [cycle]]` is read by
 `parseDrawOpener` in `tails.mjs` for build.js, lint.js and the corpus gate
 alike; the compiler is handed the grid alone as its head-attribute string, and the whole
 opener rides in the figure's source payload as one formatted line so the
@@ -364,7 +715,11 @@ the frame* and the text column yields to it (a side column reserved as the
 chunk's padding, a band as a grid row); `.every` under a `#` heading puts a dock
 on every chunk of the part, and a `#id` link in it is a live marker. `## closing:` is the cover's bookend and
 `## outline:` the running agenda; `section:` gives a column's divider slide six
-compositions, every one of them quieter than the cover. All of it is additive: a
+compositions, every one of them quieter than the cover; `# Heading {.stack}`
+says for one divider that its content stands under the heading at the full
+measure rather than beside it, and `{.bare}` beside it takes the heading off
+that slide while leaving it in the contents, the agenda, the cockpit and
+search. All of it is additive: a
 `source.md` using none of it builds byte-identically to before.
 
 **The full vocabulary, the slot tables, the refusals, and the CSS traps each one
@@ -398,10 +753,20 @@ character for character, so a deck with no `lang:` or `lang: en` builds
 byte-identical HTML. `style: {hyphenate: …}`
 says which views use it (`print` – the default and today's behaviour – / `all` /
 `none`); the two are separate keys because the language is a property of the
-lecture and the hyphenation is a preference. Seven themes cycle on
+lecture and the hyphenation is a preference. **`all` is narrower on the
+projection than on paper**: centred prose and dividers stay out of the
+dictionary, the limit is `8 4 4` rather than print's `6 3 3`, and a token
+carrying a dot between two word characters, a slash or a no-break space is
+wrapped in `<span class="nohy">` by `markAddresses` – a `marked` text-renderer
+override, because no selector can name a run of characters, and emitted only
+under `all`, so no other deck's bytes move. Seven themes cycle on
 `A`, and `applyFontTheme()` sets `body[data-mode]`, which is what every piece of
-chrome keys off rather than a theme name. Seven frontmatter keys pin how a
-lecture opens; an unknown value **fails the build**, because a typo here is
+chrome keys off rather than a theme name. Eleven frontmatter keys pin how a
+lecture opens – three of them, `note-button`, `neighbours` and
+`transition`, are the ones a keynote sets and a lecture does not, and all three
+write their attribute only when the author asked for something other than the
+default, so a deck that says nothing about any of them is unmoved;
+an unknown value **fails the build**, because a typo here is
 otherwise invisible, and a top-level key no renderer reads at all is a
 `lint.js` warning (`unknown-frontmatter-key`, exit 2 under `--strict`) rather
 than a build failure – `author:` was the case that produced it.
@@ -451,15 +816,22 @@ deck for something the browser never reads. It mirrors the hand-written
 `build.js` and `lint.js` mix **in oklab**, which is what `color-mix(in oklab,
 …)` does; interpolating a hue instead lands on a different colour and gives a
 plausible number for it.
-The same block carries **the frame a deck wears** - `logo`, `logo-place`,
+`identity:` also carries **the frame a deck wears** - `logo`, `logo-place`,
 `logo-print`, `footer-left`, `footer-right`. **A frame is a dock**: it reserves
 its band by growing the chunk's own padding, the way `::: dock` reserves its
 column and `--exp-band` the chevrons' strip, so `auto-fit`, `flowHeightProbe`,
 the speaker mirror and `--check-fit` all follow with no second mechanism.
 `SLIDE_FOOT` holds the three foot expressions once and is interpolated back
 into `AUDIENCE_CSS`, so the stylesheet's bytes do not move and the frame's
-rules cannot drift from it. The band fades to paper under the line, because a
-chunk taller than the frame scrolls its prose straight through the footer.
+rules cannot drift from it. The frame's elements are `#psiINT-frame` and
+`#psiINT-frame-print` (upstream reserves the `psiINT-` id prefix for every id
+the build invents). **`identity: {logo}` is read through the file-root rule, no
+exception** (it goes through `resolveAssetUrl`, as `::: recall <path>#<id>`
+goes through `assetAllowed`): only the lecture's own folder and the one above
+it, never a dot-folder, never through a link – `lint.js` reports
+`asset-outside-root`, the build refuses, so a house logo kept elsewhere is
+copied next to the `source.md`. The band fades to paper under the line, because
+a chunk taller than the frame scrolls its prose straight through the footer.
 `logo-place: footer` is the default because the corner belongs to
 `::: marginalia` and the slide numbers, and `corner` earns a `lint.js` warning
 that says so. `FRAME_HIDDEN_STATES` is the one list of states in which the
@@ -480,7 +852,7 @@ in `lint.js` and held by `test/gates/icons.mjs` over sixteen fixtures. An
 unknown name is **collected, not thrown**: a renderer runs inside `marked`, and
 an exception there reaches the author wrapped in marked's own bug-report
 banner, so `currentIconProblems` is raised between the render pass and the
-write pass instead. The set is a devDependency and the CC BY 4.0 attribution
+write pass instead. The set (`@fortawesome/fontawesome-free`) is a regular dependency and the CC BY 4.0 attribution
 is emitted into any view that carries an icon.
 
 **A fourth role, `display`, is the exception to all of that**: `fonts: {display:
@@ -499,13 +871,13 @@ keys cannot reach it.
 rules and the 1.0.0 recipe are in the `psi-slides-appearance` skill.**
 
 **What stays true here:** `FONT_STACK_TAILS`, `THEME_NAMES` / `DARK_THEME_NAMES`,
-`VIEW_DEFAULT_SPEC` and `STYLE_SPEC` are each a single source of truth that
+`VIEW_DEFAULT_SPEC`, `STYLE_SPEC`, `IDENTITY_SPEC` and `ICON_RE` are each a single source of truth that
 `lint.js` mirrors – change them in the same commit. (`CHUNK_STYLE_CLASSES` is
 not mirrored any more: it lives in `tails.mjs` and both files import it.) And **`dgCharW` in `diagram-core.mjs` is
 calibrated to the bundled sans**: a roster change that does not re-measure it
 overflows figure labels silently.
 
-Three of the viewer defaults carry a decision the table does not:
+Four of the viewer defaults carry a decision the table does not:
 
 - **`slide-numbers` defaults to `horizontal`.** It defaulted to `vertical` up to
   1.0.0, and this is the one viewer default whose own change moves what an
@@ -525,6 +897,16 @@ Three of the viewer defaults carry a decision the table does not:
   (2.2 vs the lecturer's own zoom). The snapshot carries the mode *and* a legacy
   boolean, because `--audience-only` rebuilds one of the two windows and an
   older peer coerces the field with `!!`.
+- **`transition` is `pan` / `cut` / `fade`, and it resolves `neighbours`.** Only
+  the slide *change* is affected – a reveal, a figure step, a `.middle` chunk's
+  per-press glide and the walk down a chunk taller than the frame keep their
+  motion in all three; `landSlide()` in `AUDIENCE_JS` is the one place a chunk
+  becomes live, and under `cut` and `fade` it lands the camera with
+  `focusCamera(true)`. `fade` dips the whole stage to the paper and takes the
+  camera's jump in the frame where it is at zero (`fadeSwap`), because a
+  two-layer cross-dissolve of two text slides is a double exposure. Both imply
+  `neighbours: hidden` unless the author wrote `dim`, which `neighbourMode()`
+  resolves the way `printSlideNums()` resolves its deferral.
 
 ### Video, hosted embeds and link addresses
 
@@ -532,7 +914,17 @@ A clip is a figure that moves, so it shares the `![](clip-id)` shorthand rather
 than getting a directive of its own; over `MAX_INLINE_VIDEO_BYTES` (12 MB) it is
 **staged** to `videos/` beside the output instead of failing the way an oversized
 image does. `::: embed <url>` is its own directive precisely because it is the
-single construct that makes an output fetch from a third party at run time. An
+single construct that makes an output fetch from a third party at run time –
+`::: pulse` is the other thing that reaches a server, and only from the two
+documents and only after the reader signs in to Pulse there. It is an aside
+kind (`expansions`, `kind: 'pulse'`), so the live renderers skip it by
+construction; `renderChunk` draws it, `renderDocument` inlines
+`pulse-embed.js` (a verbatim copy of the Pulse client, on the desktop stage
+list) and `PULSE_PRINT_CSS` only into a document that has one; two or more on
+one chunk go into one `<pulse-deck>` (`renderPulseQuestions`), which the widget
+shows one at a time and prints expanded; the reader's
+`SKIP` leaves a question out of the highlightable text, since the widget
+rewrites it as it is answered. An
 external link puts its **address plus a build-time QR code** on both screens
 instead of opening a page on the projector. The live views also carry the
 encoder itself, spliced in as text like `diagram-core.mjs`, for the one address
@@ -557,7 +949,12 @@ no root script that touches `desktop/`, `desktop/ export-ignore` in
 `.gitattributes` so the engine tarball stays what the README says it is, and
 `desktop.yml` is path-filtered so a lecture commit does not run a
 three-platform matrix. Its tests live in `desktop/test/` with their own
-runner; `npm test` in the root does not run them.
+runner; `npm test` in the root does not run them. **From 2.0.0 it ships on the
+engine's `v*` release, at the engine's version**: `release.yml` calls
+`desktop.yml` as a reusable workflow, refuses a tag either `package.json`
+disagrees with, and publishes the archives and the packages in one job that
+needs both, so a failure on either side publishes nothing. The `builder-*`
+pre-release tag and `desktop-release.yml` are gone; CONTRIBUTING.md has why.
 
 **The app drives `build.js` through `--events`, never through the human log.**
 It spawns the engine as a child (`ELECTRON_RUN_AS_NODE`, argument array, no
@@ -568,8 +965,8 @@ section of `build.js` are an interface with one consumer: change one there
 and `desktop/main/builder.js` and its `events.test.mjs` change in the same
 commit. The human log lines are free to move. The engine the packaged app
 runs is a copy staged by `desktop/scripts/stage-engine.mjs` – `build.js`, the
-four files it reads relative to itself, the one it imports, plus a production
-`npm ci` – so a new runtime file that `build.js` reads via `import.meta.url`
+six files it reads relative to itself (`commands.mjs` is read and imported),
+the three more it only imports (`tails.mjs`, `colour.mjs`, `pdf-core.mjs`), plus a production `npm ci` that omits optional dependencies – so a new runtime file that `build.js` reads via `import.meta.url`
 has to be added to that script's `FILES` or the packaged app fails **every**
 build: the read is a bare `readFileSync` inside a renderer, so it throws
 `ENOENT` before any view reaches disk rather than degrading one view.
@@ -577,30 +974,66 @@ build: the read is a bare `readFileSync` inside a renderer, so it throws
 text in both directions, which is what `cue-cards.mjs` cost – it was off the
 list from the day it landed through builder 0.1.1.
 
+**The app exports the three PDFs itself, and never on a save.** “Export as
+PDF…” (and File ▸ Export as PDF) opens a sheet; `exportPdf(kind, {collapse})`
+is the one channel, with no path in either direction – the main process opens
+the save dialog, and `openPdf` / `showPdf` act on the last file written.
+`desktop/main/pdf.js` loads `pdf-core.mjs` from the engine directory and drives
+it with an Electron driver: per page a hidden `BrowserWindow`, `sandbox: true`,
+on a non-`persist:` partition of its own (so the audience runtime's
+`loadPersisted` finds nothing), http(s) and ws(s) cancelled at the session,
+`will-navigate` refused and `setWindowOpenHandler` denying, printed with
+`webContents.printToPDF` after the media is set over CDP (`Page.printToPDF`
+does not exist over `webContents.debugger` in a window that is not headless).
+It exports the watch build on disk; with a save pending that no build has
+taken – auto-build off, or turned off for the save and on again, which builds
+nothing – it rebuilds first. One export at a time, refused rather than queued; closing the
+lecture or the window aborts it and leaves no temporary file. **The window's
+slide default is slide text** (`collapse: 'topic-bold'`), where the command
+line follows the lecture's own collapse unless `--pdf-collapse` says
+otherwise. `PSI_PDF_DUMP_DOM=<absolute path>` is the app's counterpart of the
+hidden `--pdf-dump-dom`, read only when `app.isPackaged` is false. **Parity is
+the last step of `npm run smoke`** (`desktop/test/parity.mjs`, also `npm run
+parity -- <folder>` on a folder `PSI_SMOKE_KEEP=1` kept): the command line
+exports a copy of the same tutorial with `--pdf-collapse=topic-bold`, and the
+page counts, `pdftotext -layout` per page and the slides' chunk-and-beat table
+must be equal – except a *borderline fit*, a slide the two Chromiums measure a
+few pixels apart at the fit threshold, which may sit one zoom step apart if its
+words are the same (`desktop/test/parity.mjs` says why). It needs the engine's playwright-core, a Chromium and
+poppler; without one it says so and passes, except under `CI`. That is why
+`desktop.yml` installs `poppler-utils` and its path filter names
+`pdf-export.mjs` and `chrome-path.mjs`, which the app does not stage.
+
 The design brief the interface is built against is `desktop/DESIGN.md`; the
-plan, its decisions and its build log are `PLAN-electron-builder.md`.
+plan, its decisions and its build log are `docs/history/PLAN-electron-builder.md`.
 
 ## Reference material
 
 - `CONTRIBUTING.md` – **the build and release procedure** (§ Building and releasing): what the two workflows do, what has to be true before tagging, and why the release asset names cannot change. Follow it rather than improvising a release.
-- `test/README.md` – **the two test suites and which one a thing belongs in**: what each of the eleven gates guards, the four browser-spec families, and the seven specs that build a deck of their own rather than hunting shapes in a real one.
+- `SECURITY.md` – **what a deck someone sent can do, what the build refuses from a `source.md` someone else wrote, and what `--watch`, `--serve` and `--prompter` expose** – written for lecturers and evaluators, its claims checked against the code or in a browser. Change it in the same commit as a refusal, a `--serve` rule or a prompter data flow it describes.
+- `test/README.md` – **the two test suites and which one a thing belongs in**: what each of the twenty-one gates guards, the four browser-spec families, and the twenty specs that build a deck of their own rather than hunting shapes in a real one.
 - `PRD.md` – §1 non-negotiables, §2 content model, §2.1 type vocabulary, §3 source format + parsing contract, §4 visual language, §7 speaker view, §9 build system. Read this before making design-shape changes.
 - `speaker.md` – speaker spec and the `window.postMessage` sync protocol (fields, direction, freeze gating, timer, localStorage recovery).
 - `editor.md` – the diagram editor: what it is for, the four decisions, the grammar contract it edits against, the drag policy, and **§15, a build log written while building** – what landed, what it cost, and what bit. Read §15 first if you are picking the work up. §13 answers the two questions the plan left open, from the running prototype, and §14 is how a picture gets into a figure.
 - `.claude/skills/psi-slides-authoring/SKILL.md` – **how to write a lecture `source.md`**: the chunk grammar in practice, the `:::` directive vocabulary, reveal segments, notes, images and math, with worked examples. Invoked as the `psi-slides-authoring` skill.
-- `.claude/skills/psi-slides-figures/SKILL.md` – **the `::: draw` vocabulary and the editor's contract**, lifted out of this file so it loads when figures are the work. Every statement, class, slot table and generated name, plus the four decisions behind the compiler. Invoked as the `psi-slides-figures` skill.
+- `.claude/skills/psi-slides-figures/SKILL.md` – **the `::: draw` vocabulary and the editor's contract**, lifted out of this file so it loads when figures are the work. Every statement, class, slot table and generated name, plus the three decisions behind the compiler. Invoked as the `psi-slides-figures` skill.
 - `.claude/skills/psi-slides-decoration/SKILL.md` – **the cover, backdrop, overlay, card, row and divider vocabulary**, same reasoning: the slot tables, the refusals, and the CSS traps each construct cost. Invoked as the `psi-slides-decoration` skill.
-- `.claude/skills/psi-slides-appearance/SKILL.md` – **type, themes and viewer defaults**: the bundled and author-supplied font rosters, `ligatures:`, `lang:`, the seven themes, the six viewer-default keys, the whole eighteen-key `style:` block including `labels`, `blocks`, `bold` / `print-bold`, `code`, `neutrals` / `print-neutrals` and `headline` / `caps`, the four chunk classes that answer `wrap` and `blocks` for one slide, and the recipe for the 1.0.0 look. Invoked as the `psi-slides-appearance` skill.
+- `.claude/skills/psi-slides-appearance/SKILL.md` – **type, themes and viewer defaults**: the bundled and author-supplied font rosters, `ligatures:`, `lang:`, the seven themes, the eleven viewer-default keys, the whole twenty-eight-key `style:` block (the nineteen upstream keys plus the fork's `elevation`, `edge`, `fill`, `line`, `edge-dark`, `ink-soft`, `question-body`, `slide-bold` and `print-pages`) including `labels`, `blocks`, `bold` / `print-bold`, `code`, `neutrals` / `print-neutrals` and `headline` / `caps`, the four chunk classes that answer `wrap` and `blocks` for one slide, and the recipe for the 1.0.0 look. Invoked as the `psi-slides-appearance` skill.
 - `.claude/skills/psi-slides-media/SKILL.md` – **video, hosted embeds and link addresses**: the extension tables, the two sync protocols, clip staging, and the build-time QR codes. Invoked as the `psi-slides-media` skill.
+- `.claude/skills/psi-slides-prompter/SKILL.md` – **the live prompter (`--prompter`)**: the config surface, the socket protocol, the tick scheduler, the request shape, the policy table as coded, the failure modes with their badge texts, the log records, the cockpit ids and the STT adapter. Invoked as the `psi-slides-prompter` skill.
+- `docs/history/PLAN-souffleuse.md` – the live prompter's plan, its seven slices and **§ Decisions along the way**, which is where the code and the plan parted company and why. Read that section before changing `souffleuse.mjs`, the sidecar or the cockpit's prompter runtime; where the two disagree, the code wins.
 - `figure-design.md` – **how to lay out a `::: draw` so a room reads it**, as instructions rather than principles: fifteen rules, most with a wrong/right pair in real syntax, the tone-to-role table, the four-beat step order, and a checklist to work down before a figure is finished. Written for a person and a language model equally. Read it before authoring figures; the grammar itself is in the `psi-slides-figures` skill.
+- `docs/history/PLAN-slide-pdf-export.md` – **the PDF export, planned and then built against the plan**: the CLI contract, the geometry, the seven architecture decisions, the five stages, and a "Belegstand" saying which sentence was measured, which was read out of the code and which was only plausible. The **Umsetzung** section at the end records what actually happened per stage, including the four places the build departed from the plan and the two defects it uncovered. `docs/history/REVIEW-slide-pdf-export{,-v2,-v3}.md` are the reviews the four drafts were checked against.
+- `docs/history/PLAN-desktop-pdf-export.md` – **the PDF exports in the desktop app, and the split that made them possible**: why Electron's own Chromium rather than Playwright in the app, the driver contract, the watch-build problem (the reload socket), the command line's document export, and **§ Decisions along the way**, stage by stage, including what the Stage 0 spike measured about hidden windows and `printToPDF` and how `::: pulse` prints. Read it before changing `pdf-core.mjs`, `pdf-export.mjs` or `desktop/main/pdf.js`.
 - `HANDOFF.md` – slice-by-slice build diary in German/English mix. Latest sections describe current state and deliberate non-choices. Update when landing a substantial slice.
+- `docs/history/` – **plans, reviews and handoffs whose work has landed.** The repository root keeps only the plans still open (`PLAN-presenter.md`, `PLAN-web-editor-builder.md`, `TODO-localisation.md`, `TODO-tutorial-lecture.md`); when one is finished, `git mv` it here and rewrite its references in the same commit. `.gitattributes` keeps the folder out of the engine tarball.
 - `README.md` – short public-facing intro.
-- `lectures/tutorial/source.md` – the canonical authoring reference (self-referential lecture). Build and open its `audience.html` to see every directive live.
-- `lectures/diagrams/source.md` – every `::: draw` construct, including two of the stepped figures the feature was built for (CBC decryption, a stack frame being overrun) and, in `#sequence` and `#seqmore`, the whole of the `sequence` sub-grammar with two annotations hung off its generated names. Its `#look` chunk is the reference for the class vocabulary: every fill, every family, and the three answers to how type meets its box.
+- `lectures/tutorial/source.md` – the canonical authoring reference for the basics (self-referential lecture): moving around, the chunk grammar, collapse, the cockpit, layouts, notes, images and math, plus a short „Beyond the basics“ part that hands over to `lectures/diagrams/` for figures and `lectures/decoration/` for the frame, type and colour. Build and open its `audience.html` to see those live; the three tracked decks together show every directive.
+- `lectures/diagrams/source.md` – every `::: draw` construct, including two of the stepped figures the feature was built for (CBC decryption, a stack frame being overrun) and, in `#sequence` and `#seqmore`, the whole of the `sequence` sub-grammar with two annotations hung off its generated names. The class vocabulary is spread over four chunks, each on the slide that explains it: `#look` (every fill and every family), `#outlines`, `#prominence`, and `#typefit` (the three answers to how type meets its box).
 
-  **Most of the browser suite drives this lecture, and it addresses the figures
-  by chunk id, so a drawing here has tests on it.** (Twenty specs at the time of
-  writing, seventeen of them naming a chunk.) Keep a chunk's id and its `::: draw`
+  **Half the browser suite drives this lecture, and it addresses the figures
+  by chunk id, so a drawing here has tests on it.** (Twenty-five specs at the
+  time of writing, eighteen of them naming a chunk.) Keep a chunk's id and its `::: draw`
   block together and they stay green; move a row onto another slide and the spec
   that measured it has to follow. The current map is a command rather than a
   table here, because a table would rot:
@@ -616,18 +1049,21 @@ plan, its decisions and its build log are `PLAN-electron-builder.md`.
   `#typefit`. One could not be: `editor-guides` needs three elements collinear
   on a bare `at`, which no lecture figure owes it, so it builds a fixture deck.
   **That is the pattern for any spec needing a shape the lectures do not have**,
-  and `test/README.md` says why and lists the five others that do it.
+  and `test/README.md` says why and lists the others that do it.
 
   The lecture-wide `draw-defaults` block is in its frontmatter.
-- `lectures/decoration/source.md` – **every slide-decoration construct, shown rather than described**: the card and row vocabulary, `::: side` with a ratio, `::: backdrop` with a `reveal` in both directions, `::: overlay` with `from`, `{.bare}`, `::: draw … autoplay N cycle`, a `## outline:` chunk, a `## closing:` slide, the three kinds of divider content – a quotation, a photograph and a figure, one per column – and, since the frame work, the three panel compositions (`::: overlay {.panel}` as a column, a band and the whole frame), a part with an inherited `::: dock` beside prose, columns, a band at the head and a `from 2` column, the slot cards for overlay and dock, and the beats below the top level (six beats through two panes and a card row; rows arriving one at a time). `lectures/frame-lab/` is the untracked edge-case deck those were chosen from. It is the third tracked lecture, for the same reason `lectures/diagrams/` is the second: a reader should be able to see a construct working before writing it.
+- `lectures/decoration/source.md` – **every slide-decoration construct, shown rather than described**: the card and row vocabulary, `::: side` with a ratio, `::: backdrop` with a `reveal` in both directions, `::: overlay` with `from`, `{.bare}`, `::: draw … autoplay N cycle`, a `## outline:` chunk, a `## closing:` slide, the three kinds of divider content – a quotation, a photograph and a figure, one per column – and, since the frame work, the three panel compositions (`::: overlay {.panel}` as a column, a band and the whole frame), a part with an inherited `::: dock` beside prose, columns, a band at the head and a `from 2` column, the slot cards for overlay and dock, and the beats below the top level (six beats through two panes and a card row; rows arriving one at a time). `lectures/frame-lab/` is the edge-case deck those were chosen from, tracked as a source with no views. It is the third tracked lecture, for the same reason `lectures/diagrams/` is the second: a reader should be able to see a construct working before writing it.
 
   **A deck has exactly one cover and one `section:` variant, so one lecture cannot show ten and six.** This one wears `cover: quote` and `section: outline` and names the rest in a card row; the gallery of all ten compositions lives on the project site, where ten compositions side by side is what the page is for.
 
 - `lectures/network-security/source.md` – **thirty-six real lecture slides rebuilt as figures**, and the reason the outlines, `.turn`, `bars`, `grid`, `plot` and `.smooth` exist. Rebuilt from two PowerPoint decks with the wording kept verbatim (original typos included, each marked in a `#` comment) and the arrangement redrawn. Read it for what the vocabulary looks like at scale; `figure-design.md` is the rules it was built against. Linted **and built** by CI, as a compiler check on the largest body of real figures there is, but not published – unlike `lectures/diagrams/`, which is now both. Its views are not tracked, so a build here is the only thing that compiles it.
-- `lectures/python-intro/source.md` – richest example of `::: cols`, `::: side`, and `::: marginalia` in combination, 36 chunks. It is also what the project site's screenshots come from, so a change to `#why-playwright` means re-running `docs/site/shoot.mjs`.
+- `lectures/python-intro/source.md` – richest example of `::: cols`, `::: side`, and `::: marginalia` in combination, 39 chunks. It is also what the project site's screenshots come from, so a change to `#why-playwright` means re-running `docs/site/shoot.mjs`.
 - `lectures/spoken-talk/source.md` – **a short talk written out word for word**, and the only lecture here whose `> note:` blocks are a script rather than reminders. It exists so the cockpit's cue-card mode can be photographed doing its job: `#second-time` is a figure with three `step` blocks and three notes pinned to those beats with `> note: from N`, so one press moves a card and the projection in turn. `docs/site/shoot.mjs` takes four frames of that chunk for `in-the-room.html`, addressed by id – **its chunk ids are the contract with that script**, like `docs/artifact/figure-rules/`. Six chunks, views not tracked.
+- `lectures/spoken-talk-de/source.md` – **the same talk in German, chunk ids unchanged**, for the one German picture that needs a German deck: the prompter answers in the lecture's language, so `docs/site/shoot-prompter.mjs de` shoots it. Views not tracked.
 - `lectures/title-block/source.md` – **the title pair and the credit block, shown rather than described.** Six chunks, views not tracked. It wears `style: {headline: eyebrow, caps: on}`, all four credit ranks and `closing-credits: cover`, which is why it exists as a deck of its own: `lectures/decoration/` wears `cover: quote` and a deck has exactly one cover, so it can show the credit slots but never the eyebrow. Read it for what `title:` and `subtitle:` look like the other way up.
-- `docs/artifact/` and `docs/site/figures.html` – **two pages, and the split is the point.** `docs/site/figures.html` is the *case* for the figure language; `docs/artifact/figures-you-write.html` is the *manual*. Both are produced by `docs/artifact/refresh-figures.mjs`, the only text that compiles a figure for publication, and its `--check` covers both – **run by `pages.yml` before it assembles the site and by `release.yml` beside the tracked-output check.** A staleness gate nothing runs is a comment. `docs/artifact/figure-rules/source.md` is the lecture both pages draw with, and it exists only to be compiled: CI lints it, so a compiler change that would spoil either page breaks it there first, where `node lint.js` can name the line. **Its chunk ids are the contract with the script – do not rename one without renaming it there too.** Everything else about the two pages, what the script owns and why the page fetches nothing at run time: `docs/artifact/README.md`.
+- `lectures/display-face/source.md` – **the `fonts: {display: …}` role, shown on a deck that wears one.** Eight chunks, views not tracked. It wears `fonts: {display: Anton}` and `cover: display`, so the cover, the `section: number` dividers and the closing slide are set in it and the body is not; its chunks say what the key reaches, the roster's three flavours, why a display serif wants a sans body (`display-pairing`), the measured `size-adjust` and `display-scale`, and that no key reaches it. Read it for what the role looks like; the roster and the measurements are in the `psi-slides-appearance` skill.
+- `docs/site/display-faces.html` – **the typefaces page**: the nine bundled text faces on a mock slide and a mock printed page, any serif/sans/mono pairing selectable, then the 32 display faces. Generated by `tools/font-playground/build-playground.mjs`, which reads the text roster out of `build.js` (`text-roster.mjs`); edit the roster, regenerate, commit the page in the same change – `--check` runs in `pages.yml`.
+- `docs/artifact/` – **the figure language's page: the case first, then the manual.** `docs/artifact/figures-you-write.html` is the source and opens off disk on its own; `docs/site/build-site.js` publishes it as `figures.html`, copies the top bar's rules out of `site.css` into its head (`topbarCss()`) and puts the bar in at its `<!--topbar-->` marker, and writes `figures-you-write.html` as a stub that forwards with its `#fragment`. `docs/artifact/refresh-figures.mjs` is the only text that compiles a figure for publication, and its `--check` covers the page – **run by `pages.yml` before it assembles the site and by `release.yml` beside the tracked-output check.** A staleness gate nothing runs is a comment. `docs/artifact/figure-rules/source.md` is the lecture the page draws with, and it exists only to be compiled: CI lints it, so a compiler change that would spoil the page breaks it there first, where `node lint.js` can name the line. **Its chunk ids are the contract with the script – do not rename one without renaming it there too.** Everything else about the page, what the script owns and why it fetches nothing at run time: `docs/artifact/README.md`.
 - `docs/comparison.md` – how psi-slides differs from Beamer, reveal.js, Quarto, Marp and friends, in both directions. Published as a page on the site.
 - `docs/site/DESIGN.md` – **the project site's design brief**: the one problem this site has that most do not (every picture on it is a picture of text), the stage-and-cue rules that follow from it, the one-frame-one-left-edge layout and the two layouts thrown away before it, the palette's single job, the two interactive devices, the list of what must not appear, and how to check a change – a contact sheet first, then per-container clipping, because page-level overflow does not see a box that clips its own content. Read it before changing `site.css` or either landing page. `desktop/DESIGN.md` is the same kind of document for the builder app.
 
@@ -636,12 +1072,13 @@ plan, its decisions and its build log are `PLAN-electron-builder.md`.
 - **En-dashes only.** Use `–` or `&ndash;` in all prose (docs, markdown, comments, lecture sources). Never em-dashes (`—`).
 - When adding or renaming a chunk type, change it in **both** `build.js` and `lint.js` (and document the visual treatment in `PRD.md` §2.1).
 - **The word is "type" everywhere a user reads it and `tag` everywhere the code says it.** Prose, headings and linter messages say *chunk type*; `VALID_TAGS`, `chunk.tag`, `data-tag`, `.tag-label` and `parseTagPrefix` keep the old name, because `data-tag` is in the published outputs and is what the search index and the speaker's lists read. Renaming the identifiers would change an output attribute for no reader's benefit. The `::: draw` `@tag` is a different thing altogether and stays a tag.
-- Don't commit generated HTML outputs – they are regenerated per build and gitignored. Exception: **`lectures/tutorial/` and `lectures/diagrams/` track all four views**, and **`lectures/decoration/` tracks two, `audience.html` and `print.html`**. What the decoration reference demonstrates is what a slide looks like, so the projection and the printed document carry the whole of it; the notes view and the cockpit would add about 2 MB of tracked HTML and show nothing the other two do not. Rebuild and commit when any of the three sources changes. The release workflow fails if they are stale.
+- Don't commit generated HTML outputs – they are regenerated per build and gitignored. Exception: **`lectures/tutorial/` and `lectures/diagrams/` track all four views**, and **`lectures/decoration/` tracks two, `audience.html` and `print.html`**. What the decoration reference demonstrates is what a slide looks like, so the projection and the printed document carry the whole of it; the notes view and the cockpit would add about 2 MB of tracked HTML and show nothing the other two do not. Rebuild with `npm run build:tracked` (it passes `--no-optimize-images`) and commit when any of the three sources changes. The release workflow fails if they are stale.
 - `{#id}` attributes on chunks are **frozen once authored**. They are the anchor for cross-references, TOC entries, speaker-sync snapshots, and localStorage persistence. Don't renumber them reflexively when headings change.
 - Shiki is loaded once and cached across `--watch` rebuilds; adding a new language means extending `SHIKI_LANGS` (and optionally `LANG_ALIAS`) at the top of `build.js`.
 - **Math delimiters are `marked` extensions, and the inline rule must keep refusing to cross a backtick.** marked runs custom inline extensions *before* its own `codespan` tokenizer, so relaxing the content class lets a stray `$` in prose pair with one inside a following code span and swallow the delimiting backtick. This was a real regression, not a hypothetical: `a price of $5 and $10, ` + backtick-`$PATH` rendered as a formula reading `10, ` + backtick.
-- **`viewHooks.consumeForward` / `consumeBack` are the only way a press is spent before it reaches the reveal counter.** The cockpit's cue cards (`K`; speaker.md §4.1) keep a cursor *in front of* `revealed[chunkId]`: `goForward` asks the hook first and only an unconsumed press reaches `advanceReveal`. They are hooks on `goForward` / `goBack`, not cases in the key map, so a key, the touch rail and a presenter's button all go through one cursor; a second path is how a click comes to count differently from a key. The cursor is never sent – the projection does not know the cards exist, and `--audience-only` against an older peer stays compatible. The card grammar is `cue-cards.mjs`, the third zero-dep module spliced into a live view as text (`window.PSI_CARDS`), for the reason `diagram-core.mjs` is: one text turns a `> note:` block into cards at build time and again in the browser for a rehearsal override, and its regexes stay out of every template literal. Which segment a note belongs to is `noteSegments()` in the parser, mirrored in `lint.js` (`note-in-empty-beat`); the two rules on top of the position – an empty segment slides back, notes only in the last segment are chunk notes on beat 1 – are in `PLAN-cue-cards.md` §2 and in `test/cue-cards.mjs`. **`> note: from N` pins a note to an advance by number** and is the escape hatch for the beats a position cannot name: a figure's `step` blocks are beats on the same counter but they sit inside one segment, so no `---` can be written between two of them. The cards are grouped by that number – the `consumed` count `applyReveal` uses and `::: overlay from N` shares – never by segment, which is why a diagram beat and a reveal interleave in one list.
-- **The cockpit's element ids share one namespace with the lecture's chunk ids.** Every chunk is in `speaker.html` too, inside the mirror, so `getElementById('clock')` answers with whichever of the two comes first in the DOM – and `cuePlaceStage` moves the stage, which changes *which* that is mid-session. It cost the cue panel, whose id was also a tutorial chunk's: one drag stopped after 75 px and a `display: none` rule aimed at the chrome hid a slide. Chrome ids are therefore words a slide would not want (`#cue-panel`), and the pieces inside a panel are looked up through the panel (`cueRoot.querySelector`), not through the global id map.
+- **`viewHooks.consumeForward` / `consumeBack` are the only way a press is spent before it reaches the reveal counter.** The cockpit's cue cards (`K`; speaker.md §4.1) keep a cursor *in front of* `revealed[chunkId]`: `goForward` asks the hook first and only an unconsumed press reaches `advanceReveal`. They are hooks on `goForward` / `goBack`, not commands in the key map (`commands.mjs`'s `forward` and `back` end in those two calls), so a key, the touch rail and a presenter's button all go through one cursor; a second path is how a click comes to count differently from a key. The cursor is never sent – the projection does not know the cards exist, and `--audience-only` against an older peer stays compatible. The card grammar is `cue-cards.mjs`, the third zero-dep module spliced into a live view as text (`window.PSI_CARDS`), for the reason `diagram-core.mjs` is: one text turns a `> note:` block into cards at build time and again in the browser for a rehearsal override, and its regexes stay out of every template literal. Which segment a note belongs to is `noteSegments()` in the parser, mirrored in `lint.js`; the rule on top of the position – notes only in the last segment **that has words in it** are chunk notes on beat 1 – is in `docs/history/PLAN-cue-cards.md` §2, in `test/cue-cards.mjs` and in the `cue-cards` gate. (Words, because every `---` is a beat: a chunk ending in a separator with nothing after it ships an empty segment last, and measuring the rule against the last segment that *ships* filed the legacy shape's notes on the last click instead of the first.) (The second rule, that a note in a dropped segment slides back to the previous one, now reaches only a cover slide: every other `---` is a beat and the note is filed on it, which is why `note-in-empty-beat` is gone.) **A bracketed `[Klick …]` / `[Click …]` line at a paragraph's head ends the card and counts one advance** (`cueAdvance` in `cue-cards.mjs`, imported by lint.js; `note-advance-beyond` warns past the chunk's beats), and **`> note: from N` pins a note to an advance by number** and is the escape hatch for the beats a position cannot name: a figure's `step` blocks are beats on the same counter but they sit inside one segment, so no `---` can be written between two of them. The cards are grouped by that number – the `consumed` count `applyReveal` uses and `::: overlay from N` shares – never by segment, which is why a diagram beat and a reveal interleave in one list.
+- **Every id the build invents starts with `psiINT-`, and an author `{#id}` that does is refused** (`reserved-id`, raised by `parseTail` in `tails.mjs` for build.js and lint.js alike, matched case-sensitively as the browser matches ids; `RESERVED_ID_PREFIX`). The chrome's fixed ids, the generated figure ids (`psiINT-fig-N-`, `psiINT-sym-N`, `psiINT-dgN-`), the reader's part lists, a `::: pulse` question's element and the PDF export's pieces all live there, so no chunk id can be one element with a piece of the chrome. It used to be a convention: the chunk articles stand before the chrome in document order, so `getElementById('clock')` answered with a slide called `#clock`, and it cost `#toc` (a tutorial chunk, worked around with `nav#toc`) and the cue panel (one drag stopped after 75 px, a `display: none` hid a slide). **A new chrome element takes a `psiINT-` id**, and `test/gates/id-namespace.mjs` fails on any id site in build.js, editor.mjs, diagram-core.mjs, pdf-core.mjs or cue-cards.mjs that is neither a `psiINT-` literal nor on its counted allow-list of author-id emitters. Looking the pieces of a panel up through the panel (`cueRoot.querySelector`, the pieces of `#psiINT-souffleuse-log`) stays good practice. Not covered: ids derived from an author id (a divider's `{id}-section`, which `assertDistinctIds` guards), and the inner pieces `pulse-embed.js` names itself.
+- **`SOUFFLEUSE_SPEC` in build.js and lint.js's three souffleuse tables change together.** The `prompter:` frontmatter block is validated in the `buildOnce` pre-flight (beside `styleSettings`, so `--print-only` refuses a typo too) against one spec table; `lint.js` mirrors it as `SOUFFLEUSE_ENUMS` plus `SOUFFLEUSE_NUM_KEYS` plus `SOUFFLEUSE_FREE_KEYS`, three tables because the block has three kinds of key and a zero-dep reader can only vouch for the presence of a model id. `test/gates/tails.mjs` holds the union of the three equal to the build's key set, so a key added on one side fails there rather than in a lecture. `duration:` sits at the top level, not in the block – it is a property of the talk like `lang:` – and `bad-duration` is its refusal in both files.
 - **`FOCUSABLE_SEL` in `AUDIENCE_JS` must stay a single constant.** Audience and speaker each resolve `figureIdx` against their own DOM, so the two windows focus different elements the moment their selectors disagree. Adding a focusable element type means editing that one string. **`FROM_SEL` beside it is the same rule for everything held to a beat by `from N`** (`.overlay-card[data-from], .dock[data-from]`): `chunkBeats`, `countSegments` and `applyReveal` read it, and a fourth reader spelled by hand is how two windows disagree about what arrives when.
 - **Everything inlined lives in a template literal.** Three edit mistakes are easy and expensive there:
   - A raw backtick, **even inside a comment**, ends the literal. Throws at parse time. Never write one in `AUDIENCE_JS` / `SPEAKER_JS` / the CSS constants – name the identifier plainly instead.

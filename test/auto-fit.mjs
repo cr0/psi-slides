@@ -20,7 +20,7 @@
  * which is not a lecture and does not belong in lectures/.
  */
 import fs from 'node:fs';
-import os from 'node:os';
+import { tmpDir } from './tmp.mjs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { serve, ROOT } from './harness.mjs';
@@ -103,7 +103,7 @@ Closing words pinned to the foot.
 const measure = (page) => page.evaluate(() => {
   const zoom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--zoom'));
   const el = document.querySelector('.chunk.active');
-  const vp = document.getElementById('stage-viewport');
+  const vp = document.getElementById('psiINT-stage-viewport');
   return {
     zoom,
     h: el ? Math.round(el.getBoundingClientRect().height) : 0,
@@ -116,7 +116,7 @@ const measure = (page) => page.evaluate(() => {
 export async function run({ page, report, walkTo }) {
   const { ok, note } = report;
 
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-autofit-'));
+  const dir = tmpDir('psi-autofit-');
   fs.writeFileSync(path.join(dir, 'source.md'), SOURCE);
   const built = spawnSync(process.execPath,
     [path.join(ROOT, 'build.js'), path.join(dir, 'source.md'), '--audience-only'],
@@ -188,7 +188,7 @@ export async function run({ page, report, walkTo }) {
   }
 
   // ── a cover whose credits are pinned to the foot ──
-  const cdir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-autofit-cover-'));
+  const cdir = tmpDir('psi-autofit-cover-');
   fs.writeFileSync(path.join(cdir, 'source.md'), COVER_SOURCE);
   const cbuilt = spawnSync(process.execPath,
     [path.join(ROOT, 'build.js'), path.join(cdir, 'source.md'), '--audience-only'],
@@ -234,7 +234,7 @@ export async function run({ page, report, walkTo }) {
   // shrank with it. Each clone now carries a zoom of its own. The assertion
   // is that a thumbnail's zoom does not move when the current slide does, and
   // that the tall one is smaller than the short one and inside its own box.
-  const tdir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-autofit-thumbs-'));
+  const tdir = tmpDir('psi-autofit-thumbs-');
   fs.writeFileSync(path.join(tdir, 'source.md'), SOURCE.replace('title: T\n', 'title: T\nauto-fit: true\n'));
   const tbuilt = spawnSync(process.execPath,
     [path.join(ROOT, 'build.js'), path.join(tdir, 'source.md'), '--speaker-only'],
@@ -244,7 +244,7 @@ export async function run({ page, report, walkTo }) {
   const { server: tserver, port: tport } = await serve(tdir);
   const thumbs = () => page.evaluate(() => {
     const read = (id) => {
-      const c = document.querySelector('#preview-strip .chunk-clone[data-chunk-id="' + id + '"]');
+      const c = document.querySelector('#psiINT-preview-strip .chunk-clone[data-chunk-id="' + id + '"]');
       if (!c) return null;
       return { zoom: parseFloat(getComputedStyle(c).getPropertyValue('--zoom')),
                over: c.scrollHeight > c.clientHeight + 2 };

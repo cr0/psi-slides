@@ -45,13 +45,13 @@ export async function run({ report }) {
   report.ok(states.length >= 5, 'the list has entries', states.length);
 
   // Every entry is a selector on the body, because that is what the emitted
-  // rule prefixes to `#frame`. An entry that forgot the `body` would still
+  // rule prefixes to `#psiINT-frame`. An entry that forgot the `body` would still
   // compile and would match nothing.
   for (const sel of states)
     report.ok(sel.startsWith('body'), `"${sel}" is a selector on the body`);
 
   // 1 ── the full-screen panels, derived from their own hiding rule.
-  const panels = [...build.matchAll(/^#([a-z-]+)\.hidden \{ display: none; \}/gm)].map(m => m[1]);
+  const panels = [...build.matchAll(/^#(psiINT-[a-z-]+)\.hidden \{ display: none; \}/gm)].map(m => m[1]);
   report.ok(panels.length >= 4, 'the stylesheet still hides its panels with #x.hidden', panels.join(' '));
   for (const id of panels) {
     report.ok(states.some(s => s.includes('#' + id)),
@@ -71,7 +71,7 @@ export async function run({ report }) {
   // `body:not([data-view=speaker]).blanked` - so the selector is matched from
   // the word `body` rather than from `body.`, and the classes are pulled out
   // of whatever follows. Anchoring on `body.` found one of the three.
-  for (const m of build.matchAll(/((?:^body[.:[][^{}]*?#stage(?:-viewport)?[^{}]*?)\{([^{}]*)\})/gm)) {
+  for (const m of build.matchAll(/((?:^body[.:[][^{}]*?#psiINT-stage(?:-viewport)?[^{}]*?)\{([^{}]*)\})/gm)) {
     if (!OBSCURES.test(m[2])) continue;
     // Every class between `body` and the `#stage` it qualifies. Taken from
     // that substring rather than from a pattern anchored on `body.`, because
@@ -80,7 +80,7 @@ export async function run({ report }) {
     // there can be more than one. A class named inside a :not() lands here
     // too, and that is harmless: it is a state the frame hides in either way.
     for (const sel of m[1].split(',')) {
-      const upto = sel.slice(0, sel.indexOf('#stage'));
+      const upto = sel.slice(0, sel.indexOf('#psiINT-stage'));
       for (const c of upto.matchAll(/\.([a-z-]+)/g)) dimmers.add(c[1]);
     }
   }
@@ -117,8 +117,15 @@ export async function run({ report }) {
   // 2c ── the logo is counted by the auto-inline scan. Left out, a deck whose
   // only picture is its logo kept inlining off and shipped the logo as a
   // relative path - not self-contained, and drawn as nothing under --serve.
-  const scan = build.slice(build.indexOf('function scanReferencedImages'), build.indexOf('function scanReferencedImages') + 3000);
-  report.ok(/\^\[ \\t\]\+logo:/.test(scan) && /\^identity:/.test(scan),
+  // The logo patterns live in collectDecorationImageRefs, which
+  // scanReferencedImages calls - so both halves are asserted: the patterns,
+  // and that the scan still goes through the collector.
+  const colStart = build.indexOf('function collectDecorationImageRefs');
+  const scan = build.slice(colStart, build.indexOf('\n}\n', colStart));
+  const scanFn = build.slice(build.indexOf('function scanReferencedImages'),
+    build.indexOf('function scanReferencedImages') + 3000);
+  report.ok(colStart >= 0 && /\^\[ \\t\]\+logo:/.test(scan) && /\^identity:/.test(scan)
+      && /collectDecorationImageRefs\(src\)/.test(scanFn),
     'identity.logo is counted by the auto-inline scan, block form and flow form');
 
   // 3 ── the one the sweep cannot see.
@@ -127,6 +134,6 @@ export async function run({ report }) {
     + 'rather than dimming it, so no property sweep finds it');
 
   // 4 ── the rule actually reaches the frame.
-  report.ok(/FRAME_HIDDEN_STATES\.map\(sel => `\$\{sel\} #frame`\)/.test(build),
-    'the emitted rule prefixes each state to #frame');
+  report.ok(/FRAME_HIDDEN_STATES\.map\(sel => `\$\{sel\} #psiINT-frame`\)/.test(build),
+    'the emitted rule prefixes each state to #psiINT-frame');
 }

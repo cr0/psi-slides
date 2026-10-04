@@ -40,84 +40,28 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
+import { findChrome } from '../chrome-path.mjs';
+
+export { findChrome };
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-
-// A second copy of this lives in docs/site/shoot-lib.mjs, which serves a
-// standalone script rather than a module and predates this file. It changes
-// when a Playwright cache layout changes, which is roughly never, and when a
-// host is added, which happened once: until then this looked only in a macOS
-// cache under an arm64 directory and at /Applications, so the suite could not
-// run on a Linux runner at all - which is why the CI job that would have
-// caught two lint.js gaps was never written. Keep the two in step.
-export function findChrome() {
-  if (process.env.PSI_CHROME) return process.env.PSI_CHROME;
-  const tried = [];
-  const take = (p) => { tried.push(p); return fs.existsSync(p) ? p : null; };
-
-  // The Playwright cache, newest build first. Only two things differ between
-  // hosts: where the cache lives, and whether a build is an .app bundle or a
-  // bare binary.
-  const home = process.env.HOME || '';
-  const cache = process.platform === 'darwin'
-    ? path.join(home, 'Library/Caches/ms-playwright')
-    : path.join(home, '.cache/ms-playwright');
-  if (fs.existsSync(cache)) {
-    const builds = fs.readdirSync(cache)
-      .filter(d => /^chromium-\d+$/.test(d))
-      .sort((a, b) => Number(b.split('-')[1]) - Number(a.split('-')[1]));
-    for (const b of builds) {
-      for (const plat of ['chrome-mac-arm64', 'chrome-mac', 'chrome-linux']) {
-        const at = path.join(cache, b, plat);
-        if (!fs.existsSync(at)) continue;
-        if (plat === 'chrome-linux') {
-          const exe = take(path.join(at, 'chrome'));
-          if (exe) return exe;
-          continue;
-        }
-        for (const app of fs.readdirSync(at).filter(f => f.endsWith('.app'))) {
-          const exe = take(path.join(at, app, 'Contents/MacOS', app.replace(/\.app$/, '')));
-          if (exe) return exe;
-        }
-      }
-    }
-  }
-
-  // A browser the host installed. `/usr/bin/google-chrome` is what a GitHub
-  // ubuntu runner has, which is the whole reason this function knows about
-  // more than one platform.
-  //
-  // Both halves have now actually run. macOS resolves out of the Playwright
-  // cache; an ubuntu-latest runner answers with the first entry here,
-  // /usr/bin/google-chrome, and drove the whole suite from it - 577
-  // assertions in 430 s against 317 s on the authoring Mac. Worth checking
-  // rather than assuming, because release.yml runs on ubuntu-latest: "we
-  // build on macOS" is true of the laptop and false of the tag. If a future
-  // runner image moves the browser, the failure stays loud and cheap -
-  // release.yml resolves it in a step of its own before anything is staged or
-  // published, so the cost is one red run and one path added here and in
-  // docs/site/shoot-lib.mjs.
-  const system = process.platform === 'darwin'
-    ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-      '/Applications/Chromium.app/Contents/MacOS/Chromium']
-    : ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable',
-      '/usr/bin/chromium-browser', '/usr/bin/chromium'];
-  for (const p of system) { const hit = take(p); if (hit) return hit; }
-
-  // Naming what was looked for, because "no Chromium found" on a host whose
-  // layout this function does not know is a sentence with no next step in it.
-  const err = new Error('no Chromium found \u2013 set $PSI_CHROME to a browser executable.\n'
-    + 'Tried:\n  ' + tried.join('\n  '));
-  err.userFacing = true;
-  throw err;
-}
 
 // Build rather than assume. A suite that runs against whatever HTML happens
 // to be on disk reports on the last build somebody made by hand, which is the
 // one thing a regression suite must not do.
+//
+// The build runs in place, and three of the lectures the specs drive have
+// tracked views (tutorial, diagrams, decoration), so it passes the flag
+// `npm run build:tracked` passes: --no-optimize-images. Without it, a machine
+// with cwebp or magick re-encoded every inlined PNG as WebP and a test run
+// left the tracked views modified; with it, they come out the bytes that are
+// committed. No spec measures an inlined picture's encoding, so the other
+// lectures are built the same way and the suite does not depend on which
+// encoder the machine has.
 export function buildLecture(slug, flags = []) {
   const src = path.join(ROOT, 'lectures', slug, 'source.md');
-  const r = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), src, ...flags],
+  const r = spawnSync(process.execPath,
+    [path.join(ROOT, 'build.js'), src, '--no-optimize-images', ...flags],
     { cwd: ROOT, encoding: 'utf8' });
   if (r.status !== 0) {
     throw new Error(`build of ${slug} failed:\n${r.stdout || ''}${r.stderr || ''}`);
@@ -173,7 +117,15 @@ export async function openDeck(port, view = 'audience', viewport = { width: 1440
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
-  page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+  page.on('console', m => {
+    if (m.type() !== 'error') return;
+    // The start menu asks the server whether the cockpit and the print view
+    // are beside the page, whatever the build said (probeView), and a deck
+    // a spec built with --audience-only answers 404 for both. That is the
+    // probe working, not the page failing; test/palette.mjs asserts it.
+    if (/status of 404/.test(m.text()) && /\/(speaker|print)\.html$/.test((m.location() || {}).url || '')) return;
+    errors.push(m.text());
+  });
   await page.goto(`http://127.0.0.1:${port}/${view}.html`, { waitUntil: 'load' });
   await page.waitForTimeout(700);
   // `close` shuts this spec's context; the browser itself lives until
@@ -192,7 +144,7 @@ function deckHelpers(page) {
   const at = () => page.evaluate(() => {
     const a = document.querySelector('.chunk.active');
     if (!a) return { id: null, colIdx: -1, hints: '-' };
-    const w = document.getElementById('nav-hints');
+    const w = document.getElementById('psiINT-nav-hints');
     const on = (d) => !!(w && w.querySelector('[data-hint="' + d + '"]').hasAttribute('data-on'));
     return {
       id: a.dataset.chunkId || '(section)',
@@ -249,22 +201,22 @@ export function editorHelpers(page) {
     // stroke to aim at, and a spec that clicked one would be testing the hit
     // test against something the author cannot see either.
     await page.evaluate(() => {
-      const b = [...document.querySelectorAll('#dge-beats .dge-beat')];
+      const b = [...document.querySelectorAll('#psiINT-dge-beats .dge-beat')];
       if (b.length) b[b.length - 1].click();
     });
     await page.waitForTimeout(400);
-    return page.locator('#dge-root').count().then(n => n > 0);
+    return page.locator('#psiINT-dge-root').count().then(n => n > 0);
   };
 
   const source = () => page.evaluate(() =>
-    (document.querySelector('#dge-source') || {}).textContent || '');
+    (document.querySelector('#psiINT-dge-source') || {}).textContent || '');
   const lineWith = async (needle) =>
     (await source()).split('\n').find(l => l.includes(needle));
   // The head of the *selection* pane by name, not the first h3 in the panel.
   // The step pane sits above it whenever a beat is standing, and "this step"
   // is not what is selected.
   const selection = () => page.evaluate(() =>
-    ((document.querySelector('#dge-side .dge-sel-head') || {}).textContent || '').trim());
+    ((document.querySelector('#psiINT-dge-side .dge-sel-head') || {}).textContent || '').trim());
 
   // A point that is genuinely on the stroke. A bounding-box centre is not:
   // for a diagonal or dog-legged arrow it is usually empty paper, which is
@@ -272,7 +224,7 @@ export function editorHelpers(page) {
   const pointOnPath = (selector, frac = 0.5) => page.evaluate(([s, f]) => {
     const p = document.querySelector(s);
     if (!p) return null;
-    const svg = document.querySelector('#dge-art-svg');
+    const svg = document.querySelector('#psiINT-dge-art-svg');
     const at = p.getPointAtLength(p.getTotalLength() * f);
     const m = svg.getScreenCTM();
     return { x: at.x * m.a + at.y * m.c + m.e, y: at.x * m.b + at.y * m.d + m.f };
@@ -307,14 +259,23 @@ export function editorHelpers(page) {
   // placement alone, so a spec about placement has to say beat 0 out loud.
   const beat = async (k) => {
     await page.evaluate((i) => {
-      const b = [...document.querySelectorAll('#dge-beats .dge-beat')];
+      const b = [...document.querySelectorAll('#psiINT-dge-beats .dge-beat')];
       if (b[i]) b[i].click();
     }, k);
     await page.waitForTimeout(350);
   };
 
+  // **The error rows only.** Every caller tests this with `.includes('line ')`,
+  // because a compile error is rendered `line N: msg` and nothing else in the
+  // panel was. That stopped being true the day a `[diagram]` warning started
+  // naming the line its element was written on: the whole textContent then
+  // reported a correctly-drawn figure's overlap warning as a broken block, and
+  // three assertions in `editor-placement` failed on a lecture nobody had
+  // touched. A warning row carries `dge-warn`; the rolled-back-edit box carries
+  // `dge-refused` and is a different question, asked through the status note.
   const problems = () => page.evaluate(() =>
-    (document.querySelector('.dge-problems') || {}).textContent || '');
+    [...document.querySelectorAll('.dge-problems:not(.dge-refused) > div:not(.dge-warn)')]
+      .map(d => d.textContent).join('\n'));
 
   return { open, beat, source, lineWith, selection, pointOnPath, clickPath, centreOf, drag, problems };
 }

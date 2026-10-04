@@ -13,9 +13,9 @@
  * refuses and lint.js names the same code - is `test/settings.mjs`.
  */
 import {
-  CHUNK_SLOTS, CARDS_SLOTS, SIDE_SLOTS, OVERLAY_SLOTS, BACKDROP_SLOTS, SLOT_TABLES,
+  CHUNK_SLOTS, COLUMN_SLOTS, CARDS_SLOTS, SIDE_SLOTS, OVERLAY_SLOTS, BACKDROP_SLOTS, SLOT_TABLES,
   splitTail, strayTailProblem, parseTail, parseDrawOpener, formatDrawOpener, drawCompilerAttrs, parseLegacyDrawTail,
-  parseRevealMark,
+  parseRevealMark, fenceTracker, fenceOpener,
   AUTOPLAY_MIN, AUTOPLAY_MAX, DRAW_OPENER_EXAMPLE,
 } from '../../tails.mjs';
 import fs from 'node:fs';
@@ -50,13 +50,27 @@ export async function run({ report }) {
   }
   ok(/does not end the line/.test(strayTailProblem('chunk heading', '{.narrow}').msg) && strayTailProblem('x', '{#a}').code === 'stray-attribute',
      'and the problem for it is stray-attribute, naming the group');
-  // The column-heading policy: no class at all, said by the parser.
-  const col = parseTail('.wide #p', {}, 'column heading', { id: 'one', classes: 'none' });
-  ok(codes(col) === 'class-on-column' && col.id === 'p' && /takes an \{#id\} and nothing else/.test(col.problems[0].msg),
-     'a .word on a column heading is class-on-column, and the id is still read');
-  ok(codes(parseTail('#p', {}, 'column heading', { id: 'one', classes: 'none' })) === '', 'and an id alone is fine');
+  // The column-heading policy: its own short table, and a word from no slot
+  // of it is class-on-column rather than an unknown-class listing a
+  // vocabulary the line never had.
+  const column = (tail) => parseTail(tail, COLUMN_SLOTS, 'column heading', { id: 'one', classes: 'column' });
+  const col = column('.wide #p');
+  ok(codes(col) === 'class-on-column' && col.id === 'p'
+     && /takes an \{#id\} and \.stack \| \.bare, and nothing else/.test(col.problems[0].msg),
+     'a .word from no column slot is class-on-column, and the id is still read', col.problems[0].msg);
+  ok(codes(column('#p')) === '', 'and an id alone is fine');
+  const stacked = column('.stack #p');
+  ok(codes(stacked) === '' && stacked.slots.stack.written === true && stacked.id === 'p',
+     '.stack is a word the # heading takes, and it reads as written');
+  // The second word, and the one that has a namesake in the chunk table: the
+  // message above used to send .bare down to the ## chunks, so the pair is
+  // worth asserting together rather than only through the slot.
+  const bared = column('.stack .bare #p');
+  ok(codes(bared) === '' && bared.slots.bare.written === true && bared.slots.stack.written === true,
+     '.bare is the second, and the two are separate slots that combine');
+  ok(codes(column('.stack .stack #p')) === 'same-slot', 'and twice is same-slot, like any other slot');
 
-  // ── parseTail: the four codes ────────────────────────────────────
+  // ── parseTail: the five codes ────────────────────────────────────
   const heading = (tail) => parseTail(tail, CHUNK_SLOTS, 'chunk heading', { id: 'one' });
   const side = (tail) => parseTail(tail, SIDE_SLOTS, '::: side');
   const cards = (tail) => parseTail(tail, CARDS_SLOTS, '::: cards');
@@ -68,6 +82,9 @@ export async function run({ report }) {
     ['heading', '.wide .wide #a',   'same-slot'],
     ['heading', '.wrap-none .wrap-balance #a', 'same-slot'],
     ['heading', '#a #b',            'multiple-ids'],
+    ['heading', '#psiINT-a',        'reserved-id'],
+    ['heading', '#psiint-a',        ''],
+    ['heading', '#psi-a',           ''],
     ['heading', '',                 'stray-attribute'],
     ['heading', '   ',              'stray-attribute'],
     ['side',    'middle',           'stray-attribute'],
@@ -87,9 +104,25 @@ export async function run({ report }) {
     ok(codes(t) === want, `${who} {${tail}} → ${want || 'no problem'}`, `got ${codes(t) || 'none'}: ${t.problems.map(p => p.msg).join(' | ')}`);
   }
   // No slot may invent a spelling for a flag's default.
-  for (const w of ['.shown', '.left', '.top']) {
+  for (const w of ['.shown', '.left']) {
     ok(codes(heading(`${w} #a`)) === 'unknown-class', `${w} on a chunk heading is unknown-class`);
   }
+  // The camera's `anchor` is the exception, and deliberately not a flag: its
+  // two words are the overrides in both directions and the *unwritten* state is
+  // a third answer - the chunk's shape decides. So `.top` is a word here,
+  // `.middle .top` is same-slot like any other pair, and neither is the slot's
+  // default, which is null. The slot is named for the question and not for
+  // either word, or the same-slot message would read "both answer middle".
+  ok(CHUNK_SLOTS.anchor.default === null,
+     'the anchor slot defers rather than defaulting to a word');
+  ok(codes(heading('.top #a')) === '' && heading('.top #a').slots.anchor.value === 'top',
+     '.top is the word a picture chunk writes to keep the old top anchoring');
+  ok(codes(heading('.middle .top #a')) === 'same-slot'
+     && /both answer "anchor"/.test(heading('.middle .top #a').problems[0].msg),
+     'and .middle .top is same-slot, naming the question rather than one of its answers',
+     heading('.middle .top #a').problems[0].msg);
+  ok(heading('#a').slots.anchor.written === false && heading('#a').slots.anchor.value === null,
+     'an unwritten anchor slot is null, which is what sends the question to the shape');
   // The message names the tail and, for a word from no slot, the vocabulary.
   ok(/^::: side: "\.sideways" is not a word this directive knows - anchor: \.top \| \.middle$/.test(side('.sideways').problems[0].msg),
      'the unknown-class message names the directive and lists its slots');
@@ -139,19 +172,31 @@ export async function run({ report }) {
      'null for a line that is not a draw opener');
   ok(parseDrawOpener('::: draw{unit=150x56}') !== null, 'but the old opener written without a space is an opener, refused rather than dropped');
   const valid = [
-    ['::: draw',                               { unit: null, autoplay: null, cycle: false }],
-    ['::: draw 150x56',                        { unit: '150x56', autoplay: null, cycle: false }],
-    ['::: draw autoplay 900',                  { unit: null, autoplay: 900, cycle: false }],
-    ['::: draw 150x56 autoplay 1200 cycle',    { unit: '150x56', autoplay: 1200, cycle: true }],
-    ['::: draw autoplay 200 cycle',            { unit: null, autoplay: 200, cycle: true }],
-    ['::: draw   150x56   autoplay  60000  ',  { unit: '150x56', autoplay: 60000, cycle: false }],
+    ['::: draw',                               { unit: null, frame: null, autoplay: null, cycle: false }],
+    ['::: draw 150x56',                        { unit: '150x56', frame: null, autoplay: null, cycle: false }],
+    ['::: draw autoplay 900',                  { unit: null, frame: null, autoplay: 900, cycle: false }],
+    ['::: draw 150x56 autoplay 1200 cycle',    { unit: '150x56', frame: null, autoplay: 1200, cycle: true }],
+    ['::: draw autoplay 200 cycle',            { unit: null, frame: null, autoplay: 200, cycle: true }],
+    ['::: draw   150x56   autoplay  60000  ',  { unit: '150x56', frame: null, autoplay: 60000, cycle: false }],
+    // The canvas, which comes between the two: a fact about the picture, and
+    // everything after it is about playback.
+    ['::: draw frame 6x4',                     { unit: null, frame: '6x4', autoplay: null, cycle: false }],
+    ['::: draw 150x56 frame 6x4',              { unit: '150x56', frame: '6x4', autoplay: null, cycle: false }],
+    ['::: draw 150x56 frame 6.5x3.5',          { unit: '150x56', frame: '6.5x3.5', autoplay: null, cycle: false }],
+    ['::: draw 150x56 frame none',             { unit: '150x56', frame: 'none', autoplay: null, cycle: false }],
+    ['::: draw 150x56 frame 6x4 autoplay 1200 cycle',
+                                               { unit: '150x56', frame: '6x4', autoplay: 1200, cycle: true }],
   ];
   for (const [line, want] of valid) {
     const o = parseDrawOpener(line);
-    const got = o && { unit: o.unit, autoplay: o.autoplay, cycle: o.cycle };
+    const got = o && { unit: o.unit, frame: o.frame, autoplay: o.autoplay, cycle: o.cycle };
     ok(o && !o.problems.length && JSON.stringify(got) === JSON.stringify(want), `${line.trim()} parses`, JSON.stringify(o));
     ok(formatDrawOpener(want) === line.trim().replace(/\s+/g, ' '), `and formats back to itself`);
   }
+  // A frame written with trailing zeros still formats back to one spelling,
+  // because the payload the editor writes back is the formatted line.
+  ok(formatDrawOpener({ frame: '6.0x4.50' }) === '::: draw frame 6x4.5', 'a frame has one spelling',
+     formatDrawOpener({ frame: '6.0x4.50' }));
   const refused = [
     ['::: draw {unit=150x56}',              'stray-attribute', /Write  ::: draw 150x56$/],
     ['::: draw {unit=150x56 autoplay=1400 cycle}', 'stray-attribute', /::: draw 150x56 autoplay 1400 cycle/],
@@ -164,7 +209,10 @@ export async function run({ report }) {
     ['::: draw 150X56',                     'bad-unit', null],
     ['::: draw 150×56',                     'bad-unit', null],
     ['::: draw 0x56',                       'bad-unit', null],
-    ['::: draw 150x56 autoplay x',          'bad-autoplay', null],
+    // A side of 22 digits used to pass, and the formatted opener then threw
+    // with a stack: 1e+21x5 is not WxH. Refused, in the build and in lint.
+    ['::: draw 1000000000000000000000x5',   'bad-unit', /from 1 to 2000/],
+    ['::: draw 2001x5',                     'bad-unit', /from 1 to 2000/],    ['::: draw 150x56 autoplay x',          'bad-autoplay', null],
     ['::: draw 150x56 autoplay',            'bad-autoplay', null],
     ['::: draw 150x56 autoplay 199',        'bad-autoplay', null],
     ['::: draw 150x56 autoplay 60001',      'bad-autoplay', null],
@@ -179,6 +227,14 @@ export async function run({ report }) {
     ['::: draw {#fig autoplay=50}',          'stray-attribute', /out of range/],
     ['::: draw {#fig cycle}',                'stray-attribute', /no autoplay to repeat/],
     ['::: draw {#fig unit=150x56}',          'stray-attribute', /Write  ::: draw 150x56  \(a draw #id/],
+    ['::: draw 150x56 frame',                'bad-frame', /frame 6x4/],
+    ['::: draw 150x56 frame 6X4',            'bad-frame', /lowercase x/],
+    ['::: draw 150x56 frame 0x4',            'bad-frame', null],
+    ['::: draw 150x56 frame 400x4',          'bad-frame', /at most 200/],
+    ['::: draw 150x56 frame none frame 6x4', 'stray-attribute', /"frame" is written twice/],
+    ['::: draw autoplay 900 frame 6x4',      'stray-attribute', /the canvas comes before playback/],
+    ['::: draw 150x56 frame autoplay 900',   'bad-frame', /frame none/],
+    ['::: draw 150x56 6x4',                  'stray-attribute', /A canvas is written  frame 6x4/],
   ];
   for (const [line, code, re] of refused) {
     const o = parseDrawOpener(line);
@@ -205,6 +261,9 @@ export async function run({ report }) {
   ok(throws(() => formatDrawOpener({ unit: '0x56' })) && throws(() => formatDrawOpener({ unit: '150x0' })), 'and so is a zero side');
   ok(throws(() => formatDrawOpener({ autoplay: 100 })), 'an out-of-range autoplay is thrown');
   ok(throws(() => formatDrawOpener({ unit: [150, 56] })), 'an array unit is thrown - one representation crosses parser, formatter and payload');
+  ok(throws(() => formatDrawOpener({ frame: '6X4' })) && throws(() => formatDrawOpener({ frame: '0x4' })),
+     'a frame that is not WxH in grid units is thrown');
+  ok(!throws(() => formatDrawOpener({ frame: 'none' })), 'and "none" is a value, not a refusal');
 
   // ── the compiler adapter and the legacy reader ───────────────────
   ok(drawCompilerAttrs({ unit: '150x56', autoplay: 900, cycle: true }) === 'unit=150x56', 'the compiler sees the grid and nothing else');
@@ -304,6 +363,78 @@ export async function run({ report }) {
     const extra = [...lintKeys].filter(k => !specKeys.has(k));
     ok(!missing.length, 'every style key build.js accepts is one lint.js knows', missing.join(','));
     ok(!extra.length, 'and lint.js knows no key build.js has dropped', extra.join(','));
+
+    // The same pair for the `prompter:` block, whose lint mirror is three
+    // tables (an enum, the number keys, the free keys) rather than one.
+    const sBody = bsrc.slice(bsrc.indexOf('const SOUFFLEUSE_SPEC = {'));
+    const sKeys = new Set([...sBody.slice(0, sBody.indexOf('\n};'))
+      .matchAll(/^\s{2}'?([a-z-]+)'?:\s*\{/gm)].map(m => m[1]));
+    const lBody = lsrc.slice(lsrc.indexOf('const SOUFFLEUSE_ENUMS = {'));
+    const lKeys = new Set([...lBody.slice(0, lBody.indexOf('\n};'))
+      .matchAll(/^\s{2}'([a-z-]+)':/gm)].map(m => m[1]));
+    for (const table of ['SOUFFLEUSE_NUM_KEYS', 'SOUFFLEUSE_FREE_KEYS']) {
+      const m = lsrc.match(new RegExp(table + ' = new Set\\(\\[([^\\]]*)\\]'));
+      for (const k of (m ? m[1] : '').match(/'[a-z-]+'/g) || []) lKeys.add(k.slice(1, -1));
+    }
+    ok(sKeys.size >= 5, `SOUFFLEUSE_SPEC's keys are findable (${sKeys.size})`, [...sKeys].join(','));
+    const sMissing = [...sKeys].filter(k => !lKeys.has(k));
+    const sExtra = [...lKeys].filter(k => !sKeys.has(k));
+    ok(!sMissing.length, 'every souffleuse key build.js accepts is one lint.js knows', sMissing.join(','));
+    ok(!sExtra.length, 'and lint.js knows no souffleuse key build.js has dropped', sExtra.join(','));
+
+    // …and the bounds of its number keys, which lint.js used to leave to the
+    // build, so `cadence: 0` linted clean and failed to build.
+    const bBounds = {};
+    for (const m of sBody.slice(0, sBody.indexOf('\n};'))
+      .matchAll(/^\s{2}'?([a-z-]+)'?:\s*\{\s*kind: 'number', min: (\d+), max: (\d+)/gm)) bBounds[m[1]] = `${m[2]}-${m[3]}`;
+    const nbBody = lsrc.slice(lsrc.indexOf('const SOUFFLEUSE_NUM_BOUNDS = {'));
+    const lBounds = {};
+    for (const m of nbBody.slice(0, nbBody.indexOf('\n};')).matchAll(/^\s{2}'([a-z-]+)': \[(\d+), (\d+)/gm)) lBounds[m[1]] = `${m[2]}-${m[3]}`;
+    ok(Object.keys(bBounds).length === 3 && JSON.stringify(bBounds) === JSON.stringify(lBounds),
+       'the prompter number keys have the same bounds in both files',
+       `build ${JSON.stringify(bBounds)} / lint ${JSON.stringify(lBounds)}`);
+  }
+
+  // ── the code fence ──────────────────────────────────────────────────
+  // One rule, CommonMark's, for every reader in both files. The parser and
+  // the reveal split used to know three backticks at column 0 and nothing
+  // else, so a `~~~yaml` block with a `---` in it was cut into two beats.
+  {
+    const walk = (lines) => {
+      const f = fenceTracker();
+      return lines.map((l, i) => { const d = f.step(l, i); return d ? 'D' : f.inside ? 'I' : '.'; }).join('');
+    };
+    ok(walk(['~~~yaml', '---', '~~~', '---']) === 'DID.', 'a tilde fence is a fence, and the --- inside it is its text');
+    ok(walk(['````md', '```', '---', '```', '````', 'x']) === 'DIIID.',
+       'four backticks are closed by four or more, not by the three inside');
+    ok(walk(['   ```', 'a', '   ```']) === 'DID', 'up to three spaces of indent open and close a fence');
+    ok(walk(['    ```', 'a']) === '..', 'four spaces are indented code, not a fence');
+    ok(walk(['```', '~~~', '```']) === 'DID', 'a fence is closed by its own character only');
+    ok(walk(['```js', '``` trailing', '```']) === 'DID', 'a closing line carries nothing but the run');
+    ok(walk(['``` a`b', 'x']) === '..', 'a backtick opener with a backtick in its info string is not one');
+    const f = fenceTracker(); f.step('x', 1); f.step('~~~~', 7);
+    ok(f.inside && f.openedAt === 7 && f.marker === '~~~~', 'an open fence says where it opened and what closes it');
+    ok(fenceOpener('``') === null && fenceOpener('~~~') !== null, 'two characters are not a run');
+    // A multi-line HTML comment (CommonMark HTML block type 2) holds no fence:
+    // marked renders a ~~~ there as the comment's text, and the tracker read
+    // it as an opener that swallowed every slide below.
+    ok(walk(['<!-- draft:', '~~~python', 'print(1)', '-->', '```', 'x', '```']) === '....DID',
+       'a fence-looking line inside a multi-line comment is the comment\'s text');
+    ok(walk(['<!-- one line -->', '~~~', 'x', '~~~']) === '.DID', 'a comment closed on its own line holds nothing after it');
+    ok(walk(['```', '<!--', '```', '~~~', 'x', '~~~']) === 'DIDDID', 'a comment opener inside a fence is code, and opens nothing');
+    ok(walk(['    <!--', '~~~', '~~~']) === '.DD', 'four spaces of indent are not an HTML block');
+    ok(walk(['<!-- left open', '## free: B {#b}', '~~~', 'x', '~~~']) === '..DID',
+       'a comment left open ends at the next slide heading, where marked\'s body ends too');
+
+    // Every reader goes through it: no hand-written fence regex is left in
+    // either file's code. Comments are blanked first; a regex in a comment
+    // is prose about the old rule.
+    for (const file of ['build.js', 'lint.js']) {
+      const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+      const code = text.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+      const hand = code.split('\n').filter(l => /\/\^\\s\*\(?```|\/\^```|\(```\|~~~\)/.test(l));
+      ok(!hand.length, `${file} tests for a fence only through fenceTracker`, hand.slice(0, 3).join(' / '));
+    }
   }
 
   // ── DISPLAY_TRACK is complete ───────────────────────────────────────
@@ -337,8 +468,8 @@ export async function run({ report }) {
         + cut(/function posterStyleTag\(/, '</style>`;'),
     };
     const declared = {};
-    for (const m of bsrc.slice(bsrc.indexOf('const DISPLAY_TRACK = {'))
-      .slice(0, 900).matchAll(/^\s{2}(print|live): \[([\s\S]*?)\],$/gm)) {
+    const trackAt = bsrc.indexOf('const DISPLAY_TRACK = {');
+    for (const m of bsrc.slice(trackAt, bsrc.indexOf('\n};', trackAt)).matchAll(/^\s{2}(print|live): \[([\s\S]*?)\],$/gm)) {
       declared[m[1]] = [...m[2].matchAll(/'([^']+)'/g)].map(x => x[1]);
     }
     ok(declared.print && declared.live, 'DISPLAY_TRACK has both views',

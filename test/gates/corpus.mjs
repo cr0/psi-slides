@@ -29,6 +29,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { makeCore, ROOT } from './harness.mjs';
 import { parseDrawOpener, drawCompilerAttrs } from '../../tails.mjs';
+import { parseDiagramDefaults } from '../../diagram-core.mjs';
 
 export const name = 'every corpus figure compiles';
 
@@ -37,14 +38,14 @@ export const name = 'every corpus figure compiles';
 // and the extractor matches nothing. When a lecture gains or loses a figure,
 // the number changes in the same commit.
 const FILES = [
-  ['lectures/diagrams/source.md', 29],
+  ['lectures/diagrams/source.md', 33],
   ['lectures/network-security/source.md', 36],
   ['docs/artifact/figure-rules/source.md', 55],
-  // Ten compiled blocks (an eleventh opener sits in a code fence as a syntax
-  // example), four tracked views, published by the Pages job.
-  // Left out of a corpus census it is invisible.
-  ['lectures/tutorial/source.md', 11],
-  ['lectures/decoration/source.md', 4],
+  // Three compiled blocks – the tutorial keeps a taste of figures and leaves
+  // the rest to lectures/diagrams – four tracked views, published by the
+  // Pages job. Left out of a corpus census it is invisible.
+  ['lectures/tutorial/source.md', 3],
+  ['lectures/decoration/source.md', 6],
   // The palette reference: a box figure and a column figure, because the
   // difference between the two strengths is what that deck is about.
   ['lectures/palette/source.md', 2],
@@ -76,6 +77,41 @@ const WARNING_CEILING = 3;
 // and through the shared opener parser. A refused opener is still a block -
 // it is recorded with its problems rather than dropped, or a stale spelling
 // would silently shrink the corpus.
+// **Each lecture's figures compile the way that lecture compiles them.** A
+// block is not the whole input: `draw-defaults` in the frontmatter is a layer
+// under every figure in the deck, and an `image` line's box comes from the
+// asset's own proportions. Compiled without either, a figure here is a figure
+// no reader has ever seen – `lectures/network-security` sets `default text
+// {.small}`, so every label in it was measured a quarter too large, and
+// `lectures/diagrams`' avatars are 100x120 against a stub's 1.6, so they stood
+// a third too tall. Both produced overlap warnings about geometry the build
+// does not draw, which is exactly the kind of noise a ratchet must not carry.
+export function defaultsOf(src) {
+  const fm = src.match(/^---\n([\s\S]*?)\n---/);
+  const m = fm && fm[1].match(/^draw-defaults:\s*\|\s*\n((?:[ \t]+.*\n?)*)/m);
+  if (!m) return null;
+  const { layer } = parseDiagramDefaults(m[1].replace(/^[ \t]{2}/gm, ''));
+  return layer;
+}
+
+// An SVG says its proportions in its viewBox, and every `image` in the corpus
+// but one is an SVG. The odd one out (a 282-byte PNG swatch) keeps the stub's
+// answer: reading a raster header is `imageSize()` in build.js, which a gate
+// that runs without `npm install` has no business importing.
+export function aspectReader(dir) {
+  return (ref) => {
+    for (const ext of ['.svg']) {
+      const p = path.join(dir, 'assets', ref + ext);
+      if (!fs.existsSync(p)) continue;
+      const vb = fs.readFileSync(p, 'utf8').match(/viewBox="([\d.\s-]+)"/);
+      if (!vb) break;
+      const n = vb[1].trim().split(/\s+/).map(Number);
+      if (n.length === 4 && n[2] > 0) return n[3] / n[2];
+    }
+    return 1.6;
+  };
+}
+
 export function blocks(src) {
   const lines = src.split('\n');
   const out = [];
@@ -107,17 +143,19 @@ export async function run({ report }) {
   for (const [rel, expected] of FILES) {
     const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
     const found = blocks(src);
+    const base = defaultsOf(src);
+    const imageAspect = aspectReader(path.dirname(path.join(ROOT, rel)));
     ok(found.length === expected, `${rel} holds ${expected} block(s)`, `found ${found.length}`);
     for (const b of found) {
       n++;
-      const { core, warns } = makeCore();
+      const { core, warns } = makeCore({ imageAspect });
       const where = `${rel}:${b.line}`;
       if (b.problems.length) {
         failures.push(`${where}\n      ${b.problems.map(p => p.msg).join('\n      ')}`);
         continue;
       }
       try {
-        core.renderDiagram(b.body.join('\n'), b.head, {});
+        core.renderDiagram(b.body.join('\n'), b.head, base ? { base } : {});
         for (const w of warns) warnings.push(`${where}  ${w}`);
       } catch (e) {
         failures.push(`${where}\n      ${String(e.message).split('\n').slice(0, 4).join('\n      ')}`);

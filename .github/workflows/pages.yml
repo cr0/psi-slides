@@ -35,13 +35,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
 
       - run: npm ci
 
+      # The same set gates.yml and release.yml lint, so a source cannot pass
+      # one of the three and fail another.
       - name: Lint the lectures
-        run: node lint.js lectures/ docs/artifact/figure-rules/source.md
+        run: node lint.js lectures/ docs/site/example/source.md docs/artifact/figure-rules/source.md
 
       # Seconds, and they fail on things neither the linter nor the build can
       # see on its own: a linter that has drifted from the compiler it mirrors,
@@ -58,10 +60,11 @@ jobs:
 
       - name: Build the lectures
         run: |
-          node build.js lectures/tutorial/source.md
+          # The three lectures with tracked views, built the way release.yml
+          # checks them, so what the site publishes is the committed bytes
+          # whatever encoder a runner image ships one day.
+          npm run build:tracked
           node build.js lectures/python-intro/source.md
-          node build.js lectures/diagrams/source.md
-          node build.js lectures/decoration/source.md
           # A 39-line lecture, published so a reader can take in one whole
           # source at a glance. The screenshots come from python-intro.
           node build.js docs/site/example/source.md
@@ -76,25 +79,26 @@ jobs:
           # vocabulary, built here for the same reason network-security is -
           # linted on every push, so built on every push, or a line the build
           # refuses and the linter passes merges green. Not published.
-          node build.js lectures/demo-tracking/source.md
-          node build.js lectures/demo-responsibility/source.md
-          node build.js lectures/demo-deco/source.md
+          node build.js test/corpus/demo-tracking/source.md
+          node build.js test/corpus/demo-responsibility/source.md
+          node build.js test/corpus/demo-deco/source.md
 
-      # Both pages this job publishes carry figures compiled from the lecture
-      # above, and `refresh-figures.mjs` is the only text that compiles one for
-      # publication. Nothing ran it here, so a commit that changed the compiler
-      # or the lecture could publish a page whose drawings were made by an
-      # older one - and the two files say in their own comments that this check
+      # The figures page this job publishes carries figures compiled from the
+      # lecture above, and `refresh-figures.mjs` is the only text that compiles
+      # one for publication. Nothing ran it here, so a commit that changed the
+      # compiler or the lecture could publish a page whose drawings were made
+      # by an older one - and the page says in its own comments that this check
       # is what prevents that. It is a claim only if it runs.
       - name: Check the published figure pages are current
         run: node docs/artifact/refresh-figures.mjs --check
 
-      # Same arrangement for the display-face roster: display-faces.html is
-      # tracked and generated out of tools/font-playground/roster.mjs, the
-      # measured scales, and the 32 font packages the engine depends on. A
-      # roster edit that nobody regenerated would publish a page describing a
-      # set of faces that is no longer the set.
-      - name: Check the published display-face page is current
+      # Same arrangement for the typefaces page: display-faces.html is tracked
+      # and generated out of build.js's nine text faces (read by
+      # text-roster.mjs), tools/font-playground/roster.mjs, the measured
+      # scales, and the font packages the engine depends on. A roster edit
+      # that nobody regenerated would publish a page describing a set of faces
+      # that is no longer the set.
+      - name: Check the published typefaces page is current
         run: node tools/font-playground/build-playground.mjs --check
 
       # Renders the docs from the same Markdown the repository serves, so the
