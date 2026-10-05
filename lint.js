@@ -3036,6 +3036,20 @@ function lintDiagram(block, addOuter, fmLines, lectureTags, paletteTones = new S
   if (lectureTags) for (const t of tags) lectureTags.add(t);
 }
 
+// Where a chunk ends, for a reader that walks raw source lines - mirrors
+// headingScanner in build.js: a `# comment` line inside a ::: draw block
+// and a `#` line inside a code fence are content, not the next heading.
+function headingScanner() {
+  const fence = fenceTracker();
+  let inDraw = false;
+  return (line) => {
+    if (inDraw) { if (/^:::\s*$/.test(line)) inDraw = false; return false; }
+    if (fence.step(line) || fence.inside) return false;
+    if (/^:::\s+draw\b/.test(line)) { inDraw = true; return false; }
+    return /^#{1,2}\s/.test(line);
+  };
+}
+
 // What the build calls the title chunk's body, as source text: the lines
 // under `## title:` up to the next # or ## heading, less the speaker notes and
 // annotations (the `> note:` line *and* every `>` line continuing it, which
@@ -3051,11 +3065,14 @@ function titleChunkBodyText(lines, at) {
   const fence = fenceTracker();
   let note = false;
   let lifted = 0;           // depth inside a lifted block, its own ::: draw included
+  let draw = false;         // inside a ::: draw, where a `# ` line is a comment
   for (let j = at + 1; at >= 0 && j < lines.length; j++) {
     const l = lines[j];
     const delim = fence.step(l);
     const code = delim || fence.inside;
-    if (!code && /^#{1,2}[ \t]/.test(l)) break;
+    if (!code && draw) { if (/^:::\s*$/.test(l)) draw = false; }
+    else if (!code && /^:::\s+draw\b/.test(l)) draw = true;
+    else if (!code && /^#{1,2}[ \t]/.test(l)) break;
     if (!code && note) {
       if (/^>/.test(l)) continue;
       note = false;
@@ -5636,9 +5653,10 @@ function lintFile(filePath) {
             'a recall: chunk needs a ::: recall <source.md>#<chunk-id> line in its body');
       }
     };
+    const isHeading = headingScanner();
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
-      if (/^#{1,2}\s/.test(l)) {
+      if (isHeading(l)) {
         closeChunk();
         chunkLine = i; chunkHasRecall = false;
         chunkIsRecall = /^##\s+recall:/.test(l);
@@ -5668,7 +5686,8 @@ function lintFile(filePath) {
       const idRe = new RegExp(`\\{[^}]*#${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])[^}]*\\}\\s*$`);
       const at = tl.findIndex(x => /^##\s/.test(x) && idRe.test(x));
       if (at < 0) { add(i + 1, 'error', 'recall-missing', `::: recall – ${ref.slice(0, hash)} has no chunk {#${id}}`); continue; }
-      for (let j = at + 1; j < tl.length && !/^#{1,2}\s/.test(tl[j]); j++) {
+      const targetHeading = headingScanner();
+      for (let j = at + 1; j < tl.length && !targetHeading(tl[j]); j++) {
         if (RECALL.test(tl[j])) {
           add(i + 1, 'error', 'recall-nested', `::: recall – #${id} is itself a recall; recall the original slide instead`);
           break;

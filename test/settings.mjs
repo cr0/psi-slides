@@ -4758,7 +4758,15 @@ console.log('\nlayout generations');
   fs.writeFileSync(path.join(root, 'one', 'source.md'), '---\ntitle: One\nsubtitle: First\nlang: en\n---\n\n## title: {#title}\n\n'
     + '## definition: Layers | Seven of them {.wide #layers}\n\n::: slide\n**Each layer uses the one below.**\n:::\n\nThe long handout text.\n\n> note: The original note.\n\n'
     + '## free: Addresses {.wide #addr}\n\nAn address names an interface. It is not a host.\n\n::: expand More\nHidden.\n:::\n\n'
-    + '## free: Again {#again}\n\n::: recall source.md#layers\n');
+    + '## free: Again {#again}\n\n::: recall source.md#layers\n\n'
+    // A `# ` line at column 0 of a ::: draw is a comment of the figure, not
+    // the next heading: once inside ::: slide, once in a derived body, once
+    // above a nested recall.
+    + '## figure: Anatomy | Head and data {.wide #anatomy}\n\n::: slide\n**The command has three parts.**\n\n'
+    + '::: draw 40x10 frame 10.1x3.9\n# frame: a strip\nbox a "Command" at 0,0\nbox b "Option" right of a\n:::\n:::\n\nHandout text.\n\n'
+    + '## free: Strip {.wide #strip}\n\nA strip of two. It is short.\n\n'
+    + '::: draw 40x10 frame 10.1x3.9\n# frame: a strip\nbox a "Head" at 0,0\nbox b "Tail" right of a\n:::\n\nAfter the figure. Not on the slide.\n\n'
+    + '## free: Nested {#nested}\n\n::: draw 40x10\n# a comment\nbox a "A" at 0,0\n:::\n\n::: recall source.md#layers\n');
   const run = (body) => {
     fs.writeFileSync(path.join(root, 'two', 'source.md'), '---\ntitle: Two\nlang: en\n---\n\n## title: {#title}\n\n' + body);
     const b = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(root, 'two', 'source.md')], { cwd: ROOT, encoding: 'utf8' });
@@ -4782,6 +4790,21 @@ console.log('\nlayout generations');
   ok(missing.code !== 0 && /has no chunk \{#nope\}/.test(missing.out) && /recall-missing/.test(missing.lint), 'a missing chunk fails the build and the linter');
   const nested = run('## free: Y {#y}\n\n::: recall ../one/source.md#again\n');
   ok(nested.code !== 0 && /itself a recall/.test(nested.out) && /recall-nested/.test(nested.lint), 'a recall of a recall is refused by both');
+  const figure = run('## recall: {#r-anatomy}\n\n::: recall ../one/source.md#anatomy\n\nOne sentence.\n');
+  const figArt = (figure.html.match(/<article[^>]*id="r-anatomy"[\s\S]*?<\/article>/) || [''])[0];
+  ok(figure.code === 0 && /The command has three parts/.test(figArt) && /<svg[\s\S]*Option/.test(figArt) && !/Handout text/.test(figArt),
+     'a recalled figure may carry a # comment at column 0: the comment does not end the chunk', figure.out.split('\n')[0]);
+  ok(!/recall-missing|recall-nested|unclosed/.test(figure.lint), 'and the linter accepts it');
+  const strip = run('## free: Strip again {.wide #r-strip}\n\n::: recall ../one/source.md#strip\n');
+  const stripArt = (strip.html.match(/<article[^>]*id="r-strip"[\s\S]*?<\/article>/) || [''])[0];
+  ok(strip.code === 0 && /<svg[\s\S]*Tail/.test(stripArt) && /After the figure\./.test(stripArt) && !/Not on the slide/.test(stripArt),
+     'nor does it in a derived body: the text after the figure is still recalled', strip.out.split('\n')[0]);
+  const below = run('## recall: {#r-below}\n\n::: draw 40x10\n# a comment\nbox a "Own" at 0,0\n:::\n\n::: recall ../one/source.md#layers\n');
+  ok(below.code === 0 && /Each layer uses the one below/.test(below.html) && !/recall-missing/.test(below.lint),
+     'a ::: recall line below a commented figure of the recalling chunk is found by both', below.out.split('\n')[0]);
+  const nested2 = run('## free: Z {#z}\n\n::: recall ../one/source.md#nested\n');
+  ok(nested2.code !== 0 && /itself a recall/.test(nested2.out) && /recall-nested/.test(nested2.lint),
+     'and a recall below a commented figure of the recalled chunk is still refused by both');
 }
 
 // ── CI steps: style.fill / line / edge-dark as sRGB mixes with white and black ──

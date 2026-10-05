@@ -5606,6 +5606,21 @@ function noteSegments(bodyLines, segments, noteAt, kept) {
 // lecture depend on a chain nobody sees.
 let currentRecalls = false;
 const RECALL_LINE = /^:::\s+recall\s+(\S+)\s*$/;
+// Where a chunk ends, for a reader that walks raw source lines: at the next
+// `#` or `##` heading that is Markdown. A `# comment` line inside a
+// ::: draw block is not one, nor is a `#` line inside a code fence - the
+// parser reads both as content. Call it once per line, in order; lint.js
+// mirrors it under the same name.
+function headingScanner() {
+  const fence = fenceTracker();
+  let inDraw = false;
+  return (line) => {
+    if (inDraw) { if (/^:::\s*$/.test(line)) inDraw = false; return false; }
+    if (fence.step(line) || fence.inside) return false;
+    if (/^:::\s+draw\b/.test(line)) { inDraw = true; return false; }
+    return /^#{1,2}\s/.test(line);
+  };
+}
 function loadRecall(ref, fromDir, where) {
   const fail = (msg) => { const err = new Error(`::: recall ${ref} (${where}): ${msg}`); err.userFacing = true; throw err; };
   const hash = ref.lastIndexOf('#');
@@ -5628,10 +5643,9 @@ function loadRecall(ref, fromDir, where) {
   const head = lines[at].match(/^##\s+([a-z]+):\s*(.*?)\s*(\{[^}]*\})\s*$/);
   if (!head) fail(`the heading of #${id} in ${file} is not a chunk heading.`);
   let end = lines.length;
-  const fence = fenceTracker();
+  const isHeading = headingScanner();
   for (let i = at + 1; i < lines.length; i++) {
-    if (fence.step(lines[i]) || fence.inside) continue;
-    if (/^#{1,2}\s/.test(lines[i])) { end = i; break; }
+    if (isHeading(lines[i])) { end = i; break; }
   }
   const body = lines.slice(at + 1, end);
   if (body.some(l => RECALL_LINE.test(l))) fail(`#${id} is itself a recall – recall the original slide instead.`);
@@ -6307,7 +6321,8 @@ function parseLecture(src) {
     // the line in hand only - the byte offsets above are already counted.
     if (!injected && !diagramBlock && /^##\s/.test(line)) {
       let ref = null;
-      for (let j = k + 1; j < srcLines.length && !/^#{1,2}\s/.test(srcLines[j]); j++) {
+      const isHeading = headingScanner();
+      for (let j = k + 1; j < srcLines.length && !isHeading(srcLines[j]); j++) {
         const m = srcLines[j].match(RECALL_LINE);
         if (m) { ref = m[1]; break; }
       }

@@ -45,6 +45,20 @@ from building the same way is a major version.
 
 ### Fixed
 
+- **A `# comment` at column 0 of a `::: draw` no longer ends the chunk a
+  `::: recall` reads.** `loadRecall` looked for the end of the recalled chunk
+  knowing code fences but not figures, so `# frame: a strip` inside the
+  drawing was taken for the next heading: the body stopped there, the
+  `::: slide` round the figure lost its closer, and the recalling deck was
+  refused with "::: slide not closed" while the deck that owns the figure
+  built clean. The same scan stood in four more places and is one function
+  now, `headingScanner`, in `build.js` and mirrored in `lint.js`: the search
+  for a chunk's own `::: recall` line (a commented figure above it hid the
+  line, and a `## recall:` chunk was refused as having none), the linter's
+  `recall-missing` and `recall-nested` walks, which also took a `#` line in a
+  code fence for a heading, and the linter's reading of a `## title:` body. An
+  indented comment was never affected and stays valid.
+
 - **Safari drew no edge under a figure box, and a grey band above every
   framed footer.** Both were WebKit rendering the fork's own CSS differently
   from Chromium, and both passed every check here, because every check here
