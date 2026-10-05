@@ -121,6 +121,15 @@ files, and its message says why:
   `~/talk` cannot reach `~/anything`. Nothing is read through a folder whose
   name starts with a dot (`.ssh`, `.git`, `.config`, `.env` …), inside the
   lecture's folder included.
+  **This fork widens it in one place, which upstream 2.0.0 does not:** a
+  `::: recall` may read another lecture's `source.md` from a sibling unit
+  two levels up, written exactly as `../../<unit>/<folder>/source.md`, and
+  from that lecture's folder the pictures the recalled slide itself names.
+  So a deck you were sent can show a slide of a `source.md` – and the
+  pictures on that slide – that sits in that one position relative to it,
+  and nothing else from there. No name on the way may start with a dot, and
+  it does not apply where one or two levels up is your home folder, a folder
+  that holds it, or the top of a disk.
 - **A symbolic link whose target is a different kind of file than its name
   says.** A link counts as the file it points to, so it is held to the same
   folders, and `assets/pic.png` pointing at a PDF or a key is refused.

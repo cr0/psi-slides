@@ -314,7 +314,7 @@ Everything below is off unless a deck writes it. Details live in the skills (`.c
 
 **Across lectures**
 
-- `::: recall ../networks-1/source.md#osi-layers` in a chunk (typically `## recall: {#r-osi}`) – shows that slide again, read from the other lecture's current source at every build (only from the lecture's own folder or the one above it, under the same file rule as a picture; `asset-outside-root` otherwise), under a `Recap · <title>` tag. The handout carries a reference line to the original instead of its text, and only this chunk's own notes. Lint: `recall-missing`, `recall-nested`.
+- `::: recall ../networks-1/source.md#osi-layers` in a chunk (typically `## recall: {#r-osi}`) – shows that slide again, read from the other lecture's current source at every build (only from the lecture's own folder or the one above it, under the same file rule as a picture – plus, in this fork only, a sibling unit two levels up written exactly as `../../<unit>/<folder>/source.md`; `asset-outside-root` otherwise), under a `Recap · <title>` tag. The handout carries a reference line to the original instead of its text, and only this chunk's own notes. Lint: `recall-missing`, `recall-nested`.
 
 **Dividers and print**
 

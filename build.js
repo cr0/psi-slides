@@ -309,15 +309,47 @@ function assetEscape(abs, sourceDir, home = os.homedir()) {
   return null;
 }
 
+// FORK (not in upstream 2.0.0; planned to go again once the courses place a
+// copy inside the normal root): where a `::: recall` may read its source.md
+// from. Upstream's root first - and, only where that refuses, one more shape:
+// a sibling unit of a course laid out as <course>/<unit>/<folder>/source.md,
+// so `../../<unit>/<folder>/source.md`, exactly three names below the folder
+// two levels up, links resolved. Nothing else is widened: not a fourth name,
+// not a file directly in <course> or <course>/<unit>, no name that starts
+// with a dot, no link onto a file of another extension, and not at all where
+// one or two levels up is the home folder, a folder that holds it, or the top
+// of a disk. Null when the file may be read, else where it really lands - the
+// contract of assetEscape. lint.js mirrors it under the same name.
+function recallEscape(abs, sourceDir, home = os.homedir()) {
+  if (assetEscape(abs, sourceDir, home) === null) return null;
+  const real = realpathLoose(abs);
+  const own = realpathLoose(sourceDir);
+  const unit = path.dirname(own);
+  const course = path.dirname(unit);
+  if (assetRootNarrowed(own, home) || assetRootNarrowed(unit, home)) return real;
+  if (pathWithin(course, realpathLoose(home))) return real;
+  if (!pathWithin(course, real)) return real;
+  const names = path.relative(course, real).split(path.sep);
+  if (names.length !== 3 || names.some(c => c.startsWith('.'))) return real;
+  if (path.extname(real).toLowerCase() !== path.extname(path.resolve(abs)).toLowerCase()) return real;
+  return null;
+}
+
 // Files the current build was asked to read and did not, keyed by where they
 // really are. Filled by assetAllowed at every reader, refused before any view
 // is written (assertAssetsConfined), cleared per build.
 const OUTSIDE_ASSETS = new Map();   // real path -> the path as this build met it
+// FORK, with recallEscape: the files a recalled slide names, inside the folder
+// of a lecture that only recallEscape's extra shape admitted, by where they
+// really are. loadRecall fills it file by file; nothing else of that folder
+// is readable, and no other reference of this lecture is widened by it.
+const RECALL_ASSETS = new Set();
 
 function assetAllowed(abs) {
   if (!currentSourceDir || !abs) return true;
   const out = assetEscape(abs, currentSourceDir);
   if (out === null) return true;
+  if (RECALL_ASSETS.has(out)) return true;
   if (!OUTSIDE_ASSETS.has(out)) OUTSIDE_ASSETS.set(out, path.relative(currentSourceDir, abs));
   return false;
 }
@@ -5627,12 +5659,20 @@ function loadRecall(ref, fromDir, where) {
   if (hash <= 0 || hash === ref.length - 1) fail('write the source and the chunk id: ::: recall ../lecture-1/source.md#chunk-id');
   const file = ref.slice(0, hash), id = ref.slice(hash + 1);
   const abs = path.resolve(fromDir || '.', file);
-  // Upstream's file-root rule, no exception: a recalled lecture is read only
-  // from this lecture's folder or the one above it, never from a dot-folder,
-  // never through a link to another kind of file. assetAllowed records the
+  // Upstream's file-root rule - a recalled lecture is read only from this
+  // lecture's folder or the one above it, never from a dot-folder, never
+  // through a link to another kind of file - plus the fork's one more shape,
+  // a sibling unit two levels up (recallEscape). assetAllowed records the
   // refusal; this reader sits outside marked, so it throws that refusal at
   // once, in the words assertAssetsConfined would use, rather than reading.
-  if (!assetAllowed(abs)) throw assetsConfinedError(OUTSIDE_ASSETS, currentSourceDir);
+  const widened = !!currentSourceDir && assetEscape(abs, currentSourceDir) !== null;
+  if (widened && recallEscape(abs, currentSourceDir) !== null) {
+    assetAllowed(abs);
+    const err = assetsConfinedError(OUTSIDE_ASSETS, currentSourceDir);
+    err.message += '\n  A ::: recall may also name a sibling unit two levels up, in exactly this shape:\n'
+      + '  ../../<unit>/<folder>/source.md';
+    throw err;
+  }
   if (!fs.existsSync(abs)) fail(`there is no file ${file} (looked in ${abs}).`);
   const raw = fs.readFileSync(abs, 'utf8').replace(/\r\n?/g, '\n');
   const { data: fm, content } = safeMatter(raw);
@@ -5696,6 +5736,15 @@ function loadRecall(ref, fromDir, where) {
       }
       if (!target) return r;
     } else target = path.resolve(targetDir, r);
+    // A lecture only the fork's shape admitted: the files its slide names
+    // become readable one by one, and only inside its own folder, under the
+    // rules that folder's own build would apply (no dot-folder, a link only
+    // to its own kind). Anything else stays on the refusal list.
+    const named = assetFileOf(target);
+    if (widened && assetEscape(named, targetDir) === null
+        && pathWithin(realpathLoose(targetDir), realpathLoose(named))) {
+      RECALL_ASSETS.add(realpathLoose(named));
+    }
     return path.relative(fromDir || '.', target).split(path.sep).join('/');
   };
   let inDraw = false;
@@ -33329,6 +33378,7 @@ function buildOnce(absIn, only, opts = {}) {
   MATH_ERRORS.length = 0;
   UNRESOLVED_ASSETS.clear();
   OUTSIDE_ASSETS.clear();
+  RECALL_ASSETS.clear();
   lastKatexSheet = null;
   // Auto-inline decision when neither --inline-images nor --no-inline-images
   // was passed: scan referenced images, inline iff total fits AUTO_INLINE_BUDGET.

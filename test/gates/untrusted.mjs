@@ -236,6 +236,64 @@ export async function run({ report }) {
     ok(c.assetRootOf('/deck', home) === '/deck', 'a lecture folder at the top of a disk is its own root');
   }
 
+  // ── 2b. FORK: where a ::: recall may read its source.md from ─────────
+  // Not in upstream 2.0.0. The asset root first; where that refuses, one
+  // more shape and nothing else: <course>/<unit>/<folder>/<file>, three
+  // names below the folder two levels up. Both files, the same rows.
+  {
+    const rb = load('build.js', [...containment, 'recallEscape']);
+    const rl = load('lint.js', [...containment, 'recallEscape']);
+    ok(lift(buildSrc, 'recallEscape', 'build.js') === lift(lintSrc, 'recallEscape', 'lint.js'),
+       'recallEscape is the same text in build.js and lint.js');
+    const course = path.join(base, 'course', 'topics');
+    const own = path.join(course, 'b', 'lecture');
+    const src = (...parts) => { const p = path.join(...parts); fs.mkdirSync(path.dirname(p), { recursive: true }); return put(p); };
+    fs.mkdirSync(own, { recursive: true });
+    src(course, 'a', 'lecture', 'source.md');
+    src(course, 'a', 'lecture', 'deep', 'source.md');
+    src(course, 'a', 'source.md');
+    src(course, 'source.md');
+    src(course, '.hidden', 'lecture', 'source.md');
+    src(course, 'a', '.git', 'source.md');
+    src(course, 'b', 'other', 'source.md');
+    src(base, 'course', 'x', 'y', 'source.md');
+    src(base, 'course', 'x', 'y', 'z', 'source.md');
+    src(base, 'outside', 'notes.txt');
+    link(path.join(base, 'outside', 'notes.txt'), path.join(course, 'a', 'lecture', 'leak.md'));
+    link(path.join(base, 'course', 'x', 'y', 'z'), path.join(course, 'a', 'alias'));
+    const recallRows = [
+      ['a sibling unit two levels up, ../../a/lecture/source.md', path.resolve(own, '../../a/lecture/source.md'), true],
+      ['a lecture one level up, as upstream allows', path.resolve(own, '../other/source.md'), true],
+      ['a fourth name below it', path.resolve(own, '../../a/lecture/deep/source.md'), false],
+      ['a file directly in the unit', path.resolve(own, '../../a/source.md'), false],
+      ['a file directly two levels up', path.resolve(own, '../../source.md'), false],
+      ['a unit whose name starts with a dot', path.resolve(own, '../../.hidden/lecture/source.md'), false],
+      ['a dot-folder inside a unit', path.resolve(own, '../../a/.git/source.md'), false],
+      ['three levels up, three names down', path.resolve(own, '../../../x/y/source.md'), false],
+      ['three levels up, four names down', path.resolve(own, '../../../x/y/z/source.md'), false],
+      ['a link in the sibling to a file of another extension', path.resolve(own, '../../a/lecture/leak.md'), false],
+      ['a sibling folder that is a link out of the course', path.resolve(own, '../../a/alias/source.md'), false],
+    ];
+    for (const [what, abs, inside] of recallRows) {
+      ok((rb.recallEscape(abs, own) === null) === inside && (rl.recallEscape(abs, own) === null) === inside,
+         `recall: ${what} is ${inside ? 'read' : 'refused'} in both files`, rb.recallEscape(abs, own));
+    }
+    // A picture gets none of it: the same place, asked as an asset.
+    ok(rb.assetEscape(path.resolve(own, '../../a/lecture/source.md'), own) !== null
+       && rl.assetEscape(path.resolve(own, '../../a/lecture/source.md'), own) !== null,
+       'recall: assetEscape itself is not widened');
+    // Home: no widening where one or two levels up is the home folder, or
+    // where two levels up holds it.
+    const sib = path.resolve(own, '../../a/lecture/source.md');
+    for (const c of [rb, rl]) {
+      ok(c.recallEscape(sib, own, course) !== null, 'recall: refused when two levels up is the home folder');
+      ok(c.recallEscape(sib, own, path.join(course, 'b')) !== null, 'recall: refused when one level up is the home folder');
+      ok(c.recallEscape(sib, own, path.join(course, 'a')) !== null, 'recall: refused when the home folder is below two levels up');
+      ok(c.recallEscape(sib, own, path.join(base, 'elsewhere')) === null, 'recall: and read with home elsewhere');
+      ok(c.recallEscape('/a/lecture/source.md', '/b/lecture', home) !== null, 'recall: refused when two levels up is the top of a disk');
+    }
+  }
+
   // ── 3. writing an output ──────────────────────────────────────────
   const io = load('build.js', ['writeOutputFile', 'appendOutputFile']);
   const victim = put(path.join(base, 'outside', 'profile'));

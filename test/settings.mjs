@@ -4807,6 +4807,77 @@ console.log('\nlayout generations');
      'and a recall below a commented figure of the recalled chunk is still refused by both');
 }
 
+// ── FORK: ::: recall of a sibling unit two levels up ──
+// Not in upstream 2.0.0. A course laid out as topics/<unit>/lecture/source.md
+// has its neighbour two levels up, where the asset root does not reach. The
+// build-level half of the untrusted gate's recallEscape rows: the one shape
+// builds and shows its pictures, and everything beside it is still refused -
+// by build.js and lint.js alike.
+{
+  console.log('\na ::: recall of a sibling unit two levels up (fork)');
+  const base = fs.realpathSync(tmpDir('psi-recall-up-'));
+  const topics = path.join(base, 'course', 'topics');
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAAEElEQVR4nGP4z8DAwMDAAAAHBQEBqGZ3XAAAAABJRU5ErkJggg==', 'base64');
+  const B64 = PNG.toString('base64');
+  const A = '---\ntitle: A\nlang: en\n---\n\n## title: {#title}\n\n'
+    + '## free: Pic {.wide #x}\n\n::: slide\n**See the picture.**\n\n![By path](assets/pic.png)\n:::\n\nLong text.\n\n'
+    + '## free: Short {.wide #sh}\n\n::: slide\n**By its id.**\n\n![](pic)\n:::\n\n'
+    + '## free: Drawn {.wide #dr}\n\n::: slide\n**In a figure.**\n\n::: draw 40x10\nimage p assets/pic.png at 0,0 w 8 h 4\n:::\n:::\n\n'
+    + '## free: Out {.wide #out}\n\n::: slide\n**From the unit.**\n\n![Up](../shared.png)\n:::\n';
+  const put = (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); };
+  put(path.join(topics, 'a', 'lecture', 'source.md'), A);
+  put(path.join(topics, 'a', 'lecture', 'assets', 'pic.png'), PNG);
+  put(path.join(topics, 'a', 'lecture', 'assets', 'other.png'), PNG);
+  put(path.join(topics, 'a', 'shared.png'), PNG);
+  put(path.join(topics, 'a', 'lecture', 'deep', 'source.md'), A);
+  put(path.join(topics, '.hidden', 'lecture', 'source.md'), A);
+  put(path.join(base, 'course', 'x', 'y', 'source.md'), A);
+  put(path.join(base, 'far', 'a', 'lecture', 'source.md'), A);
+  const own = path.join(topics, 'b', 'lecture');
+  fs.mkdirSync(own, { recursive: true });
+  // --inline-images: the auto decision weighs this lecture's own pictures,
+  // and these decks have none of their own.
+  const run = (body, home) => {
+    for (const v of ['print', 'print-notes', 'audience', 'speaker']) fs.rmSync(path.join(own, v + '.html'), { force: true });
+    fs.writeFileSync(path.join(own, 'source.md'), '---\ntitle: B\nlang: en\n---\n\n## title: {#title}\n\n' + body);
+    const env = home ? { ...process.env, HOME: home } : process.env;
+    const b = spawnSync(process.execPath, [path.join(ROOT, 'build.js'), path.join(own, 'source.md'), '--no-optimize-images', '--inline-images'], { cwd: ROOT, encoding: 'utf8', env });
+    const l = spawnSync(process.execPath, [path.join(ROOT, 'lint.js'), path.join(own, 'source.md')], { cwd: ROOT, encoding: 'utf8', env });
+    const read = (f) => fs.existsSync(path.join(own, f)) ? fs.readFileSync(path.join(own, f), 'utf8') : '';
+    return { code: b.status, out: (b.stdout || '') + (b.stderr || ''), lint: (l.stdout || '') + (l.stderr || ''),
+             html: read('audience.html'), print: read('print.html') };
+  };
+  const first = (r) => r.out.split('\n').find(x => /may not read|Wrote|recall/.test(x));
+  const sib = run('## recall: {#r-x}\n\n::: recall ../../a/lecture/source.md#x\n\nBridge.\n');
+  ok(sib.code === 0 && /See the picture/.test(sib.html), 'a recall of ../../a/lecture/source.md builds', first(sib));
+  ok(sib.html.includes(B64) && sib.print.includes(B64), 'and its picture from ../../a/lecture/assets/ is in the projection and the document');
+  ok(!/asset-outside-root|recall-missing/.test(sib.lint), 'and the linter accepts it', sib.lint.split('\n')[0]);
+  const short = run('## recall: {#r-sh}\n\n::: recall ../../a/lecture/source.md#sh\n');
+  ok(short.code === 0 && short.html.includes(B64), 'a recalled ![](fig-id) is found in the sibling\'s assets/', first(short));
+  const drawn = run('## recall: {#r-dr}\n\n::: recall ../../a/lecture/source.md#dr\n');
+  ok(drawn.code === 0 && drawn.html.includes(B64), 'and so is a recalled ::: draw image', first(drawn));
+  const refusedBoth = (r, what) => {
+    ok(r.code !== 0 && /may not read/.test(r.out) && !r.html, `${what} is refused by the build, and no view is written`, first(r));
+    ok(/asset-outside-root/.test(r.lint), 'and by the linter', r.lint.split('\n')[0]);
+  };
+  refusedBoth(run('## recall: {#r}\n\n::: recall ../../../far/a/lecture/source.md#x\n'), 'a recall three levels up');
+  refusedBoth(run('## recall: {#r}\n\n::: recall ../../../x/y/source.md#x\n'), 'a recall three levels up and two names down');
+  refusedBoth(run('## recall: {#r}\n\n::: recall ../../.hidden/lecture/source.md#x\n'), 'a recall into a unit whose name starts with a dot');
+  refusedBoth(run('## recall: {#r}\n\n::: recall ../../a/lecture/deep/source.md#x\n'), 'a recall one folder deeper than <unit>/<folder>');
+  refusedBoth(run('## recall: {#r}\n\n::: recall ../../a/lecture/source.md#x\n', topics), 'the same recall when two levels up is the home folder');
+  refusedBoth(run('## recall: {#r}\n\n::: recall ../../a/lecture/source.md#x\n', path.join(topics, 'b')), 'and when one level up is');
+  refusedBoth(run('## free: P {#p}\n\n![x](../../a/lecture/assets/pic.png)\n'), 'an ordinary picture two levels up');
+  refusedBoth(run('## recall: {#r-x}\n\n::: recall ../../a/lecture/source.md#x\n\n## free: P {#p}\n\n![x](../../a/lecture/assets/other.png)\n'),
+    'another picture of the recalled lecture, written by this one,');
+  const cover = run('## recall: {#r-x}\n\n::: recall ../../a/lecture/source.md#x\n\n## free: P {#p}\n\n::: backdrop ../../a/lecture/assets/other.png\n\nText.\n');
+  ok(cover.code !== 0 && /may not read/.test(cover.out) && /asset-outside-root/.test(cover.lint), 'and a backdrop from there', first(cover));
+  // The recalled slide's own references are widened only inside its folder:
+  // the linter reads this lecture's source alone, so this one is the build's.
+  const out = run('## recall: {#r-out}\n\n::: recall ../../a/lecture/source.md#out\n');
+  ok(out.code !== 0 && /may not read/.test(out.out) && /shared\.png/.test(out.out) && !out.html,
+     'a recalled slide naming a file outside its lecture\'s folder is refused by the build', first(out));
+}
+
 // ── CI steps: style.fill / line / edge-dark as sRGB mixes with white and black ──
 {
   const dir = tmpDir('psi-ci-');

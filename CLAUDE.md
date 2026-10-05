@@ -561,7 +561,7 @@ Building a deck must not do more than read it, and three rules in build.js's
   face), so `assets/pic.png -> contract.pdf` is refused inside the root too.
   The home folder is a parameter
   so the gate can inject it; a build reads `os.homedir()`, i.e. `$HOME`. **Any new
-  reader of a file the source names goes through `assetAllowed()`** (`identity: {logo}` through `resolveAssetUrl`, a `::: recall <path>#<id>` through `loadRecall` – the fork's two readers, neither with an exception), which
+  reader of a file the source names goes through `assetAllowed()`** (`identity: {logo}` through `resolveAssetUrl`, a `::: recall <path>#<id>` through `loadRecall` – the fork's two readers; the logo has no exception, and a recall has exactly one, a deviation from upstream 2.0.0 meant to go again: `recallEscape` also admits a sibling unit two levels up, `../../<unit>/<folder>/source.md`, and `RECALL_ASSETS` then lets `assetAllowed()` read the files that recalled slide names, inside that lecture's folder and no others), which
   records a refusal instead of reading; `assertAssetsConfined()` throws after
   rendering and before any view is written – after rather than in the
   pre-flight because only the renderers know which `![](…)` is an image and

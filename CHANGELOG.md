@@ -43,6 +43,31 @@ from building the same way is a major version.
   with `[diagram] <n> figure note(s) above` after the warning line, if any.
   Every message still prints where it did. Both prefixes are parsed contracts.
 
+### Fork only – a deviation from upstream 2.0.0
+
+- **`::: recall` may read a sibling unit two levels up:
+  `../../<unit>/<folder>/source.md`.** Upstream's file-root rule, which item 3
+  above says recall follows with no exception, allows the lecture's folder
+  and the one above it. The university's course layout keeps every unit at
+  `topics/tNN-<slug>/lecture/source.md`, so the neighbouring unit is two
+  levels up, and the first course that recalled across units (CNW, t02
+  recalling t01) was refused by `lint.js` (`asset-outside-root`) and by the
+  build, on the author's machine and in CI alike. It is a bridge: the courses
+  move to a placed copy inside the normal root, and this goes again then.
+  What is admitted is one shape, tried only where upstream's rule refuses
+  (`recallEscape`, the same text in `build.js` and `lint.js`): the recalled
+  file is exactly three names below the folder two levels up, links resolved
+  – not a fourth name, not a file directly in the course or the unit folder,
+  no name starting with a dot, no link onto a file of another extension, and
+  not at all where one or two levels up is the home folder, a folder holding
+  it, or the top of a disk. Of the recalled lecture's folder, only the files
+  the recalled slide itself names become readable (`RECALL_ASSETS`: a
+  picture, a `::: backdrop`, a `::: draw` `image`), each inside that folder
+  and under its own rules. Nothing else is widened: an ordinary picture, a
+  backdrop, a cover image, a logo or a font two levels up is refused as
+  before, also in a deck that recalls from there. The `untrusted` gate holds
+  both files to the same rows, and `test/settings.mjs` builds the layout.
+
 ### Fixed
 
 - **A cover, a closing slide and a divider are framed as the frame they

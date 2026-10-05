@@ -634,6 +634,26 @@ function assetEscape(abs, sourceDir, home = os.homedir()) {
   }
   return null;
 }
+// Mirrors recallEscape in build.js, a FORK rule upstream 2.0.0 does not have:
+// a ::: recall may read its source.md from the asset root or, where that
+// refuses, from a sibling unit two levels up in exactly the shape
+// ../../<unit>/<folder>/source.md - three names below that folder, none
+// starting with a dot, and not where one or two levels up is the home folder,
+// a folder that holds it, or the top of a disk.
+function recallEscape(abs, sourceDir, home = os.homedir()) {
+  if (assetEscape(abs, sourceDir, home) === null) return null;
+  const real = realpathLoose(abs);
+  const own = realpathLoose(sourceDir);
+  const unit = path.dirname(own);
+  const course = path.dirname(unit);
+  if (assetRootNarrowed(own, home) || assetRootNarrowed(unit, home)) return real;
+  if (pathWithin(course, realpathLoose(home))) return real;
+  if (!pathWithin(course, real)) return real;
+  const names = path.relative(course, real).split(path.sep);
+  if (names.length !== 3 || names.some(c => c.startsWith('.'))) return real;
+  if (path.extname(real).toLowerCase() !== path.extname(path.resolve(abs)).toLowerCase()) return real;
+  return null;
+}
 
 // Mirrors frontmatterLanguage / FRONTMATTER_LANGUAGES in build.js: what
 // gray-matter would read as the frontmatter's language, and the ones the
@@ -5672,12 +5692,14 @@ function lintFile(filePath) {
       }
       const abs = path.resolve(dir, ref.slice(0, hash));
       const id = ref.slice(hash + 1);
-      // Upstream's file-root rule, no exception (loadRecall in build.js).
-      const outR = assetEscape(abs, dir);
+      // Upstream's file-root rule plus the fork's sibling unit two levels
+      // up (recallEscape; loadRecall in build.js).
+      const outR = recallEscape(abs, dir);
       if (outR !== null) {
         add(i + 1, 'error', 'asset-outside-root',
             `::: recall ${ref.slice(0, hash)} is ${outR} – the build reads a recalled lecture only from this lecture's `
-            + `folder and the folder one level up (${assetRootOf(dir)}), never from a folder whose name starts with a dot, `
+            + `folder and the folder one level up (${assetRootOf(dir)}), or from a sibling unit two levels up written `
+            + 'exactly as ../../<unit>/<folder>/source.md, never from a folder whose name starts with a dot, '
             + 'and refuses this deck; copy the file in there');
         continue;
       }
