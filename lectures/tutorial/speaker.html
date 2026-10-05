@@ -1447,6 +1447,13 @@ body.aside-panned .chunk.active .marginalia { cursor: zoom-out; }
   gap: 0.5em;
   padding-bottom: 12vh;
 }
+/* classic with no cover-align stands where it always stood on the screen:
+   its block, foot padding included, centred in the frame. That used to be
+   the camera's doing - it centred the content box and took the whole cover
+   235 px up a 1080 px frame, with the next slide showing under it. The
+   camera now frames the cover (FRAMED_SEL), so the placement is said here.
+   cover-align is still the way to move it. */
+.chunk-title[data-cover=classic]:not([data-cover-align]) .chunk-content { align-self: center; }
 .chunk-title .title-main {
   font-size: calc(var(--title-lead) * var(--zoom));
   max-width: var(--title-measure, none);
@@ -12830,6 +12837,13 @@ const FOCUSABLE_SEL = 'figure.figure-img, figure.figure-diagram, .chunk-body pre
 // inside a segment that does not arrive until beat 3, and then both halves
 // appeared together on 3, losing the stagger the author wrote.
 const FROM_SEL = '.overlay-card[data-from], .dock[data-from], .reveal-segment[data-from]';
+// The chunks whose box is the frame: the cover, the closing slide and the
+// divider, pinned to the slide's height by the stylesheet so their ground
+// fills it. focusCamera frames the box of one of these and not its content,
+// or the ground leaves the frame with the type. A chunk with a backdrop is
+// pinned the same way and is deliberately not here: its .middle glide is
+// left as it was.
+const FRAMED_SEL = '.chunk-title, .chunk-section';
 
 // ── Slide-size sync ─────────────────────────────────────────────────
 // --slide-w / --slide-h hold the AUDIENCE window's pixel dimensions so
@@ -14214,7 +14228,18 @@ function focusCamera(instant = false) {
     // A chunk with a dock is framed as a whole: a band takes a grid row of
     // its own, so the content box sits above (or below) the slide's middle
     // by design, and centring it pushed the band off the bottom edge.
-    const fitEl = entry.el.hasAttribute('data-dock') || entry.el.hasAttribute('data-has-panel') ? null : entry.el.querySelector('.chunk-content');
+    //
+    // And so is a chunk whose box is the frame by construction: the cover,
+    // the closing slide and the divider are pinned to the slide's height so
+    // their ground fills it. Where the type stands on such a slide is the stylesheet's
+    // answer - a hero cover sets it at the foot - and centring that block
+    // took the ground with it: cover: hero stood 256 px above a 1080 px
+    // frame with paper under the photograph, classic, panel and above
+    // likewise, and above lost the top of its picture. Only cover-align hid
+    // it, by stretching the content box to the chunk. A slide that outgrew
+    // the frame is not one of these and keeps the content's judgement.
+    const framed = height <= vp.height + 1 && entry.el.matches(FRAMED_SEL);
+    const fitEl = framed || entry.el.hasAttribute('data-dock') || entry.el.hasAttribute('data-has-panel') ? null : entry.el.querySelector('.chunk-content');
     const fit = fitEl ? getOffset(fitEl, stage) : { top, height };
     // The .middle class on the chunk. The box above is the one the reveals will
     // fill, and it is dead-centred already - measured on a keynote, every
@@ -14236,7 +14261,7 @@ function focusCamera(instant = false) {
     const shownFit = (fitEl && entry.el.hasAttribute('data-middle')) ? paintedSpan(fitEl) : null;
     if (shownFit && shownFit.height <= vp.height) {
       ty = vp.height / 2 - (shownFit.top + shownFit.height / 2);
-    } else if (fit.height <= vp.height) {
+    } else if (framed || fit.height <= vp.height) {
       ty = vp.height / 2 - (fit.top + fit.height / 2);
     } else {
       // A chunk taller than the frame cannot be framed, so it is walked: its

@@ -45,6 +45,23 @@ from building the same way is a major version.
 
 ### Fixed
 
+- **A cover, a closing slide and a divider are framed as the frame they
+  are.** The camera centres a chunk on its content box, which is right for an
+  ordinary slide and wrong for the slides pinned to the slide's height so
+  that their ground fills it: there the stylesheet says where the type
+  stands, and centring the type took the ground along. Measured at 1920x1080
+  without `cover-align`: `cover: hero` stood 256 px above the frame with paper
+  and the next slide under the photograph, `classic` 235 px, `panel` 214 px
+  and `above` 280 px; the closing slide likewise, and a divider under an
+  identity frame by 31 px. `cover-align` hid it by stretching the content box
+  to the chunk, and `above` refuses that key. `focusCamera` now frames the
+  chunk's own box for `FRAMED_SEL`, as long as the box is no taller than the
+  frame. `classic` keeps the place it had on the screen – its block centred
+  in the frame – which the stylesheet now says instead of the camera. A slide
+  with a `::: backdrop` is left as it was. Present upstream since the camera
+  began judging the content (4520b07). `test/camera-fit.mjs` holds all ten
+  covers, the closing slide and a divider.
+
 - **A `# comment` at column 0 of a `::: draw` no longer ends the chunk a
   `::: recall` reads.** `loadRecall` looked for the end of the recalled chunk
   knowing code fences but not figures, so `# frame: a strip` inside the

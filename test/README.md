@@ -387,7 +387,8 @@ that deck was edited** – `squint`, whose four shapes (a promoted bold, a revea
 segment, a `::: slide` block, a chunk that is only a backdrop and an overlay)
 exist in the corpus but never six chunks apart; `camera-fit`, whose chunks are
 graded in length so some fit the frame and some do not, which no lecture keeps
-at a stable size; `autoplay`, which needs an autoplaying figure standing
+at a stable size, and which builds the ten covers on a deck each, because a
+deck has one; `autoplay`, which needs an autoplaying figure standing
 *after* another slide, reached by a key press; and `editor-guides`, below.
 `squint` also drives no page itself: the command drives its own browser and the
 spec asserts on the file that comes out.

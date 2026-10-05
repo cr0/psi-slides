@@ -109,6 +109,53 @@ ${DRAW}
 And the second arrives on a press.
 `;
 
+// The ten covers, each on a deck of its own because a deck has exactly one.
+// None writes cover-align: that key stretches the content box to the chunk,
+// and a content box as tall as the chunk is centred where the chunk is - which
+// is how the defect below hid on every deck that set it.
+const COVERS = ['classic', 'masthead', 'stack', 'display', 'panel', 'quote',
+  'split', 'hero', 'beside', 'above'];
+const COVER_PICTURE = new Set(['split', 'hero', 'beside', 'above']);
+// One pixel of PNG. What the covers assert is where the chunk stands, and a
+// chunk pinned to the slide's height stands there whatever its picture shows.
+const PIXEL = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64');
+
+const coverDeck = (cover) => `---
+title: Stilprobe
+subtitle: Die Bausteine
+presenter: A. Lecturer
+cover: ${cover}
+${COVER_PICTURE.has(cover) ? 'cover-image: bild\n' : ''}section: number
+---
+
+## title: {#title}
+
+A sentence the cover carries under its title.
+
+# A part {#part}
+
+## free: An ordinary slide {#plain}
+
+One sentence.
+
+## closing: Thank you {#end}
+
+Questions?
+`;
+
+function buildCover(cover) {
+  const dir = tmpDir('psi-camfit-' + cover + '-');
+  fs.mkdirSync(path.join(dir, 'assets'));
+  fs.writeFileSync(path.join(dir, 'assets', 'bild.png'), PIXEL);
+  fs.writeFileSync(path.join(dir, 'source.md'), coverDeck(cover));
+  const r = spawnSync(process.execPath,
+    [path.join(ROOT, 'build.js'), path.join(dir, 'source.md'), '--audience-only', '--no-optimize-images'],
+    { cwd: ROOT, encoding: 'utf8' });
+  return { dir, status: r.status, out: (r.stdout || '') + (r.stderr || '') };
+}
+
 function buildDeck() {
   const dir = tmpDir('psi-camfit-');
   fs.writeFileSync(path.join(dir, 'source.md'), DECK);
@@ -241,6 +288,66 @@ export async function run({ page, report }) {
     ok(anchoring.c8 === false, 'a drawing with a sentence under it keeps its head at the top');
     ok(anchoring.c9 === false, '.top takes the centring back on a chunk that would have had it');
     ok(anchoring.c10 === true, 'a statement: opens centred, because every one of its lines is a beat');
+    // The third box, and the one that is not the content's at all. A cover, a
+    // closing slide and a divider are pinned to the slide's height so their
+    // ground fills the frame, and the camera has to frame that box: the
+    // stylesheet says where the type stands on it. Centring the type instead
+    // took the ground along - cover: hero stood 256 px above a 1080 px frame
+    // with paper under the photograph and the next slide showing, and
+    // classic, panel and above likewise. Asserted for all ten compositions,
+    // for the closing slide, which draws the cover's, and for the divider.
+    const frameOf = (id) => page.evaluate((cid) => {
+      const i = flatChunks.findIndex((c) => c.id === cid);
+      if (i < 0) return null;
+      jumpTo(i);
+      return new Promise((res) => setTimeout(() => {
+        const el = flatChunks[i].el;
+        const r = el.getBoundingClientRect();
+        const c = el.querySelector('.chunk-content').getBoundingClientRect();
+        const vp = document.getElementById('psiINT-stage-viewport').getBoundingClientRect();
+        res({ top: Math.round(r.top - vp.top), h: Math.round(r.height), vpH: Math.round(vp.height),
+          above: Math.round(c.top - vp.top), below: Math.round(vp.bottom - c.bottom) });
+      }, 520));
+    }, id);
+    const inFrame = (m) => !!m && Math.abs(m.top) <= 1 && Math.abs(m.h - m.vpH) <= 1;
+    const says = (m) => (m ? `top ${m.top}, ${m.h} in ${m.vpH}, content ${m.above} from the top and ${m.below} from the foot` : 'not in the deck');
+
+    for (const cover of COVERS) {
+      const cb = buildCover(cover);
+      if (!ok(cb.status === 0, `cover: ${cover} builds without cover-align`, cb.out)) continue;
+      const cs = await serve(cb.dir);
+      try {
+        await page.goto(`http://127.0.0.1:${cs.port}/audience.html`, { waitUntil: 'load' });
+        await page.evaluate(() => { try { localStorage.clear(); } catch (e) { /* private window */ } });
+        await page.goto(`http://127.0.0.1:${cs.port}/audience.html`, { waitUntil: 'load' });
+        await page.waitForTimeout(600);
+        const title = await frameOf('title');
+        ok(inFrame(title), `cover: ${cover} - the cover is the frame`, says(title));
+        const end = await frameOf('end');
+        ok(inFrame(end), `cover: ${cover} - and so is the closing slide`, says(end));
+        // classic is the one composition whose look the camera used to make:
+        // its block stood centred in the frame because the camera centred it.
+        // The stylesheet says so now, and a deck that never wrote cover-align
+        // opens where it always opened.
+        if (cover === 'classic') {
+          ok(title && Math.abs(title.above - title.below) <= 2,
+            'cover: classic - its block is centred in the frame, as it always was', says(title));
+        }
+        if (cover !== 'hero') continue;
+        ok(title && title.below < title.above,
+          'cover: hero - its type stands at the foot of the picture', says(title));
+        const part = await frameOf('part-section');
+        ok(inFrame(part), 'a divider is the frame', says(part));
+        // The rule is about the three pinned families and nobody else: an
+        // ordinary chunk is still judged on its content, which is the first
+        // half of this spec. Its box is shorter than the frame, so it cannot
+        // be mistaken for one of them.
+        const plain = await frameOf('plain');
+        ok(plain && plain.h < plain.vpH, 'an ordinary chunk is not pinned to the frame', says(plain));
+      } finally {
+        cs.server.close();
+      }
+    }
   } finally {
     if (prev) await page.setViewportSize(prev);
     server.close();
