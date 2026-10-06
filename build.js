@@ -309,9 +309,8 @@ function assetEscape(abs, sourceDir, home = os.homedir()) {
   return null;
 }
 
-// FORK (not in upstream 2.0.0; planned to go again once the courses place a
-// copy inside the normal root): where a `::: recall` may read its source.md
-// from. Upstream's root first - and, only where that refuses, one more shape:
+// FORK (not in upstream 2.0.0, and kept): where a `::: recall` may read its
+// source.md from. Upstream's root first - and, only where that refuses, one more shape:
 // a sibling unit of a course laid out as <course>/<unit>/<folder>/source.md,
 // so `../../<unit>/<folder>/source.md`, exactly three names below the folder
 // two levels up, links resolved. Nothing else is widened: not a fourth name,

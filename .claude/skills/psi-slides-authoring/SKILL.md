@@ -716,8 +716,11 @@ folder is the limit, and nothing is ever read from a folder whose name starts
 with a dot (`assets/.hidden/x.png`, `../.config/…`). The rule covers every way a deck
 names a file: `![](…)`, a `::: draw` `image`, a `::: backdrop`,
 `cover-image:`, `closing-image:`, `identity: {logo}`, the lecture a
-`::: recall <path>#<id>` reads, a clip and a face in `fonts/`. There is no
-exception for any of them: a house logo that lives two folders up or in a
+`::: recall <path>#<id>` reads, a clip and a face in `fonts/`. One exception,
+in this fork only: `::: recall` may read a sibling unit two levels up, in
+exactly the form `../../<unit>/<folder>/source.md`, together with the files
+the recalled slide itself names. Nothing else is read from there. There is no
+exception for the others: a house logo that lives two folders up or in a
 dot-folder is copied next to the `source.md` before the build. It is what
 keeps a deck someone sent you from copying a file from elsewhere on your
 machine into its output; the linter reports it as `asset-outside-root`. A path
@@ -1817,7 +1820,9 @@ words, no aside written in it, no note on it, nothing held to it by `from`),
 resolves – links followed – outside the lecture's folder and the one above it,
 outside the lecture's folder when the one above is home, or into a dot-folder,
 or is a link to a file that is not the kind its name says – `pic.png` pointing
-at a PDF; the build refuses the deck), `frontmatter-language` (frontmatter opened with
+at a PDF; the build refuses the deck – with one exception, in this fork only: `::: recall` may
+read a sibling unit two levels up, in exactly the form `../../<unit>/<folder>/source.md`,
+together with the files the recalled slide itself names), `frontmatter-language` (frontmatter opened with
 anything but `---` or `---yaml`), `unresolved-asset` (an explicit `![](path)` that names no
 file, so the build renders a placeholder rather than a broken external `src` –
 usually the fix is dropping the extension so the `assets/` shorthand resolves
