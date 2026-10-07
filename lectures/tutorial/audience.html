@@ -15539,7 +15539,7 @@ function buildSaysAbsent(name) {
   return !!(absent && absent.indexOf(name) >= 0);
 }
 function probeView(name, done) {
-  const file = name + '.html';
+  const file = siblingView(name);
   const settle = (there) => { viewThere[name] = there; if (done) done(there); };
   if (location.protocol === 'http:' || location.protocol === 'https:') {
     fetch(file, { method: 'HEAD', cache: 'no-store' })
@@ -15571,7 +15571,7 @@ function probeView(name, done) {
 }
 // Opens the view through open() when it is there, says so when it is not.
 function withView(name, open) {
-  const absent = () => flashMode(name + '.html is not beside this file');
+  const absent = () => flashMode(decodeURIComponent(siblingView(name)) + ' is not beside this file');
   if (viewThere[name] === true) { open(); probeView(name); return; }
   probeView(name, (there) => (there ? open() : absent()));
 }

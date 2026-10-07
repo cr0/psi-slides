@@ -517,6 +517,42 @@ export async function run({ page, report, errors: pageErrors }) {
       }
     }
 
+    // A published bundle: the views renamed and the head's two tags rewritten
+    // to the new names, no speaker.html or print.html left in the folder. The
+    // probe asks for the name the tag declares, as the open does – it used to
+    // ask for speaker.html, found nothing and said the cockpit was missing.
+    {
+      const pub = tmpDir('psi-palette-renamed-');
+      fs.writeFileSync(path.join(pub, 'source.md'), DECK);
+      ok(build(pub).status === 0, 'a full build to rename');
+      const names = { speaker: 'L01 - Türen #1 - Sprecheransicht.html', print: 'L01 - Türen #1 - Handout.html' };
+      let html = fs.readFileSync(path.join(pub, 'audience.html'), 'utf8');
+      for (const [k, file] of Object.entries(names)) {
+        html = html.replace(`<meta name="psi-slides:${k}" content="${k}.html">`, `<meta name="psi-slides:${k}" content="${file}">`);
+        fs.renameSync(path.join(pub, `${k}.html`), path.join(pub, file));
+      }
+      fs.writeFileSync(path.join(pub, 'Folien.html'), html);
+      fs.rmSync(path.join(pub, 'audience.html'));
+      const ctxR = await page.context().browser().newContext({ viewport: { width: 1440, height: 900 } });
+      try {
+        const rp = await ctxR.newPage();
+        await rp.goto('file://' + path.join(pub, 'Folien.html'), { waitUntil: 'load' });
+        await rp.waitForTimeout(800);
+        const shown = await rp.$$eval('#psiINT-start-menu button[data-cmd]', (bs) => bs.filter((x) => !x.hidden).map((x) => x.dataset.cmd));
+        ok(shown.join() === 'fullscreen,cockpit,print', 'renamed: the menu finds both views under their new names', shown.join());
+        const [sp] = await Promise.all([ctxR.waitForEvent('page', { timeout: 5000 }), rp.keyboard.press('s')]);
+        await sp.waitForURL(/Sprecheransicht\.html$/, { timeout: 5000 }).catch(() => {});
+        ok(/Sprecheransicht\.html$/.test(sp.url()), 'renamed: S opens the cockpit the tag names', sp.url());
+        await rp.bringToFront();
+        const [pr] = await Promise.all([ctxR.waitForEvent('page', { timeout: 5000 }), rp.keyboard.press('p')]);
+        await pr.waitForURL(/Handout\.html$/, { timeout: 5000 }).catch(() => {});
+        ok(/Handout\.html$/.test(pr.url()), 'renamed: and P the print view', pr.url());
+      } finally {
+        await ctxR.close();
+        fs.rmSync(pub, { recursive: true, force: true });
+      }
+    }
+
     // Handed on without its print view: a full build, so the build saw
     // print.html, and the file deleted after it, opened from file:// as a
     // mailed audience.html is. The page's own probe finds it missing: the
